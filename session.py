@@ -41,13 +41,22 @@ DEFAULT_TOOLS = [
     #     "description": "Shows today's events and upcoming schedule",
     #     "host": None,
     # },
-    # Remote tool over SSH:
+    # Remote shell via SSH (set host to enable remote setup):
     # {
-    #     "name": "remote",
-    #     "cmd": None,
+    #     "name": "build_server",
+    #     "cmd": "ssh deploy@build.example.com",
     #     "app_type": "shell",
-    #     "description": "Shell on remote build server",
-    #     "host": "user@remote.example.com",
+    #     "description": "Build server — run tests, compile, check logs",
+    #     "host": "deploy@build.example.com",
+    # },
+    # Remote agent (agent-to-agent):
+    # {
+    #     "name": "remote_agent",
+    #     "cmd": "ssh deploy@agents.example.com 'python agent.py'",
+    #     "app_type": "agent",
+    #     "description": "Remote agent. Send tasks as plain text.",
+    #     "host": "deploy@agents.example.com",
+    #     "connect_timeout": 5,
     # },
 ]
 
@@ -75,24 +84,29 @@ def setup_session(
             window = session.new_window(window_name=tool["name"], attach=False)
 
         pane = window.active_pane
+        is_remote = bool(tool.get("host"))
 
-        # SSH for remote tools
-        if tool.get("host"):
-            pane.send_keys(f"ssh {tool['host']}", enter=True)
-            time.sleep(2)
-
-        # sentinel prompt
-        pane.send_keys('export PS1="[AGENT_READY] $ "', enter=True)
-
-        # pane title as metadata channel
-        pane.send_keys(
-            f'printf "\\033]2;{tool["app_type"]}\\033\\\\"',
-            enter=True,
-        )
-
-        # launch tool if specified
-        if tool.get("cmd"):
-            pane.send_keys(tool["cmd"], enter=True)
+        if not is_remote:
+            # Local tools: set up environment, then launch
+            pane.send_keys('export PS1="[AGENT_READY] $ "', enter=True)
+            pane.send_keys(
+                f'printf "\\033]2;{tool["app_type"]}\\033\\\\"',
+                enter=True,
+            )
+            if tool.get("cmd"):
+                pane.send_keys(tool["cmd"], enter=True)
+        else:
+            # Remote tools: connect first, then set up environment on remote
+            if tool.get("cmd"):
+                pane.send_keys(tool["cmd"], enter=True)
+            else:
+                pane.send_keys(f"ssh {tool['host']}", enter=True)
+            time.sleep(tool.get("connect_timeout", 3))
+            pane.send_keys('export PS1="[AGENT_READY] $ "', enter=True)
+            pane.send_keys(
+                f'printf "\\033]2;{tool["app_type"]}\\033\\\\"',
+                enter=True,
+            )
 
         panes[tool["name"]] = PaneInfo(
             pane=pane,

@@ -116,6 +116,96 @@ Tools are defined in the `DEFAULT_TOOLS` list inside `session.py`. Each tool get
 
 To add a tool, append an entry to `DEFAULT_TOOLS`. To run a tool on a remote machine, set `host` to an SSH target like `user@server.example.com`.
 
+## Remote habitats
+
+SSH is the inter-habitat protocol. It gives you everything you'd design from scratch — authentication, authorization, encryption, auditability, revocability — for free. No new protocol, no token management, no new security surface.
+
+### Basic case
+
+Add a remote tool in `session.py`. The agent drives it exactly like a local pane:
+
+```python
+{
+    "name": "build_server",
+    "cmd": "ssh deploy@build.example.com",
+    "app_type": "shell",
+    "description": "Build server — run tests, compile, check logs",
+    "host": "deploy@build.example.com",
+}
+```
+
+The `host` field tells the setup code this is remote — it connects first, then configures the environment on the remote shell. The agent never knows the difference between local and remote panes.
+
+### ControlMaster — important for agents
+
+Opening a new SSH connection per pane is slow. Use multiplexing:
+
+```bash
+# ~/.ssh/config
+Host build.example.com
+  ControlMaster    auto
+  ControlPath      ~/.ssh/cm-%r@%h:%p
+  ControlPersist   10m
+  User             deploy
+  IdentityFile     ~/.ssh/agent_key
+```
+
+First connection opens the tunnel, subsequent ones reuse it instantly.
+
+### Dedicated agent key
+
+Don't reuse your personal SSH key. Create one for the agent:
+
+```bash
+ssh-keygen -t ed25519 -f ~/.ssh/agent_key -C "agent-cli"
+ssh-copy-id -i ~/.ssh/agent_key.pub deploy@build.example.com
+```
+
+Revoke agent access without touching your own keys. If the agent does something unexpected, pull the key.
+
+### Habitat topology
+
+```
+local machine
+  └── tmux session "agent"
+        ├── pane: shell          (local)
+        ├── pane: browser        (local lynx)
+        ├── pane: build_server   (ssh → build.example.com)
+        ├── pane: staging        (ssh → staging.example.com)
+        └── pane: remote_agent   (ssh → agents.example.com → another agent-cli)
+```
+
+Each pane is a room. SSH is the door between buildings. The agent navigates between them by targeting the right pane name in its command.
+
+### Agent-to-agent
+
+The most interesting topology: one agent driving a pane that contains another agent. The outer agent sends natural language, the inner agent executes in its own habitat and reports back through stdout.
+
+```python
+{
+    "name": "remote_agent",
+    "cmd": "ssh deploy@agents.example.com 'python agent.py'",
+    "app_type": "agent",
+    "description": "Remote agent. Send tasks as plain text, read results from screen.",
+    "host": "deploy@agents.example.com",
+    "connect_timeout": 5,
+}
+```
+
+### Long-running disconnected tasks
+
+If your local machine sleeps, the SSH session drops. For tasks that run overnight, start the agent on the remote host inside its own tmux session:
+
+```bash
+# start agent on remote, detached
+ssh build.example.com 'tmux new-session -d -s agent "python agent.py \"your task\""'
+
+# check in later
+ssh build.example.com 'tmux attach -t agent'
+```
+
+The habitat persists on the remote machine. You just visit it.
+
 ## Configuration
 
 | Variable | Default | Description |
