@@ -5,24 +5,36 @@ An LLM agent that drives CLI tools through tmux. It reads the terminal screen as
 ## How it works
 
 ```
-┌─────────────┐     screen capture      ┌───────────┐
-│  tmux panes  │ ─────────────────────► │           │
-│              │                         │  LLM API  │
-│  shell       │ ◄───────────────────── │           │
-│  browser     │     keystrokes          └───────────┘
-│  email       │
-└─────────────┘
+                         ┌──────────┐
+                         │ Planner  │  LLM decomposes task into subtask DAG
+                         └────┬─────┘
+                              │
+                    ┌─────────┴─────────┐
+                    ▼                   ▼
+              ┌──────────┐       ┌──────────┐
+              │ Worker 1 │       │ Worker 2 │  parallel on different panes
+              │ (shell)  │       │ (browser)│
+              └────┬─────┘       └────┬─────┘
+                   │                   │
+                   └─────────┬─────────┘
+                             ▼
+                       ┌──────────┐
+                       │ Worker 3 │  waits for 1+2 (dependency)
+                       │ (shell)  │
+                       └────┬─────┘
+                            ▼
+                      ┌───────────┐
+                      │ Summarizer│  synthesizes all results
+                      └───────────┘
 ```
 
-Each tool runs in its own tmux pane. Every turn, the agent:
+The agent runs in three phases:
 
-1. Captures the screen content from all panes
-2. Sends the screens + conversation history to the LLM
-3. Parses the LLM's response for a command
-4. Executes the command in the target pane
-5. Waits for output to settle, then repeats
+1. **Plan** — The LLM decomposes your task into subtasks with dependencies, forming a DAG
+2. **Execute** — Independent subtasks run in parallel on different tmux panes; dependent subtasks wait for their prerequisites
+3. **Summarize** — Results from all subtasks are synthesized into a final report
 
-The agent can read/write files directly, and declares the task complete when done.
+Each subtask worker has its own LLM conversation and controls exactly one pane via screen capture (input) and keystrokes (output).
 
 ## Prerequisites
 
@@ -68,7 +80,7 @@ python agent.py --help
 
 ## Configuring tools
 
-Tools are defined in the `DEFAULT_TOOLS` list inside `agent.py`. Each tool gets its own tmux pane:
+Tools are defined in the `DEFAULT_TOOLS` list inside `session.py`. Each tool gets its own tmux pane:
 
 ```python
 {
@@ -86,14 +98,21 @@ To add a tool, append an entry to `DEFAULT_TOOLS`. To run a tool on a remote mac
 
 | Variable | Default | Description |
 |---|---|---|
-| `MODEL` | `z-ai/glm-5` | OpenRouter model ID |
-| `IDLE_TIMEOUT` | `2.0` | Seconds to wait for pane output to settle |
-| `MAX_TURNS` | `50` | Maximum agent turns before stopping |
+| `AGENT_MODEL` | `z-ai/glm-5` | OpenRouter model ID (env var or in `llm.py`) |
+| `idle_timeout` | `2.0` | Per-tool idle timeout in seconds (in tool config) |
+| `max_turns` | `15` | Per-subtask turn budget (in `models.py`) |
 
 ## Project structure
 
 ```
-agent.py          — agent loop and entry point
+agent.py          — orchestrator: plan → execute → summarize
+planner.py        — LLM decomposes task into subtask DAG (JSON)
+executor.py       — DAG scheduler + per-subtask worker loops
+session.py        — tmux session/pane management + tool registry
+models.py         — dataclasses: Subtask, Plan, SubtaskResult, PaneInfo
+llm.py            — shared OpenAI/OpenRouter client
+prompts.py        — all LLM prompt templates
+completion.py     — three-strategy completion detection (marker/prompt/idle)
 fetch_emails.sh   — IMAP email fetcher (used by the email tool)
 send_reply.sh     — email sender via msmtp
 requirements.txt  — Python dependencies
