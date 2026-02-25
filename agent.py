@@ -4,20 +4,20 @@ tmux Agent Loop — v0 multi-pane
 Supports multiple CLI tools running in parallel panes.
 
 Usage:
-    python agent.py
-
-    Edit TASK and TOOLS at the bottom before running.
+    python agent.py "your task description"
+    python agent.py                          # uses built-in example task
 
     Watch in real-time:
         tmux attach -t agent
 
 Requirements:
-    pip install libtmux openai python-dotenv
+    pip install -r requirements.txt
 
 Environment:
     OPENROUTER_API_KEY (set in .env file)
 """
 
+import argparse
 import os
 import re
 import time
@@ -403,12 +403,22 @@ def run(task: str, tools: list = DEFAULT_TOOLS):
 
 # ─── Entry Point ──────────────────────────────────────────────────────────────
 
+EXAMPLE_TASK = (
+    "In the browser pane: fetch https://example.com using lynx -dump "
+    "and save the output to /tmp/agent/example.txt. "
+    "Then check the links in the file read the content and update the file. After you went through all links summarize what you found."
+)
+
 if __name__ == "__main__":
+    parser = argparse.ArgumentParser(
+        description="LLM agent that drives CLI tools via tmux"
+    )
+    parser.add_argument(
+        "task",
+        nargs="?",
+        default=EXAMPLE_TASK,
+        help="Task for the agent to perform (default: built-in example)",
+    )
+    args = parser.parse_args()
 
-    TASK = """
-    In the browser pane: fetch https://www.kommunalnet.at/kuenstliche-intelligenz/ using lynx -dump and save 
-    the output to /tmp/agent/example.txt
-    Then read it and summarize what you found and send an email to mt@ikangai.com
-    """
-
-    run(TASK)
+    run(args.task)

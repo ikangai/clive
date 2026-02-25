@@ -1,0 +1,3 @@
+libtmux
+openai
+python-dotenv
