@@ -28,11 +28,24 @@ def create_plan(
         {"role": "user", "content": f"Task: {task}"},
     ]
 
-    content, pt, ct = chat(client, messages, max_tokens=2048)
-    print(f"  Planning: {pt} prompt + {ct} completion tokens")
+    MAX_RETRIES = 3
+    content = ""
+    for attempt in range(1, MAX_RETRIES + 1):
+        content, pt, ct = chat(client, messages, max_tokens=2048)
+        print(f"  Planning (attempt {attempt}): {pt} prompt + {ct} completion tokens")
+
+        if content.strip():
+            break
+        print(f"  WARNING: LLM returned empty response, retrying...")
+    else:
+        if not content.strip():
+            raise ValueError("Planner LLM returned empty response after all retries")
 
     json_str = _extract_json(content)
-    data = json.loads(json_str)
+    try:
+        data = json.loads(json_str)
+    except json.JSONDecodeError as e:
+        raise ValueError(f"Invalid JSON from planner: {e}\nRaw: {json_str[:500]}")
 
     plan = Plan(task=task)
     for s in data["subtasks"]:

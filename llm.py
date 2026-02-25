@@ -30,7 +30,7 @@ def chat(
         messages=messages,
         max_tokens=max_tokens,
     )
-    content = response.choices[0].message.content
+    content = response.choices[0].message.content or ""
     pt = response.usage.prompt_tokens if response.usage else 0
     ct = response.usage.completion_tokens if response.usage else 0
     return content, pt, ct

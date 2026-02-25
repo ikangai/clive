@@ -147,6 +147,7 @@ def execute_plan(
                 futures[subtask.id] = future
 
             # Collect completed futures
+            collected_any = False
             for sid in list(futures.keys()):
                 future = futures[sid]
                 if future.done():
@@ -165,12 +166,17 @@ def execute_plan(
                     status_str = "DONE" if result.status == SubtaskStatus.COMPLETED else "FAIL"
                     print(f"  {status_str} [{sid}] {result.summary[:60]}")
                     del futures[sid]
+                    collected_any = True
 
             # All subtasks resolved?
             if len(results) == len(plan.subtasks):
                 break
 
-            # Deadlock detection
+            # Re-check for newly unblocked subtasks before deadlock detection
+            if collected_any:
+                continue
+
+            # Deadlock detection (only when nothing completed this iteration)
             if not futures:
                 unresolved = [s.id for s in plan.subtasks if s.id not in results]
                 if unresolved:
