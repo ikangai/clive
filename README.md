@@ -206,6 +206,114 @@ ssh build.example.com 'tmux attach -t agent'
 
 The habitat persists on the remote machine. You just visit it.
 
+## Securing remote habitats
+
+The security objections to giving an agent SSH access are valid, but each has a standard Unix answer. The model is defense in depth: restricted shell, SSH constraints, filesystem isolation, and container boundaries — layered so that no single failure grants broad access.
+
+### Layer 1: restricted shell + dedicated user
+
+Create a user whose shell is `rbash` (restricted bash). The agent SSHs in as that user and can only run commands you've explicitly permitted.
+
+```bash
+useradd --create-home --shell /bin/rbash agent_email
+```
+
+`rbash` blocks: changing directories with `cd`, setting `PATH`, redirecting output with `>`, executing commands with `/`. Then populate the user's `PATH` with only allowed commands:
+
+```bash
+# /home/agent_email/.bashrc
+PATH=/home/agent_email/bin
+readonly PATH
+
+# /home/agent_email/bin/ contains only what you allow:
+ln -s /usr/bin/fetch_emails   /home/agent_email/bin/
+ln -s /usr/bin/send_reply     /home/agent_email/bin/
+# that's it — no ls, no cat, no curl
+```
+
+### Layer 2: restrict SSH itself
+
+In `authorized_keys`, constrain what a specific key can do at the SSH level, before the shell even starts:
+
+```
+# ~/.ssh/authorized_keys on the server
+restrict,command="/home/agent_email/bin/fetch_emails" ssh-ed25519 AAAA...
+```
+
+`restrict` blocks port forwarding, X11, agent forwarding, and PTY allocation. `command=` means this key can only run that one command regardless of what the client requests.
+
+For an agent that needs interactive access but constrained:
+
+```
+restrict,pty ssh-ed25519 AAAA...
+```
+
+Allows a terminal, blocks everything else.
+
+### Layer 3: filesystem isolation
+
+chroot jails the user into a subdirectory — they cannot see anything outside it:
+
+```bash
+chroot /jail/agent_email /bin/rbash
+```
+
+Setting up a chroot takes work (copy binaries and their dependencies) but it's the strongest isolation short of a container.
+
+### Layer 4: just use a container
+
+For a "service as SSH shell" model, a container per service is cleaner than chroot:
+
+```dockerfile
+FROM alpine:latest
+RUN adduser -D -s /bin/sh agent
+COPY fetch_emails.sh /usr/local/bin/fetch_emails
+COPY send_reply.sh /usr/local/bin/send_reply
+RUN chmod +x /usr/local/bin/*
+
+RUN apk add openssh
+COPY authorized_keys /home/agent/.ssh/authorized_keys
+```
+
+The "service" is a container that accepts SSH and exposes exactly two commands. If something goes wrong, delete the container.
+
+### The service provider model
+
+Services as SSH shells — each service is a container with an SSH server and a constrained set of CLI tools:
+
+```
+agents.ikangai.com
+  └── port 2201  →  container: email_service
+  └── port 2202  →  container: calendar_service
+  └── port 2203  →  container: crm_service
+```
+
+Clients get a key per service. Provision by spinning up a container, revoke by removing the key or killing the container. The agent's tool config:
+
+```python
+{
+    "name": "email",
+    "cmd": "ssh -p 2201 -i ~/.ssh/ikangai_email agent@agents.ikangai.com",
+    "app_type": "email_cli",
+    "description": "Managed email service. fetch_emails, send_reply, search_mail available.",
+    "host": "agent@agents.ikangai.com",
+}
+```
+
+### Security objections, answered
+
+| Objection | Answer |
+|---|---|
+| Agent could escalate privileges | Restricted shell, no sudo, no setuid binaries, no PATH manipulation |
+| Agent could exfiltrate data | Outbound network rules on the container — it talks to your mail server and nowhere else |
+| Agent could fill the disk | Disk quotas on the user or container storage limits |
+| Compromised key gives full access | Key is scoped to one container, one service. Blast radius is bounded |
+| Can't audit what happened | `script` command or shell logging captures everything. SSH logs the session. Container logs capture all output |
+
+### The honest remaining risk
+
+The weakest point isn't the shell or the container — it's the CLI tools themselves. If `fetch_emails` has a bug that allows command injection through a crafted email subject line, the jail doesn't help. The tools inside the container need to be written defensively. That's the actual security surface.
+
 ## Configuration
 
 | Variable | Default | Description |
