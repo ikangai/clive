@@ -2,6 +2,28 @@
 
 An LLM agent that drives CLI tools through tmux. It reads the terminal screen as input and sends keystrokes as output — giving a language model direct control over shell sessions, browsers, email clients, and any other terminal program.
 
+## Why this exists
+
+Most agent infrastructure asks: *how do we give agents access to our systems?* The answer is usually APIs and protocols — structured, stateless, deterministic. agent-cli asks a different question: *what kind of environment do agents naturally thrive in?*
+
+The answer is the terminal. Not as a retro curiosity, but because it's already an **agent habitat** — a persistent, stateful, observable space where things happen over time and an agent can act inside it.
+
+The distinction matters. An API is a call-response primitive. An environment is a thing you inhabit. The shell has always been an environment: you open it, things happen, you respond, state accumulates, you leave it in a different condition than you found it. That's not what APIs do.
+
+This isn't an API replacement. It's not MCP (a protocol for exposing tools). It's an **environment interface** — the agent doesn't call the shell, it *lives in* it. It reads what's on screen, types keystrokes, watches what happens. No schemas, no tool definitions, no structured calls. Just a screen and a keyboard, like the rest of us.
+
+The terminal turns out to be accidentally well-designed for agents:
+
+- **Observable state** — screen content is the agent's perception
+- **Action space** — keystrokes are the agent's motor output
+- **Persistent context** — working directory, env vars, running processes
+- **Composable tools** — pipes, files, scripts, fifty years of them
+- **Natural boundaries** — sessions and SSH as membranes between habitats
+
+The file system becomes shared memory between subtasks. The panes become rooms the agent works in. The tmux session is the space the agent inhabits for the duration of a task.
+
+There's been a quiet movement where everything became an API, everything became stateless, everything became a structured call. We lost the environment. **CLIfication** is the reversal: bring back the environment, the stream, the persistent stateful workspace — specifically for agents that navigate the world by observing and acting, not by making function calls.
+
 ## How it works
 
 ```
