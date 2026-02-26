@@ -6,7 +6,15 @@ tmux agent loop with planning, subtask decomposition, and parallel execution.
 
 Usage:
     python clive.py "your task description"
+    python clive.py -t standard "browse example.com and summarize it"
+    python clive.py --list-toolsets
     python clive.py                          # uses built-in example task
+
+Toolsets:
+    minimal   — shell only (default, zero install)
+    standard  — shell + browser + data + docs
+    full      — standard + email + calendar + tasks + media
+    remote    — shell + remote browser + remote files + email
 
     Watch in real-time:
         tmux attach -t clive
@@ -25,7 +33,8 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-from session import setup_session, check_health, DEFAULT_TOOLS, SESSION_NAME
+from session import setup_session, check_health, SESSION_NAME
+from toolsets import get_toolset, list_toolsets, DEFAULT_TOOLSET
 from planner import create_plan, display_plan
 from executor import execute_plan
 from models import SubtaskStatus
@@ -33,7 +42,9 @@ from llm import get_client, chat
 from prompts import build_summarizer_prompt
 
 
-def run(task: str, tools: list = DEFAULT_TOOLS):
+def run(task: str, tools: list = None, toolset: str = DEFAULT_TOOLSET):
+    if tools is None:
+        tools = get_toolset(toolset)
 
     print(f"\n{'═' * 60}")
     print(f"Setting up session: {SESSION_NAME}")
@@ -103,10 +114,8 @@ def _summarize(task: str, results: list) -> str:
 # ─── Entry Point ──────────────────────────────────────────────────────────────
 
 EXAMPLE_TASK = (
-    "In the browser pane: fetch https://example.com using lynx -dump "
-    "and save the output to /tmp/clive/example.txt. "
-    "Then check the links in the file read the content and update the file. "
-    "After you went through all links summarize what you found."
+    "List all files in /tmp, show disk usage with du -sh /tmp/*, "
+    "and write a summary of what you find to /tmp/clive/summary.txt."
 )
 
 if __name__ == "__main__":
@@ -119,6 +128,25 @@ if __name__ == "__main__":
         default=EXAMPLE_TASK,
         help="Task for the agent to perform (default: built-in example)",
     )
+    parser.add_argument(
+        "-t", "--toolset",
+        default=DEFAULT_TOOLSET,
+        choices=list_toolsets().keys(),
+        metavar="PROFILE",
+        help=f"Tool profile to use (default: {DEFAULT_TOOLSET})",
+    )
+    parser.add_argument(
+        "--list-toolsets",
+        action="store_true",
+        help="List available toolsets and exit",
+    )
     args = parser.parse_args()
 
-    run(args.task)
+    if args.list_toolsets:
+        profiles = list_toolsets()
+        for name, tools in profiles.items():
+            marker = " (default)" if name == DEFAULT_TOOLSET else ""
+            print(f"  {name}{marker}: {', '.join(tools)}")
+        raise SystemExit(0)
+
+    run(args.task, toolset=args.toolset)

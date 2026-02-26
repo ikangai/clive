@@ -8,69 +8,6 @@ from models import PaneInfo
 
 SESSION_NAME = "clive"
 
-DEFAULT_TOOLS = [
-    {
-        "name": "shell",
-        "cmd": None,
-        "app_type": "shell",
-        "description": "Local bash shell for filesystem ops, scripting, and scp downloads. Use: scp -i ~/.ssh/agent_key user@remote.example.com:~/files/<filename> /tmp/clive/<filename>",
-        "host": None,
-    },
-    {
-        "name": "browser",
-        "cmd": "ssh -i ~/.ssh/agent_key user@remote.example.com",
-        "app_type": "browser",
-        "description": "Restricted remote shell. Commands: lynx -dump <url>, head, grep. Write output to ~/files/ using >.",
-        "host": "user@remote.example.com",
-    },
-    {
-        "name": "files",
-        "cmd": "ssh -i ~/.ssh/agent_key user@remote.example.com",
-        "app_type": "files",
-        "description": (
-            "Remote filesystem. "
-            "Write files to ~/files/ using shell redirects. "
-            "This is a REMOTE shell — scp downloads must run from the local 'shell' pane instead."
-        ),
-        "host": "user@remote.example.com",
-    },
-    {
-        "name": "email",
-        "cmd": "bash ./fetch_emails.sh",
-        "app_type": "email_cli",
-        "description": (
-            "Fetches unread IMAP emails as plain text. "
-            "To send a reply: bash ./send_reply.sh <to> <subject> <body>. "
-            "To search: neomutt -e 'limit ~s keyword'"
-        ),
-        "host": None,
-    },
-    # {
-    #     "name": "calendar",
-    #     "cmd": "bash /opt/tools/calendar.sh",
-    #     "app_type": "calendar_cli",
-    #     "description": "Shows today's events and upcoming schedule",
-    #     "host": None,
-    # },
-    # Remote shell via SSH (set host to enable remote setup):
-    # {
-    #     "name": "build_server",
-    #     "cmd": "ssh deploy@build.example.com",
-    #     "app_type": "shell",
-    #     "description": "Build server — run tests, compile, check logs",
-    #     "host": "deploy@build.example.com",
-    # },
-    # Remote agent (agent-to-agent):
-    # {
-    #     "name": "remote_agent",
-    #     "cmd": "ssh deploy@agents.example.com 'python clive.py'",
-    #     "app_type": "agent",
-    #     "description": "Remote agent. Send tasks as plain text.",
-    #     "host": "deploy@agents.example.com",
-    #     "connect_timeout": 5,
-    # },
-]
-
 
 def setup_session(
     tools: list[dict],

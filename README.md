@@ -131,8 +131,14 @@ pip install -r requirements.txt
 cp .env.example .env
 # Edit .env with your provider and API key
 
-# Run the agent
+# Run with the minimal toolset (default — just a shell, zero install)
 python clive.py "list all files in /tmp and summarize what you find"
+
+# Use the standard toolset for web browsing and data processing
+python clive.py -t standard "browse example.com and summarize it"
+
+# See all available toolsets
+python clive.py --list-toolsets
 ```
 
 Watch the agent work in real-time:
@@ -147,6 +153,13 @@ tmux attach -t clive
 # Run with a task
 python clive.py "your task description here"
 
+# Select a toolset profile
+python clive.py -t standard "your task"
+python clive.py --toolset full "your task"
+
+# List available toolsets
+python clive.py --list-toolsets
+
 # Run the built-in example task
 python clive.py
 
@@ -154,21 +167,18 @@ python clive.py
 python clive.py --help
 ```
 
-## Configuring tools
+## Toolsets
 
-Tools are defined in the `DEFAULT_TOOLS` list inside `session.py`. Each tool gets its own tmux pane:
+Tools are organized into **profiles** in `toolsets.py`. Each profile is a curated set of tmux panes:
 
-```python
-{
-    "name": "shell",       # pane identifier
-    "cmd": None,           # command to run at startup (None = plain shell)
-    "app_type": "shell",   # metadata tag for the LLM
-    "description": "...",  # tells the LLM what this tool does
-    "host": None           # SSH host for remote tools (None = local)
-}
-```
+| Profile | Panes | Use case |
+|---|---|---|
+| `minimal` | shell | Zero install, filesystem tasks |
+| `standard` | shell, browser, data, docs | Research and data processing |
+| `full` | standard + email, calendar, tasks, media | Full productivity |
+| `remote` | shell, remote browser, remote files, email | Remote server work |
 
-To add a tool, append an entry to `DEFAULT_TOOLS`. To run a tool on a remote machine, set `host` to an SSH target like `user@server.example.com`.
+See [TOOLS.md](TOOLS.md) for the full catalog, install instructions, and how to create custom profiles.
 
 ## Remote habitats
 
@@ -389,13 +399,19 @@ Local providers (`lmstudio`, `ollama`) don't need API keys.
 clive.py          — orchestrator: plan → execute → summarize
 planner.py        — LLM decomposes task into subtask DAG (JSON)
 executor.py       — DAG scheduler + per-subtask worker loops
-session.py        — tmux session/pane management + tool registry
+session.py        — tmux session/pane management
+toolsets.py       — tool registry with named profiles (minimal, standard, full, remote)
 models.py         — dataclasses: Subtask, Plan, SubtaskResult, PaneInfo
 llm.py            — multi-provider LLM client (OpenAI, Anthropic, Gemini, OpenRouter, LMStudio, Ollama)
 prompts.py        — all LLM prompt templates
 completion.py     — three-strategy completion detection (marker/prompt/idle)
+tools/            — helper scripts
+  youtube.sh      — YouTube: list/get/captions/transcribe
+  podcast.sh      — Podcast: list/get/transcribe
+  claude.sh       — Anthropic Messages API wrapper
 fetch_emails.sh   — IMAP email fetcher (used by the email tool)
 send_reply.sh     — email sender via msmtp
 requirements.txt  — Python dependencies
+TOOLS.md          — full tool catalog and profile documentation
 .env              — API keys (not committed)
 ```
