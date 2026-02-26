@@ -78,9 +78,9 @@ Rules:
 - You can ONLY send commands to pane "{pane_name}".
 - Use task_complete when your goal is achieved.
 - Write intermediate results to /tmp/clive/ so other tasks can use them.
+- read_file and write_file operate on the LOCAL filesystem only. For remote panes, use cat/shell redirects instead.
 - If something unexpected happens, describe it in your response and try to recover.
 - Silent commands (mkdir, touch) produce no output — this is normal.
-- Use read_file for large files, never cat them directly to the terminal.
 """
 
 

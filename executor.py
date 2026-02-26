@@ -89,7 +89,8 @@ def execute_plan(
     tool_status: dict[str, dict],
 ) -> list[SubtaskResult]:
     """Execute all subtasks, respecting DAG dependencies and pane exclusivity."""
-    # Initialize per-pane locks
+    # Initialize per-pane locks (clear stale locks from prior runs)
+    _pane_locks.clear()
     for pane_name in panes:
         _pane_locks[pane_name] = threading.Lock()
 

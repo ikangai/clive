@@ -65,5 +65,5 @@ def wrap_command(command: str, subtask_id: str) -> tuple[str, str]:
     """
     nonce = uuid.uuid4().hex[:4]
     marker = f"___DONE_{subtask_id}_{nonce}___"
-    wrapped = f"{command}; echo '{marker}'"
+    wrapped = f'{command}; echo "{marker}"'
     return wrapped, marker
