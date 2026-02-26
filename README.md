@@ -1,10 +1,10 @@
-# agent-cli
+# clive
 
-An LLM agent that drives CLI tools through tmux. It reads the terminal screen as input and sends keystrokes as output — giving a language model direct control over shell sessions, browsers, email clients, and any other terminal program.
+**CLI Live Environment** — an LLM agent that drives CLI tools through tmux. It reads the terminal screen as input and sends keystrokes as output — giving a language model direct control over shell sessions, browsers, email clients, and any other terminal program.
 
 ## Why this exists
 
-Most agent infrastructure asks: *how do we give agents access to our systems?* The answer is usually APIs and protocols — structured, stateless, deterministic. agent-cli asks a different question: *what kind of environment do agents naturally thrive in?*
+Most agent infrastructure asks: *how do we give agents access to our systems?* The answer is usually APIs and protocols — structured, stateless, deterministic. clive asks a different question: *what kind of environment do agents naturally thrive in?*
 
 The answer is the terminal. Not as a retro curiosity, but because it's already an **agent habitat** — a persistent, stateful, observable space where things happen over time and an agent can act inside it.
 
@@ -68,7 +68,7 @@ Each subtask worker has its own LLM conversation and controls exactly one pane v
 ## Quickstart
 
 ```bash
-git clone <repo-url> && cd agent-cli
+git clone <repo-url> && cd clive
 
 python -m venv .venv
 source .venv/bin/activate
@@ -78,26 +78,26 @@ pip install -r requirements.txt
 echo "OPENROUTER_API_KEY=sk-or-..." > .env
 
 # Run the agent
-python agent.py "list all files in /tmp and summarize what you find"
+python clive.py "list all files in /tmp and summarize what you find"
 ```
 
 Watch the agent work in real-time:
 
 ```bash
-tmux attach -t agent
+tmux attach -t clive
 ```
 
 ## Usage
 
 ```bash
 # Run with a task
-python agent.py "your task description here"
+python clive.py "your task description here"
 
 # Run the built-in example task
-python agent.py
+python clive.py
 
 # Show help
-python agent.py --help
+python clive.py --help
 ```
 
 ## Configuring tools
@@ -157,7 +157,7 @@ First connection opens the tunnel, subsequent ones reuse it instantly.
 Don't reuse your personal SSH key. Create one for the agent:
 
 ```bash
-ssh-keygen -t ed25519 -f ~/.ssh/agent_key -C "agent-cli"
+ssh-keygen -t ed25519 -f ~/.ssh/agent_key -C "clive"
 ssh-copy-id -i ~/.ssh/agent_key.pub deploy@build.example.com
 ```
 
@@ -167,12 +167,12 @@ Revoke agent access without touching your own keys. If the agent does something 
 
 ```
 local machine
-  └── tmux session "agent"
+  └── tmux session "clive"
         ├── pane: shell          (local)
         ├── pane: browser        (local lynx)
         ├── pane: build_server   (ssh → build.example.com)
         ├── pane: staging        (ssh → staging.example.com)
-        └── pane: remote_agent   (ssh → agents.example.com → another agent-cli)
+        └── pane: remote_agent   (ssh → agents.example.com → another clive)
 ```
 
 Each pane is a room. SSH is the door between buildings. The agent navigates between them by targeting the right pane name in its command.
@@ -184,7 +184,7 @@ The most interesting topology: one agent driving a pane that contains another ag
 ```python
 {
     "name": "remote_agent",
-    "cmd": "ssh deploy@agents.example.com 'python agent.py'",
+    "cmd": "ssh deploy@agents.example.com 'python clive.py'",
     "app_type": "agent",
     "description": "Remote agent. Send tasks as plain text, read results from screen.",
     "host": "deploy@agents.example.com",
@@ -198,10 +198,10 @@ If your local machine sleeps, the SSH session drops. For tasks that run overnigh
 
 ```bash
 # start agent on remote, detached
-ssh build.example.com 'tmux new-session -d -s agent "python agent.py \"your task\""'
+ssh build.example.com 'tmux new-session -d -s clive "python clive.py \"your task\""'
 
 # check in later
-ssh build.example.com 'tmux attach -t agent'
+ssh build.example.com 'tmux attach -t clive'
 ```
 
 The habitat persists on the remote machine. You just visit it.
@@ -325,7 +325,7 @@ The weakest point isn't the shell or the container — it's the CLI tools themse
 ## Project structure
 
 ```
-agent.py          — orchestrator: plan → execute → summarize
+clive.py          — orchestrator: plan → execute → summarize
 planner.py        — LLM decomposes task into subtask DAG (JSON)
 executor.py       — DAG scheduler + per-subtask worker loops
 session.py        — tmux session/pane management + tool registry

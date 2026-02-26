@@ -1,13 +1,15 @@
 #!/usr/bin/env python3
 """
-tmux Agent Loop — v1 with planning, subtask decomposition, and parallel execution.
+clive — CLI Live Environment.
+
+tmux agent loop with planning, subtask decomposition, and parallel execution.
 
 Usage:
-    python agent.py "your task description"
-    python agent.py                          # uses built-in example task
+    python clive.py "your task description"
+    python clive.py                          # uses built-in example task
 
     Watch in real-time:
-        tmux attach -t agent
+        tmux attach -t clive
 
 Requirements:
     pip install -r requirements.txt
@@ -102,7 +104,7 @@ def _summarize(task: str, results: list) -> str:
 
 EXAMPLE_TASK = (
     "In the browser pane: fetch https://example.com using lynx -dump "
-    "and save the output to /tmp/agent/example.txt. "
+    "and save the output to /tmp/clive/example.txt. "
     "Then check the links in the file read the content and update the file. "
     "After you went through all links summarize what you found."
 )

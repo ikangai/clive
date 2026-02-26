@@ -17,7 +17,7 @@ RULES:
 5. A worker can execute multiple commands to achieve its subtask goal.
 6. Minimize the number of subtasks — prefer fewer, broader subtasks over many tiny ones.
 7. Only create dependencies where there is a genuine data flow or ordering requirement.
-8. Workers can share data by writing files to /tmp/agent/.
+8. Workers can share data by writing files to /tmp/clive/.
 
 Respond with a JSON object and nothing else:
 {{
@@ -77,7 +77,7 @@ Rules:
 - One command per turn.
 - You can ONLY send commands to pane "{pane_name}".
 - Use task_complete when your goal is achieved.
-- Write intermediate results to /tmp/agent/ so other tasks can use them.
+- Write intermediate results to /tmp/clive/ so other tasks can use them.
 - If something unexpected happens, describe it in your response and try to recover.
 - Silent commands (mkdir, touch) produce no output — this is normal.
 - Use read_file for large files, never cat them directly to the terminal.

@@ -6,14 +6,14 @@ import libtmux
 
 from models import PaneInfo
 
-SESSION_NAME = "agent"
+SESSION_NAME = "clive"
 
 DEFAULT_TOOLS = [
     {
         "name": "shell",
         "cmd": None,
         "app_type": "shell",
-        "description": "Local bash shell for filesystem ops, scripting, and scp downloads. Use: scp -i ~/.ssh/aeap_key agent_demo@185.164.4.77:~/files/<filename> /tmp/agent/<filename>",
+        "description": "Local bash shell for filesystem ops, scripting, and scp downloads. Use: scp -i ~/.ssh/aeap_key agent_demo@185.164.4.77:~/files/<filename> /tmp/clive/<filename>",
         "host": None,
     },
     {
@@ -63,7 +63,7 @@ DEFAULT_TOOLS = [
     # Remote agent (agent-to-agent):
     # {
     #     "name": "remote_agent",
-    #     "cmd": "ssh deploy@agents.example.com 'python agent.py'",
+    #     "cmd": "ssh deploy@agents.example.com 'python clive.py'",
     #     "app_type": "agent",
     #     "description": "Remote agent. Send tasks as plain text.",
     #     "host": "deploy@agents.example.com",
@@ -128,7 +128,7 @@ def setup_session(
         )
 
     # shared working directory
-    list(panes.values())[0].pane.send_keys("mkdir -p /tmp/agent", enter=True)
+    list(panes.values())[0].pane.send_keys("mkdir -p /tmp/clive", enter=True)
     time.sleep(1.5)
 
     return session, panes
