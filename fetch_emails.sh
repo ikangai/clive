@@ -2,11 +2,11 @@
 # ./fetch_emails.sh
 # Pure curl IMAP — no interactive client, agent-safe
 
-IMAP_HOST="imaps://imap.world4you.com"
-IMAP_USER="kiu@ikangai.com"
+IMAP_HOST="imaps://imap.example.com"
+IMAP_USER="user@example.com"
 IMAP_PASS=$(security find-internet-password \
-  -a "kiu@ikangai.com" \
-  -s "imap.world4you.com" -w)
+  -a "user@example.com" \
+  -s "imap.example.com" -w)
 
 # list unread message IDs
 UNREAD=$(curl -s \

@@ -115,7 +115,7 @@ Each subtask worker has its own LLM conversation and controls exactly one pane v
 
 - **tmux** — `brew install tmux` or `apt install tmux`
 - **Python 3.10+**
-- **OpenRouter API key** — get one at [openrouter.ai](https://openrouter.ai)
+- **An LLM provider** — OpenRouter (default), Anthropic, OpenAI, Google Gemini, LMStudio, or Ollama
 - **lynx** (optional, for the browser tool) — `brew install lynx`
 
 ## Quickstart
@@ -127,8 +127,9 @@ python -m venv .venv
 source .venv/bin/activate
 pip install -r requirements.txt
 
-# Create a .env file with your API key
-echo "OPENROUTER_API_KEY=sk-or-..." > .env
+# Create a .env file (see .env.example for all providers)
+cp .env.example .env
+# Edit .env with your provider and API key
 
 # Run the agent
 python clive.py "list all files in /tmp and summarize what you find"
@@ -335,7 +336,7 @@ The "service" is a container that accepts SSH and exposes exactly two commands. 
 Services as SSH shells — each service is a container with an SSH server and a constrained set of CLI tools:
 
 ```
-agents.ikangai.com
+agents.example.com
   └── port 2201  →  container: email_service
   └── port 2202  →  container: calendar_service
   └── port 2203  →  container: crm_service
@@ -346,10 +347,10 @@ Clients get a key per service. Provision by spinning up a container, revoke by r
 ```python
 {
     "name": "email",
-    "cmd": "ssh -p 2201 -i ~/.ssh/ikangai_email agent@agents.ikangai.com",
+    "cmd": "ssh -p 2201 -i ~/.ssh/agent_email agent@agents.example.com",
     "app_type": "email_cli",
     "description": "Managed email service. fetch_emails, send_reply, search_mail available.",
-    "host": "agent@agents.ikangai.com",
+    "host": "agent@agents.example.com",
 }
 ```
 
@@ -371,9 +372,16 @@ The weakest point isn't the shell or the container — it's the CLI tools themse
 
 | Variable | Default | Description |
 |---|---|---|
-| `AGENT_MODEL` | `z-ai/glm-5` | OpenRouter model ID (env var or in `llm.py`) |
+| `LLM_PROVIDER` | `openrouter` | LLM provider: `openai`, `anthropic`, `gemini`, `openrouter`, `lmstudio`, `ollama` |
+| `AGENT_MODEL` | per-provider | Model override (each provider has a sensible default) |
+| `OPENROUTER_API_KEY` | — | API key for OpenRouter |
+| `ANTHROPIC_API_KEY` | — | API key for Anthropic |
+| `OPENAI_API_KEY` | — | API key for OpenAI |
+| `GOOGLE_API_KEY` | — | API key for Google Gemini |
 | `idle_timeout` | `2.0` | Per-tool idle timeout in seconds (in tool config) |
 | `max_turns` | `15` | Per-subtask turn budget (in `models.py`) |
+
+Local providers (`lmstudio`, `ollama`) don't need API keys.
 
 ## Project structure
 
@@ -383,7 +391,7 @@ planner.py        — LLM decomposes task into subtask DAG (JSON)
 executor.py       — DAG scheduler + per-subtask worker loops
 session.py        — tmux session/pane management + tool registry
 models.py         — dataclasses: Subtask, Plan, SubtaskResult, PaneInfo
-llm.py            — shared OpenAI/OpenRouter client
+llm.py            — multi-provider LLM client (OpenAI, Anthropic, Gemini, OpenRouter, LMStudio, Ollama)
 prompts.py        — all LLM prompt templates
 completion.py     — three-strategy completion detection (marker/prompt/idle)
 fetch_emails.sh   — IMAP email fetcher (used by the email tool)

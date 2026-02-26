@@ -13,26 +13,26 @@ DEFAULT_TOOLS = [
         "name": "shell",
         "cmd": None,
         "app_type": "shell",
-        "description": "Local bash shell for filesystem ops, scripting, and scp downloads. Use: scp -i ~/.ssh/aeap_key agent_demo@185.164.4.77:~/files/<filename> /tmp/clive/<filename>",
+        "description": "Local bash shell for filesystem ops, scripting, and scp downloads. Use: scp -i ~/.ssh/agent_key user@remote.example.com:~/files/<filename> /tmp/clive/<filename>",
         "host": None,
     },
     {
         "name": "browser",
-        "cmd": "ssh -i ~/.ssh/aeap_key agent_demo@185.164.4.77",
+        "cmd": "ssh -i ~/.ssh/agent_key user@remote.example.com",
         "app_type": "browser",
-        "description": "Restricted remote shell on ikangai server. Commands: lynx -dump <url>, head, grep. Write output to ~/files/ using >.",
-        "host": "agent_demo@185.164.4.77",
+        "description": "Restricted remote shell. Commands: lynx -dump <url>, head, grep. Write output to ~/files/ using >.",
+        "host": "user@remote.example.com",
     },
     {
         "name": "files",
-        "cmd": "ssh -i ~/.ssh/aeap_key agent_demo@185.164.4.77",
+        "cmd": "ssh -i ~/.ssh/agent_key user@remote.example.com",
         "app_type": "files",
         "description": (
-            "Remote filesystem on ikangai server. "
+            "Remote filesystem. "
             "Write files to ~/files/ using shell redirects. "
             "This is a REMOTE shell — scp downloads must run from the local 'shell' pane instead."
         ),
-        "host": "agent_demo@185.164.4.77",
+        "host": "user@remote.example.com",
     },
     {
         "name": "email",
