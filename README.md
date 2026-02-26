@@ -58,6 +58,59 @@ The agent runs in three phases:
 
 Each subtask worker has its own LLM conversation and controls exactly one pane via screen capture (input) and keystrokes (output).
 
+### Architecture
+
+```
+                              ┌──────────────────────┐
+                              │         LLM          │
+                              └───────────┬──────────┘
+                                          │
+                            screen ◄──────┴──────► keystrokes
+                                          │
+                              ┌───────────▼──────────┐
+                              │   SESSION MANAGER    │
+                              │      clive.py        │
+                              └──────┬───────────────┘
+                                     │
+                     ┌───────────────┴────────────────────┐
+                     │                                    │
+                     ▼                                    ▼  SSH
+          ┌─────────────────────┐             ┌─────────────────────┐
+          │    LOCAL SESSION    │             │   REMOTE SESSION    │
+          │                     │             │                     │
+          │  ┌───────────────┐  │             │  ┌───────────────┐  │
+          │  │     tmux      │  │             │  │     tmux      │  │
+          │  ├───────────────┤  │             │  ├───────────────┤  │
+          │  │ pane: shell   │  │             │  │ pane: browser │  │
+          │  │ pane: email   │  │             │  │ pane: files   │  │
+          │  │ pane: ...     │  │             │  │ pane: ...     │  │
+          │  └───────┬───────┘  │             │  └───────┬───────┘  │
+          │          │          │             │          │          │
+          │    text  │  keys    │             │    text  │  keys    │
+          │          ▼          │             │          ▼          │
+          │  ┌───────────────┐  │             │  ┌───────────────┐  │
+          │  │  CLI TOOLS    │  │             │  │  CLI TOOLS    │  │
+          │  │               │  │             │  │               │  │
+          │  │  lynx         │  │             │  │  lynx / w3m   │  │
+          │  │  curl         │  │             │  │  grep / head  │  │
+          │  │  mutt         │  │             │  │  tee / ls     │  │
+          │  │  icalBuddy    │  │             │  └───────┬───────┘  │
+          │  │  rg           │  │             │          │          │
+          │  └───────┬───────┘  │             │   ~/files/          │
+          │          │          │             │  ┌───────────────┐  │
+          └──────────│──────────┘             │  │  shared files │  │
+                     │                        │  │  channel      │◄─┼── scp
+                     │                        │  └───────────────┘  │
+                     │                        └─────────────────────┘
+                     │
+                     ▼
+          ┌─────────────────────┐
+          │      SERVICES       │
+          │  email · calendar   │
+          │  web · files · ...  │
+          └─────────────────────┘
+```
+
 ## Prerequisites
 
 - **tmux** — `brew install tmux` or `apt install tmux`
