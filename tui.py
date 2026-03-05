@@ -169,12 +169,10 @@ class CliveApp(App):
         self._resolved = None
         self._available_cmds = []
         self._missing_cmds = []
-        self._running = False
-        self._current_task = ""
         self._cancelled = threading.Event()
-        self._start_time = 0.0
-        self._total_pt = 0
-        self._total_ct = 0
+        # Active tasks: list of {desc, start, pt, ct}
+        self._tasks: list[dict] = []
+        self._tasks_lock = threading.Lock()
         self._timer = None
 
     def get_css_variables(self) -> dict[str, str]:
@@ -188,15 +186,6 @@ class CliveApp(App):
         yield Static(f"[#6b7280]profile[/] {self._spec}", id="status-bar")
 
     def on_mount(self) -> None:
-        # Ensure clean state (defense against stale bytecode or Textual quirks)
-        self._running = False
-        self._current_task = ""
-        self._start_time = 0.0
-        self._total_pt = 0
-        self._total_ct = 0
-        self._timer = None
-        self._cancelled.clear()
-
         out = self.query_one("#output", RichLog)
         out.write(LOGO)
         out.write("")
@@ -224,8 +213,6 @@ class CliveApp(App):
 
         if text.startswith("/"):
             self._handle_command(text)
-        elif self._running:
-            out.write("[#ef4444]A task is already running.[/]")
         else:
             self._run_task(text)
 
@@ -265,22 +252,25 @@ class CliveApp(App):
                 out.write(f"[#ef4444]✗[/] {e}")
 
         elif cmd == "/status":
-            if self._running:
-                elapsed = time.time() - self._start_time
-                total = self._total_pt + self._total_ct
-                out.write(
-                    f"[#d97706]Running:[/] {self._current_task[:80]}"
-                )
-                out.write(
-                    f"[#6b7280]  elapsed {elapsed:.0f}s · {total:,} tokens[/]"
-                )
+            with self._tasks_lock:
+                tasks = list(self._tasks)
+            if tasks:
+                for t in tasks:
+                    elapsed = time.time() - t["start"]
+                    total = t["pt"] + t["ct"]
+                    out.write(
+                        f"[#d97706]●[/] {t['desc'][:70]}  "
+                        f"[#6b7280]{elapsed:.0f}s · {total:,} tokens[/]"
+                    )
             else:
-                out.write("[#6b7280]No task running.[/]")
+                out.write("[#6b7280]No tasks running.[/]")
 
         elif cmd == "/cancel":
-            if self._running:
+            with self._tasks_lock:
+                n = len(self._tasks)
+                self._tasks.clear()
+            if n:
                 self._cancelled.set()
-                out.write("[#f59e0b]Cancelling...[/]")
                 try:
                     subprocess.run(
                         ["tmux", "kill-session", "-t", "clive"],
@@ -288,10 +278,10 @@ class CliveApp(App):
                     )
                 except Exception:
                     pass
-                self._finish_task()
-                out.write("[#6b7280]Task cancelled.[/]")
+                out.write(f"[#f59e0b]Cancelled {n} task(s).[/]")
+                self._update_status()
             else:
-                out.write("[#6b7280]No task running.[/]")
+                out.write("[#6b7280]No tasks running.[/]")
 
         elif cmd == "/clear":
             out.clear()
@@ -487,18 +477,21 @@ class CliveApp(App):
     # ── Task execution ───────────────────────────────────────────────────
 
     def _run_task(self, task: str) -> None:
-        self._running = True
-        self._current_task = task
         self._cancelled.clear()
-        self._total_pt = 0
-        self._total_ct = 0
-        self._start_time = time.time()
-        self._timer = self.set_interval(1.0, self._update_status)
-        self._execute_task(task)
+        task_info = {"desc": task, "start": time.time(), "pt": 0, "ct": 0}
+        with self._tasks_lock:
+            self._tasks.append(task_info)
+        # Start status timer if first task
+        if not self._timer:
+            self._timer = self.set_interval(1.0, self._update_status)
+        self._execute_task(task, task_info)
 
-    def _finish_task(self) -> None:
-        self._running = False
-        if self._timer:
+    def _finish_task(self, task_info: dict) -> None:
+        with self._tasks_lock:
+            if task_info in self._tasks:
+                self._tasks.remove(task_info)
+            has_tasks = bool(self._tasks)
+        if not has_tasks and self._timer:
             self._timer.stop()
             self._timer = None
         self._update_status()
@@ -509,16 +502,25 @@ class CliveApp(App):
             f"[#6b7280]profile[/] {self._spec}",
             f"[#6b7280]llm[/] {llm.PROVIDER_NAME}/{llm.MODEL}",
         ]
-        if self._running:
-            elapsed = time.time() - self._start_time
-            total = self._total_pt + self._total_ct
-            parts.append(f"[#d97706]running[/] {elapsed:.0f}s")
+        with self._tasks_lock:
+            n = len(self._tasks)
+            total_pt = sum(t["pt"] for t in self._tasks)
+            total_ct = sum(t["ct"] for t in self._tasks)
+        if n:
+            parts.append(f"[#d97706]{n} task{'s' if n > 1 else ''}[/]")
+            total = total_pt + total_ct
             if total:
                 parts.append(f"[#6b7280]tokens[/] {total:,}")
         self.query_one("#status-bar", Static).update("  ".join(parts))
 
-    def _on_event(self, event_type: str, *args) -> None:
+    def _on_event(self, event_type: str, task_info: dict, *args) -> None:
         if self._cancelled.is_set():
+            return
+        # Handle token updates directly (thread-safe dict mutation)
+        if event_type == "tokens":
+            _, pt, ct = args
+            task_info["pt"] += pt
+            task_info["ct"] += ct
             return
         self.call_from_thread(self._handle_event, event_type, *args)
 
@@ -550,12 +552,10 @@ class CliveApp(App):
             )
 
         elif event_type == "tokens":
-            _, pt, ct = args
-            self._total_pt += pt
-            self._total_ct += ct
+            pass  # handled directly in _on_event
 
     @work(thread=True)
-    def _execute_task(self, task: str) -> None:
+    def _execute_task(self, task: str, task_info: dict) -> None:
         out = self.query_one("#output", RichLog)
 
         # Redirect stdout/stderr — Textual replaces sys.stdout with a
@@ -566,7 +566,7 @@ class CliveApp(App):
         sys.stderr = devnull
 
         try:
-            self._execute_task_inner(task, out)
+            self._execute_task_inner(task, task_info, out)
         except Exception as e:
             self.call_from_thread(
                 out.write, f"[#ef4444]✗ Unexpected error: {e}[/]"
@@ -574,9 +574,9 @@ class CliveApp(App):
         finally:
             sys.stdout, sys.stderr = old_stdout, old_stderr
             devnull.close()
-            self.call_from_thread(self._finish_task)
+            self.call_from_thread(self._finish_task, task_info)
 
-    def _execute_task_inner(self, task: str, out: RichLog) -> None:
+    def _execute_task_inner(self, task: str, task_info: dict, out: RichLog) -> None:
         from session import setup_session, check_health
         from planner import create_plan
         from executor import execute_plan
@@ -634,7 +634,8 @@ class CliveApp(App):
         # Execute
         try:
             results = execute_plan(
-                plan, panes, tool_status, on_event=self._on_event
+                plan, panes, tool_status,
+                on_event=lambda et, *a: self._on_event(et, task_info, *a)
             )
         except Exception as e:
             self.call_from_thread(
@@ -665,8 +666,8 @@ class CliveApp(App):
                 },
             ]
             summary, pt, ct = chat(client, messages)
-            self._total_pt += pt
-            self._total_ct += ct
+            task_info["pt"] += pt
+            task_info["ct"] += ct
         except Exception as e:
             summary = f"Summarization failed: {e}"
 
@@ -674,12 +675,13 @@ class CliveApp(App):
             1 for r in results if r.status == SubtaskStatus.COMPLETED
         )
         total = len(results)
-        elapsed = time.time() - self._start_time
+        elapsed = time.time() - task_info["start"]
+        total_tokens = task_info["pt"] + task_info["ct"]
 
         self.call_from_thread(out.write, "")
         self.call_from_thread(
             out.write,
-            f"[#22c55e]✓ {completed}/{total} subtasks[/] [#3a3a4a]in {elapsed:.1f}s · {self._total_pt + self._total_ct:,} tokens[/]",
+            f"[#22c55e]✓ {completed}/{total} subtasks[/] [#3a3a4a]in {elapsed:.1f}s · {total_tokens:,} tokens[/]",
         )
         self.call_from_thread(out.write, "")
         for line in summary.split("\n"):
