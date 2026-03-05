@@ -12,15 +12,18 @@ def create_plan(
     task: str,
     panes: dict[str, PaneInfo],
     tool_status: dict[str, dict],
+    tools_summary: str | None = None,
 ) -> Plan:
     """Call LLM to decompose task into subtask DAG. Returns validated Plan."""
     client = get_client()
 
-    lines = []
-    for name, info in tool_status.items():
-        if info["status"] == "ready":
-            lines.append(f"  - {name} [{info['app_type']}]: {info['description']}")
-    tools_summary = "\n".join(lines)
+    if tools_summary is None:
+        # Legacy fallback: build from pane status only
+        lines = []
+        for name, info in tool_status.items():
+            if info["status"] == "ready":
+                lines.append(f"  - {name} [{info['app_type']}]: {info['description']}")
+        tools_summary = "\n".join(lines)
 
     system_prompt = build_planner_prompt(tools_summary)
     messages = [

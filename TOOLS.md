@@ -1,155 +1,219 @@
 # Tool catalog
 
-clive uses **toolset profiles** to configure which tmux panes the agent gets. Select a profile with `--toolset` (or `-t`):
+clive uses the CLI as its universal agent interface. The LLM reads the terminal screen, reasons about what it sees, and types commands — exactly like a human at a terminal. No structured APIs, no MCP servers, no protocol adapters. Just text in, text out.
+
+## Three surfaces
+
+Every tool falls into one of three surfaces:
+
+| Surface | What it is | Creates panes? | How the LLM uses it |
+|---------|-----------|----------------|---------------------|
+| **Panes** | Conversation channels (tmux windows) | Yes | Reads screen, types commands |
+| **Commands** | CLI tools in any shell pane | No | Runs command, reads output on screen |
+| **Endpoints** | APIs via curl | No | `curl` in any pane, reads response |
+
+Panes provide parallel execution lanes. Commands and endpoints add capabilities without creating new panes. A `full` profile has 30+ tools but only 6 panes.
+
+## Composable profiles
+
+Select a profile with `--toolset` (or `-t`). Compose categories with `+`:
 
 ```bash
-python clive.py -t standard "browse example.com and summarize it"
-python clive.py --list-toolsets
+python clive.py -t standard                    # named profile
+python clive.py -t web+comms+data              # compose categories
+python clive.py -t standard+media+ai           # profile + extras
+python clive.py --list-toolsets                 # show all profiles & categories
+python clive.py --list-tools                    # show all tools with install status
 ```
-
-## Quick reference
-
-| Tool | Panes | Install requirements |
-|---|---|---|
-| **minimal** | shell | None (just bash) |
-| **standard** | shell, browser, data, docs | lynx, ripgrep, pandoc, miller, poppler |
-| **full** | shell, browser, data, docs, email, calendar, tasks, media | standard + neomutt, icalBuddy, taskwarrior, whisper, yt-dlp, jq |
-| **remote** | shell, browser (remote), files (remote), email | SSH key + remote host configured |
 
 ## Profiles
 
-### minimal (default)
+| Profile | Categories | Panes |
+|---------|-----------|-------|
+| **minimal** (default) | core | shell |
+| **standard** | core, web, data, docs, info | shell, browser, data, docs |
+| **full** | core, web, data, docs, comms, media, productivity, search, info | shell, browser, data, docs, email, media |
+| **research** | core, web, data, docs, media, search, info, ai | shell, browser, data, docs, media |
+| **business** | core, web, data, docs, comms, productivity, finance, info | shell, browser, data, docs, email |
+| **creative** | core, web, media, images, ai, translation | shell, browser, media |
+| **remote** | core, comms, remote | shell, email, browser (remote), files (remote) |
 
-Zero install. Just a shell pane.
+## Categories
 
-```bash
-python clive.py "list files in /tmp and summarize"
+Categories group related tools. Compose freely with `+`:
+
+| Category | Panes | Commands | Endpoints |
+|----------|-------|----------|-----------|
+| **core** | shell | — | — |
+| **web** | browser | monolith | — |
+| **data** | data | jq, rg, mlr, sqlite3 | — |
+| **docs** | docs | pandoc, pdftotext | — |
+| **comms** | email | icalBuddy, khard, terminal-notifier | — |
+| **media** | media | yt-dlp, whisper, ffmpeg | — |
+| **productivity** | — | task, watson, nb | — |
+| **finance** | — | hledger | — |
+| **social** | — | toot | — |
+| **translation** | — | trans | — |
+| **search** | — | ddgr | — |
+| **images** | — | convert, exiftool | — |
+| **dev** | — | gh | — |
+| **voice** | — | sox, say | — |
+| **ai** | — | claude (tools/claude.sh) | — |
+| **sync** | — | rclone | — |
+| **info** | — | — | weather, hackernews, exchange, github_api |
+
+## Auto-detection
+
+At startup, clive checks which commands are installed and only tells the LLM about available ones. Missing tools show a warning with install instructions:
+
+```
+  Commands:
+    + jq                   JSON processor
+    + rg                   ripgrep
+    - mlr                  not found (brew install miller)
+    + sqlite3              SQLite
 ```
 
-**Panes:**
-- **shell** — local bash for filesystem ops, scripting, general commands
+## Installing tools
 
-### standard
-
-Good for research and data tasks. Install dependencies:
-
+**Standard profile deps:**
 ```bash
-brew install lynx ripgrep pandoc miller poppler
-# or: apt install lynx ripgrep pandoc miller poppler-utils
+brew install lynx ripgrep pandoc miller poppler jq
 ```
 
-**Panes:**
-- **shell** — local bash
-- **browser** — web browsing with `lynx -dump`, `curl -s`, `wget`
-- **data** — data processing with `rg`, `mlr` (miller), `jq`, `pdftotext`
-- **docs** — documentation with `pandoc`, `pdftotext`, `lynx -dump`
-
-### full
-
-Everything in standard plus productivity tools and media processing.
-
+**Full profile deps:**
 ```bash
-# standard deps +
-brew install neomutt icalbuddy jq
+brew install lynx ripgrep pandoc miller poppler jq neomutt ical-buddy task
+pip install openai-whisper yt-dlp
+```
+
+**Additional categories:**
+```bash
+# images
+brew install imagemagick exiftool
+
+# dev
+brew install gh
+
+# search
+brew install ddgr
+
+# translation
+brew install translate-shell
+
+# social
+pip install toot
+
+# finance
+brew install hledger
+
+# productivity
+brew install task watson nb
+
+# voice
+brew install sox
+# say is built-in on macOS
+
+# sync
+brew install rclone
+
+# ai — included in clive, just set ANTHROPIC_API_KEY
+
+# media
+brew install yt-dlp ffmpeg
 pip install openai-whisper
-pip install yt-dlp
-# taskwarrior: brew install task
 ```
-
-**Panes:**
-- All standard panes, plus:
-- **email** — `neomutt`, `fetch_emails.sh`, `send_reply.sh`
-- **calendar** — `icalBuddy eventsToday`, `icalBuddy eventsToday+7`
-- **tasks** — `task list`, `task add`, `task done` (taskwarrior)
-- **media** — YouTube, podcast, and Claude API helper scripts (see below)
-
-### remote
-
-For driving tools on a remote server over SSH. Requires:
-
-1. SSH key at `~/.ssh/agent_key`
-2. Remote host configured (edit `TOOL_REMOTE_BROWSER` and `TOOL_REMOTE_FILES` in `toolsets.py`)
-
-**Panes:**
-- **shell** — local bash (for scp, local work)
-- **browser** — remote shell with `lynx -dump`, `head`, `grep`
-- **files** — remote filesystem, write to `~/files/`
-- **email** — local email access
 
 ## Helper scripts
 
-Located in `tools/`. Used by the **media** pane in the `full` profile, but can be run from any shell pane.
+Located in `tools/`. Used by the **media** pane but can be run from any shell pane.
 
 ### tools/youtube.sh
 
-Fetch and transcribe YouTube content. The **captions** fast path is the key feature — most videos have auto-captions, so you get text without downloading or running whisper.
-
 ```bash
-bash tools/youtube.sh list https://www.youtube.com/@channel
-bash tools/youtube.sh captions https://www.youtube.com/watch?v=VIDEO_ID
-bash tools/youtube.sh get https://www.youtube.com/watch?v=VIDEO_ID
-bash tools/youtube.sh transcribe /tmp/clive/video.mp3
+bash tools/youtube.sh list https://www.youtube.com/@channel     # list videos
+bash tools/youtube.sh captions https://youtube.com/watch?v=ID   # get captions (fast)
+bash tools/youtube.sh get https://youtube.com/watch?v=ID        # download audio
+bash tools/youtube.sh transcribe /tmp/clive/video.mp3           # transcribe
 ```
-
-| Subcommand | What it does | Requirements |
-|---|---|---|
-| `list` | List recent videos from channel | yt-dlp |
-| `captions` | Fetch auto-captions as text (fast) | yt-dlp |
-| `get` | Download audio as mp3 | yt-dlp |
-| `transcribe` | Transcribe audio file | whisper |
 
 ### tools/podcast.sh
 
-Fetch and transcribe podcast episodes from RSS feeds.
-
 ```bash
-bash tools/podcast.sh list https://feeds.example.com/podcast.xml
-bash tools/podcast.sh get https://example.com/episode.mp3
-bash tools/podcast.sh transcribe /tmp/clive/episode.mp3
+bash tools/podcast.sh list https://feeds.example.com/podcast.xml  # list episodes
+bash tools/podcast.sh get https://example.com/episode.mp3         # download
+bash tools/podcast.sh transcribe /tmp/clive/episode.mp3           # transcribe
 ```
-
-| Subcommand | What it does | Requirements |
-|---|---|---|
-| `list` | List episodes from RSS feed | curl, xmllint |
-| `get` | Download episode audio | curl |
-| `transcribe` | Transcribe audio file | whisper |
 
 ### tools/claude.sh
 
-Thin wrapper around the Anthropic Messages API. Useful for sub-tasks where the agent needs a separate LLM call (summarization, translation, analysis).
+Claude API wrapper for sub-tasks (summarize, translate, generate). Requires `ANTHROPIC_API_KEY`.
 
 ```bash
 bash tools/claude.sh "What is the capital of France?"
 cat document.txt | bash tools/claude.sh "Summarize this document"
 ```
 
-| Environment variable | Description |
-|---|---|
-| `ANTHROPIC_API_KEY` | Required. Your Anthropic API key. |
-| `CLAUDE_MODEL` | Optional. Default: `claude-sonnet-4-20250514` |
+## Custom toolsets
 
-## Custom profiles
+### Adding a command tool
 
-To create a custom profile, edit `toolsets.py`:
+Edit `toolsets.py` — add to `COMMANDS` dict and its category:
 
 ```python
-# Add a new tool
-TOOL_MY_TOOL = {
-    "name": "my_tool",
-    "cmd": None,              # None = plain shell pane
-    "app_type": "my_type",    # metadata tag for the LLM
-    "description": "...",     # tells the LLM what this pane is for
-    "host": None,             # set to SSH target for remote tools
+COMMANDS["mytool"] = {
+    "description": "What it does",
+    "usage": "mytool --flag input.txt",
+    "check": "command -v mytool",
+    "install": "brew install mytool",
+    "category": "mycategory",
 }
-
-# Add a new profile
-TOOLSETS["custom"] = [TOOL_SHELL, TOOL_MY_TOOL]
 ```
 
-Then use it:
+### Adding a pane tool
 
-```bash
-python clive.py -t custom "your task"
+For interactive tools that need their own conversation channel:
+
+```python
+PANES["mytui"] = {
+    "name": "mytui",
+    "cmd": None,           # startup command (None = plain shell)
+    "app_type": "mytui",
+    "description": "What the LLM can do in this pane",
+    "host": None,           # SSH target for remote panes
+    "category": "mycategory",
+}
 ```
 
-The description is what matters — it tells the LLM what the pane is for and which commands are available. The `cmd` field is only needed for tools that require a startup command (like SSH connections).
+### Adding an endpoint
+
+```python
+ENDPOINTS["myapi"] = {
+    "description": "What this API provides",
+    "usage": "curl -s 'https://api.example.com/data' | jq .",
+    "category": "info",
+}
+```
+
+### Adding a category
+
+```python
+CATEGORIES["mycategory"] = {
+    "panes": ["mytui"],        # pane IDs from PANES dict
+    "commands": ["mytool"],     # command IDs from COMMANDS dict
+    "endpoints": ["myapi"],     # endpoint IDs from ENDPOINTS dict
+}
+```
+
+Then add to a profile or use directly: `-t standard+mycategory`
+
+## The philosophy
+
+The CLI is the universal agent interface. Instead of building MCP servers, REST adapters, or protocol bridges, clive talks to tools the same way a human does — by reading the terminal and typing commands.
+
+This means:
+- **Any CLI tool works.** No wrapper needed. If it has a terminal interface, the agent can use it.
+- **Local and remote are the same.** SSH into a server and the loop continues. Same read-think-write cycle.
+- **Tool updates don't break anything.** The LLM adapts by reading the new output, like a human would.
+- **Agent-to-agent communication works.** If another agent has a CLI, clive can interact with it through a pane.
+- **Google Workspace CLI, AWS CLI, database CLIs** — all "just work" without any integration code.

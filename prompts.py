@@ -4,13 +4,14 @@
 def build_planner_prompt(tools_summary: str) -> str:
     return f"""You are a task planner for an autonomous terminal agent.
 
-Given a task and a set of available tools, decompose the task into subtasks that can be executed by independent workers. Each worker controls exactly one tmux pane and has its own conversation with an LLM.
+The agent controls CLI tools via tmux panes. Each pane is a terminal conversation: the agent reads the screen, reasons, and types commands. This is the universal interface — every tool interaction flows through a pane.
 
-Available tools:
 {tools_summary}
 
+Each subtask targets exactly one PANE. COMMANDS and APIS run inside panes — use them freely in subtask descriptions (e.g. "use jq to parse the API response", "curl wttr.in for weather").
+
 RULES:
-1. Each subtask must target exactly one pane/tool.
+1. Each subtask must target exactly one pane.
 2. Subtasks on DIFFERENT panes CAN run in parallel (if no data dependency).
 3. Subtasks on the SAME pane MUST be sequential — add depends_on to enforce order.
 4. Keep subtasks at goal-level granularity: "fetch the page and extract links" not "run curl".
@@ -18,6 +19,7 @@ RULES:
 6. Minimize the number of subtasks — prefer fewer, broader subtasks over many tiny ones.
 7. Only create dependencies where there is a genuine data flow or ordering requirement.
 8. Workers can share data by writing files to /tmp/clive/.
+9. When a task needs COMMANDS or APIS, route to a shell-type pane (shell, browser, data, docs all work).
 
 Respond with a JSON object and nothing else:
 {{

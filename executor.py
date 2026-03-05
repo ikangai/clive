@@ -83,12 +83,31 @@ def write_file(path: str, content: str) -> str:
 
 # ─── DAG Scheduler ────────────────────────────────────────────────────────────
 
+def _emit(on_event, *args):
+    """Call event callback if provided."""
+    if on_event:
+        try:
+            on_event(*args)
+        except Exception:
+            pass
+
+
 def execute_plan(
     plan: Plan,
     panes: dict[str, PaneInfo],
     tool_status: dict[str, dict],
+    on_event=None,
 ) -> list[SubtaskResult]:
-    """Execute all subtasks, respecting DAG dependencies and pane exclusivity."""
+    """Execute all subtasks, respecting DAG dependencies and pane exclusivity.
+
+    on_event is an optional callback for live status updates:
+        ("subtask_start", subtask_id, pane, description)
+        ("subtask_done",  subtask_id, summary, elapsed)
+        ("subtask_fail",  subtask_id, error)
+        ("subtask_skip",  subtask_id, reason)
+        ("turn",          subtask_id, turn_num, command_snippet)
+        ("tokens",        subtask_id, prompt_tokens, completion_tokens)
+    """
     # Initialize per-pane locks (clear stale locks from prior runs)
     _pane_locks.clear()
     for pane_name in panes:
@@ -97,6 +116,7 @@ def execute_plan(
     results: dict[str, SubtaskResult] = {}
     futures: dict[str, Future] = {}
     subtask_map = {s.id: s for s in plan.subtasks}
+    start_times: dict[str, float] = {}
 
     panes_used = {s.pane for s in plan.subtasks}
     max_workers = max(len(panes_used), 1)
@@ -123,6 +143,7 @@ def execute_plan(
                     )
                     subtask.status = SubtaskStatus.SKIPPED
                     print(f"  SKIP [{subtask.id}] {subtask.description[:50]}... (dependency failed)")
+                    _emit(on_event, "subtask_skip", subtask.id, "dependency failed")
                     continue
 
                 # Check all dependencies completed
@@ -138,12 +159,15 @@ def execute_plan(
 
                 # Submit to thread pool
                 subtask.status = SubtaskStatus.RUNNING
+                start_times[subtask.id] = time.time()
                 print(f"  START [{subtask.id}] [{subtask.pane}] {subtask.description[:60]}...")
+                _emit(on_event, "subtask_start", subtask.id, subtask.pane, subtask.description)
                 future = pool.submit(
                     run_subtask,
                     subtask=subtask,
                     pane_info=panes[subtask.pane],
                     dep_context=dep_context,
+                    on_event=on_event,
                 )
                 futures[subtask.id] = future
 
@@ -164,8 +188,13 @@ def execute_plan(
                         )
                     results[sid] = result
                     subtask_map[sid].status = result.status
+                    elapsed = time.time() - start_times.get(sid, time.time())
                     status_str = "DONE" if result.status == SubtaskStatus.COMPLETED else "FAIL"
                     print(f"  {status_str} [{sid}] {result.summary[:60]}")
+                    if result.status == SubtaskStatus.COMPLETED:
+                        _emit(on_event, "subtask_done", sid, result.summary, elapsed)
+                    else:
+                        _emit(on_event, "subtask_fail", sid, result.summary)
                     del futures[sid]
                     collected_any = True
 
@@ -189,6 +218,7 @@ def execute_plan(
                             summary="Deadlocked: could not start",
                             output_snippet="",
                         )
+                        _emit(on_event, "subtask_fail", sid, "Deadlocked: could not start")
                 break
 
             time.sleep(0.5)
@@ -202,6 +232,7 @@ def run_subtask(
     subtask: Subtask,
     pane_info: PaneInfo,
     dep_context: str,
+    on_event=None,
 ) -> SubtaskResult:
     """Execute a single subtask. Acquires pane lock, runs mini-loop."""
     client = get_client()
@@ -242,6 +273,11 @@ def run_subtask(
 
             # Parse command
             cmd = parse_command(reply)
+
+            # Emit turn event with command snippet
+            cmd_snippet = cmd["value"][:80] if cmd["value"] else cmd["type"]
+            _emit(on_event, "turn", subtask.id, turn, cmd_snippet)
+            _emit(on_event, "tokens", subtask.id, pt, ct)
 
             if cmd["type"] == "task_complete":
                 return SubtaskResult(
