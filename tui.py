@@ -22,6 +22,7 @@ from textual import work
 from textual.app import App, ComposeResult
 from textual.binding import Binding
 from textual.containers import Horizontal, Vertical, VerticalScroll
+from textual.design import ColorSystem
 from textual.reactive import reactive
 from textual.screen import Screen
 from textual.widgets import (
@@ -30,18 +31,19 @@ from textual.widgets import (
     Input,
     Label,
     RichLog,
+    Rule,
     Select,
     Static,
     TextArea,
 )
 
 LOGO = """\
- ██████╗██╗     ██╗██╗   ██╗███████╗
-██╔════╝██║     ██║██║   ██║██╔════╝
-██║     ██║     ██║██║   ██║█████╗
-██║     ██║     ██║╚██╗ ██╔╝██╔══╝
-╚██████╗███████╗██║ ╚████╔╝ ███████╗
- ╚═════╝╚══════╝╚═╝  ╚═══╝  ╚══════╝\
+[b #e8915a] ██████╗██╗     ██╗██╗   ██╗███████╗[/]
+[b #e8915a]██╔════╝██║     ██║██║   ██║██╔════╝[/]
+[b #d97706]██║     ██║     ██║██║   ██║█████╗  [/]
+[b #d97706]██║     ██║     ██║╚██╗ ██╔╝██╔══╝  [/]
+[b #c2650a]╚██████╗███████╗██║ ╚████╔╝ ███████╗[/]
+[b #c2650a] ╚═════╝╚══════╝╚═╝  ╚═══╝  ╚══════╝[/]\
 """
 
 from toolsets import (
@@ -53,34 +55,39 @@ from toolsets import (
     build_tools_summary,
 )
 
-# ── CSS ──────────────────────────────────────────────────────────────────────
+# ── Theme ───────────────────────────────────────────────────────────────────
+
+CLIVE_DARK = ColorSystem(
+    primary="#d97706",
+    secondary="#6b7280",
+    warning="#f59e0b",
+    error="#ef4444",
+    success="#22c55e",
+    accent="#d97706",
+    background="#111118",
+    surface="#16161e",
+    panel="#1c1c27",
+    dark=True,
+)
+
+# ── CSS ─────────────────────────────────────────────────────────────────────
 
 CSS = """
 Screen {
-    background: $surface;
-}
-
-#title-bar {
-    dock: top;
-    height: 1;
-    background: $primary;
-    color: $text;
-    text-style: bold;
-    padding: 0 1;
-}
-
-#logo {
-    height: 7;
-    content-align: center middle;
-    color: $primary;
-    text-style: bold;
-    margin-bottom: 1;
+    background: #111118;
 }
 
 /* ── Setup Screen ── */
 
 #setup-container {
-    padding: 1 2;
+    padding: 1 3;
+    background: #111118;
+}
+
+#logo {
+    height: 7;
+    content-align: center middle;
+    margin-bottom: 1;
 }
 
 #profile-row {
@@ -89,22 +96,57 @@ Screen {
 }
 
 #profile-select {
-    width: 24;
+    width: 28;
+    background: #1c1c27;
+    border: tall #2a2a3a;
+    color: #c9c9d6;
+}
+
+#profile-select:focus {
+    border: tall #d97706;
 }
 
 #category-input {
-    width: 24;
-    margin-left: 1;
+    width: 28;
+    margin-left: 2;
+    background: #1c1c27;
+    border: tall #2a2a3a;
+    color: #c9c9d6;
+}
+
+#category-input:focus {
+    border: tall #d97706;
 }
 
 #add-category-btn {
     margin-left: 1;
-    min-width: 8;
+    min-width: 6;
+    background: #2a2a3a;
+    color: #c9c9d6;
+    border: none;
 }
 
-#panes-label {
+#add-category-btn:hover {
+    background: #d97706;
+    color: #111118;
+}
+
+#spec-label {
+    color: #6b7280;
     margin-bottom: 1;
-    color: $text-muted;
+    height: 1;
+}
+
+Rule {
+    color: #2a2a3a;
+    margin: 0 0 1 0;
+}
+
+.section-header {
+    color: #d97706;
+    text-style: bold;
+    margin-bottom: 1;
+    text-opacity: 85%;
 }
 
 #tools-container {
@@ -115,40 +157,72 @@ Screen {
 #commands-panel {
     width: 1fr;
     height: 100%;
-    border: solid $primary;
-    padding: 0 1;
+    background: #16161e;
+    border: round #2a2a3a;
+    padding: 1 2;
 }
 
 #endpoints-panel {
-    width: 30;
+    width: 34;
     height: 100%;
-    border: solid $accent;
-    padding: 0 1;
+    background: #16161e;
+    border: round #2a2a3a;
+    padding: 1 2;
     margin-left: 1;
 }
 
-.section-title {
-    text-style: bold;
-    margin-bottom: 1;
+#commands-list {
+    scrollbar-size: 1 1;
 }
 
 #install-bar {
-    height: 3;
+    height: auto;
     margin-bottom: 1;
 }
 
 #install-selected-btn {
-    margin-right: 1;
+    background: #2a2a3a;
+    color: #f59e0b;
+    border: none;
+    min-width: 22;
 }
 
-#task-label {
-    margin-bottom: 0;
+#install-selected-btn:hover {
+    background: #f59e0b;
+    color: #111118;
+}
+
+#install-selected-btn.-disabled {
+    background: #1c1c27;
+    color: #3a3a4a;
+}
+
+#install-log {
+    height: 8;
+    background: #16161e;
+    border: round #2a2a3a;
+    display: none;
+    margin-bottom: 1;
+    padding: 0 1;
+}
+
+#task-section-label {
+    color: #6b7280;
     text-style: bold;
+    margin-bottom: 0;
+    height: 1;
 }
 
 #task-input {
     height: 4;
     margin-bottom: 1;
+    background: #1c1c27;
+    border: tall #2a2a3a;
+    color: #c9c9d6;
+}
+
+#task-input:focus {
+    border: tall #d97706;
 }
 
 #action-bar {
@@ -158,65 +232,127 @@ Screen {
 
 #run-btn {
     margin-right: 1;
+    background: #d97706;
+    color: #111118;
+    text-style: bold;
+    border: none;
+    min-width: 16;
 }
 
-#install-log {
-    height: 8;
-    border: solid $warning;
-    display: none;
-    margin-bottom: 1;
+#run-btn:hover {
+    background: #e8915a;
+}
+
+#quit-btn {
+    background: #2a2a3a;
+    color: #6b7280;
+    border: none;
+    min-width: 10;
+}
+
+#quit-btn:hover {
+    background: #ef4444;
+    color: #ffffff;
+}
+
+Footer {
+    background: #16161e;
+    color: #6b7280;
+}
+
+Footer > .footer--key {
+    background: #2a2a3a;
+    color: #d97706;
 }
 
 /* ── Run Screen ── */
 
 #run-container {
-    padding: 1 2;
+    padding: 1 3;
+    background: #111118;
+}
+
+#run-header {
+    height: 1;
+    color: #d97706;
+    text-style: bold;
+    margin-bottom: 1;
 }
 
 #task-display {
     height: 2;
-    color: $text-muted;
+    color: #6b7280;
+    margin-bottom: 1;
+}
+
+#phase-label {
+    height: 1;
+    color: #d97706;
+    text-style: bold;
     margin-bottom: 1;
 }
 
 #plan-panel {
     height: auto;
-    max-height: 12;
-    border: solid $primary;
-    padding: 0 1;
+    max-height: 14;
+    background: #16161e;
+    border: round #2a2a3a;
+    padding: 1 2;
     margin-bottom: 1;
 }
 
 #log-panel {
     height: 1fr;
-    border: solid $accent;
-    padding: 0 1;
+    background: #16161e;
+    border: round #2a2a3a;
+    padding: 0 2;
     margin-bottom: 1;
 }
 
 #status-bar {
     height: 1;
     dock: bottom;
-    background: $primary;
-    color: $text;
-    padding: 0 1;
+    background: #16161e;
+    color: #6b7280;
+    padding: 0 3;
+}
+
+#run-action-bar {
+    height: 3;
+    margin-bottom: 0;
 }
 
 #cancel-btn {
-    dock: bottom;
-    margin-top: 1;
+    background: #2a2a3a;
+    color: #ef4444;
+    border: none;
+    min-width: 12;
+}
+
+#cancel-btn:hover {
+    background: #ef4444;
+    color: #ffffff;
 }
 
 #summary-panel {
     height: 1fr;
-    border: solid $success;
-    padding: 1;
+    background: #16161e;
+    border: round #22c55e 50%;
+    padding: 1 2;
     display: none;
 }
 
 #back-btn {
     display: none;
-    margin-top: 1;
+    background: #d97706;
+    color: #111118;
+    text-style: bold;
+    border: none;
+    min-width: 16;
+}
+
+#back-btn:hover {
+    background: #e8915a;
 }
 """
 
@@ -234,7 +370,8 @@ class SetupScreen(Screen):
 
     def compose(self) -> ComposeResult:
         with Vertical(id="setup-container"):
-            yield Static(LOGO, id="logo")
+            yield Static(LOGO, id="logo", markup=True)
+
             # Profile row
             with Horizontal(id="profile-row"):
                 yield Select(
@@ -247,24 +384,25 @@ class SetupScreen(Screen):
                     placeholder="+ category",
                     id="category-input",
                 )
-                yield Button("+Add", id="add-category-btn", variant="default")
+                yield Button("+", id="add-category-btn", variant="default")
 
-            yield Label("Panes: ...", id="panes-label")
+            yield Label("", id="spec-label")
+            yield Rule()
 
             # Tools
             with Horizontal(id="tools-container"):
                 with Vertical(id="commands-panel"):
-                    yield Label("Commands", classes="section-title")
+                    yield Label("COMMANDS", classes="section-header")
                     yield VerticalScroll(id="commands-list")
 
                 with Vertical(id="endpoints-panel"):
-                    yield Label("APIs", classes="section-title")
+                    yield Label("APIS", classes="section-header")
                     yield Static("", id="endpoints-list")
 
             # Install bar
             with Horizontal(id="install-bar"):
                 yield Button(
-                    "Install All Missing",
+                    "Install Missing",
                     id="install-selected-btn",
                     variant="warning",
                 )
@@ -272,12 +410,12 @@ class SetupScreen(Screen):
             yield RichLog(id="install-log", wrap=True, markup=True)
 
             # Task
-            yield Label("Task:", id="task-label")
+            yield Label("TASK", id="task-section-label")
             yield TextArea(id="task-input")
 
             # Actions
             with Horizontal(id="action-bar"):
-                yield Button("Run Task", id="run-btn", variant="success")
+                yield Button("Run", id="run-btn", variant="success")
                 yield Button("Quit", id="quit-btn", variant="error")
 
         yield Footer()
@@ -337,10 +475,10 @@ class SetupScreen(Screen):
             resolved["commands"]
         )
 
-        # Panes
+        # Spec + panes label
         pane_names = [p["name"] for p in resolved["panes"]]
-        self.query_one("#panes-label", Label).update(
-            f"Panes: {', '.join(pane_names)}"
+        self.query_one("#spec-label", Label).update(
+            f"  {self.current_spec}  ·  panes: {', '.join(pane_names)}"
         )
 
         # Commands
@@ -349,19 +487,19 @@ class SetupScreen(Screen):
         for cmd in self._available_cmds:
             container.mount(
                 Static(
-                    f"[green]+[/green] {cmd['name']:16s} {cmd['description']}"
+                    f"[#22c55e]●[/] [#c9c9d6]{cmd['name']:14s}[/] [#6b7280]{cmd['description']}[/]"
                 )
             )
         for cmd in self._missing_cmds:
             install = cmd.get("install", "")
             container.mount(
                 Static(
-                    f"[red]-[/red] {cmd['name']:16s} [dim]{install}[/dim]"
+                    f"[#ef4444]○[/] [#6b7280]{cmd['name']:14s}[/] [#3a3a4a]{install}[/]"
                 )
             )
 
         if not self._available_cmds and not self._missing_cmds:
-            container.mount(Static("[dim]No commands in this profile[/dim]"))
+            container.mount(Static("[#3a3a4a]No commands in this profile[/]"))
 
         # Enable/disable install button
         install_btn = self.query_one("#install-selected-btn", Button)
@@ -370,10 +508,11 @@ class SetupScreen(Screen):
         # Endpoints
         if resolved["endpoints"]:
             ep_text = "\n".join(
-                f"[cyan]*[/cyan] {ep['name']}" for ep in resolved["endpoints"]
+                f"[#d97706]●[/] [#c9c9d6]{ep['name']}[/]"
+                for ep in resolved["endpoints"]
             )
         else:
-            ep_text = "[dim]None[/dim]"
+            ep_text = "[#3a3a4a]None[/]"
         self.query_one("#endpoints-list", Static).update(ep_text)
 
     def _install_missing(self) -> None:
@@ -414,18 +553,18 @@ class SetupScreen(Screen):
         if brew_pkgs:
             argv = ["brew", "install"] + brew_pkgs
             self.app.call_from_thread(
-                log.write, f"[bold]$ {' '.join(argv)}[/bold]"
+                log.write, f"[#d97706]$ {' '.join(argv)}[/]"
             )
             self._run_install(argv, log)
 
         if pip_pkgs:
             argv = ["pip3", "install"] + pip_pkgs
             self.app.call_from_thread(
-                log.write, f"[bold]$ {' '.join(argv)}[/bold]"
+                log.write, f"[#d97706]$ {' '.join(argv)}[/]"
             )
             self._run_install(argv, log)
 
-        self.app.call_from_thread(log.write, "[green]Install complete.[/green]")
+        self.app.call_from_thread(log.write, "[#22c55e]✓ Install complete[/]")
         self.app.call_from_thread(self._refresh_tools)
 
     def _run_install(self, argv: list[str], log: RichLog) -> None:
@@ -438,7 +577,7 @@ class SetupScreen(Screen):
             )
         except FileNotFoundError:
             self.app.call_from_thread(
-                log.write, f"[red]Command not found: {argv[0]}[/red]"
+                log.write, f"[#ef4444]✗ Command not found: {argv[0]}[/]"
             )
             return
 
@@ -449,7 +588,7 @@ class SetupScreen(Screen):
         if proc.returncode != 0:
             self.app.call_from_thread(
                 log.write,
-                f"[red]Exit code: {proc.returncode}[/red]",
+                f"[#ef4444]✗ Exit code: {proc.returncode}[/]",
             )
 
     def _show_install_log(self) -> None:
@@ -503,26 +642,28 @@ class RunScreen(Screen):
         self._cancelled = threading.Event()
 
     def compose(self) -> ComposeResult:
-        yield Static("CLIVE -- Running", id="title-bar")
-
         with Vertical(id="run-container"):
-            yield Static(self.task_text[:120], id="task-display")
+            yield Static("[b #d97706]❯ clive[/]", id="run-header")
+            yield Static(f"[#6b7280]{self.task_text[:120]}[/]", id="task-display")
+            yield Static("[#d97706]PLAN[/]", id="phase-label")
 
             with Vertical(id="plan-panel"):
-                yield Label("Plan", classes="section-title")
                 yield VerticalScroll(id="plan-list")
 
             yield RichLog(id="log-panel", wrap=True, markup=True)
 
             yield RichLog(id="summary-panel", wrap=True, markup=True)
 
-            with Horizontal():
+            with Horizontal(id="run-action-bar"):
                 yield Button("Cancel", id="cancel-btn", variant="error")
                 yield Button(
-                    "Back to Setup", id="back-btn", variant="primary"
+                    "← Back", id="back-btn", variant="primary"
                 )
 
-        yield Static("Elapsed: 0.0s  Tokens: 0", id="status-bar")
+        yield Static(
+            "[#6b7280]elapsed[/] 0.0s  [#6b7280]tokens[/] 0",
+            id="status-bar",
+        )
 
     def on_mount(self) -> None:
         self._start_time = time.time()
@@ -551,8 +692,10 @@ class RunScreen(Screen):
         elapsed = time.time() - self._start_time
         total = self._total_pt + self._total_ct
         self.query_one("#status-bar", Static).update(
-            f"Elapsed: {elapsed:.1f}s  "
-            f"Tokens: {self._total_pt:,} prompt + {self._total_ct:,} completion = {total:,}"
+            f"[#6b7280]elapsed[/] {elapsed:.1f}s  "
+            f"[#6b7280]tokens[/] [#c9c9d6]{self._total_pt:,}[/]"
+            f"[#6b7280]+[/][#c9c9d6]{self._total_ct:,}[/]"
+            f"[#6b7280]=[/][#d97706]{total:,}[/]"
         )
 
     def _on_event(self, event_type: str, *args) -> None:
@@ -571,7 +714,7 @@ class RunScreen(Screen):
             widget_id = f"subtask-{sid}"
             try:
                 plan_list.query_one(f"#{widget_id}", Static).update(
-                    f"[yellow]~[/yellow] {sid} [{pane}] {desc[:60]}  [dim](run)[/dim]"
+                    f"[#f59e0b]◐[/] [#c9c9d6]{sid}[/] [#6b7280]{pane}[/] {desc[:60]}"
                 )
             except Exception:
                 pass
@@ -581,7 +724,7 @@ class RunScreen(Screen):
             widget_id = f"subtask-{sid}"
             try:
                 plan_list.query_one(f"#{widget_id}", Static).update(
-                    f"[green]OK[/green] {sid} {summary[:60]}  [dim]{elapsed:.1f}s[/dim]"
+                    f"[#22c55e]✓[/] [#c9c9d6]{sid}[/] {summary[:55]} [#3a3a4a]{elapsed:.1f}s[/]"
                 )
             except Exception:
                 pass
@@ -591,7 +734,7 @@ class RunScreen(Screen):
             widget_id = f"subtask-{sid}"
             try:
                 plan_list.query_one(f"#{widget_id}", Static).update(
-                    f"[red]X[/red]  {sid} {error[:60]}"
+                    f"[#ef4444]✗[/] [#c9c9d6]{sid}[/] [#ef4444]{error[:60]}[/]"
                 )
             except Exception:
                 pass
@@ -601,14 +744,16 @@ class RunScreen(Screen):
             widget_id = f"subtask-{sid}"
             try:
                 plan_list.query_one(f"#{widget_id}", Static).update(
-                    f"[dim]-- {sid} {reason[:60]}[/dim]"
+                    f"[#3a3a4a]– {sid} {reason[:60]}[/]"
                 )
             except Exception:
                 pass
 
         elif event_type == "turn":
             sid, turn_num, cmd_snippet = args
-            log.write(f"[cyan][{sid}][/cyan] Turn {turn_num}: {cmd_snippet}")
+            log.write(
+                f"[#d97706]❯[/] [#6b7280]{sid}[/] [#3a3a4a]t{turn_num}[/] {cmd_snippet}"
+            )
 
         elif event_type == "tokens":
             sid, pt, ct = args
@@ -628,14 +773,16 @@ class RunScreen(Screen):
         log = self.query_one("#log-panel", RichLog)
 
         # Phase 0: Setup session
-        self.app.call_from_thread(log.write, "[bold]Setting up tmux session...[/bold]")
+        self.app.call_from_thread(
+            log.write, "[#6b7280]Setting up tmux session...[/]"
+        )
 
         try:
             session, panes = setup_session(self.resolved["panes"])
             tool_status = check_health(panes)
         except Exception as e:
             self.app.call_from_thread(
-                log.write, f"[red]Session setup failed: {e}[/red]"
+                log.write, f"[#ef4444]✗ Session setup failed: {e}[/]"
             )
             self.app.call_from_thread(self._show_back_button)
             return
@@ -648,7 +795,10 @@ class RunScreen(Screen):
             return
 
         # Phase 1: Planning
-        self.app.call_from_thread(log.write, "[bold]Phase 1: Planning...[/bold]")
+        self.app.call_from_thread(self._set_phase, "PLANNING")
+        self.app.call_from_thread(
+            log.write, "[#6b7280]Decomposing task into subtasks...[/]"
+        )
 
         try:
             plan = create_plan(
@@ -656,7 +806,7 @@ class RunScreen(Screen):
             )
         except Exception as e:
             self.app.call_from_thread(
-                log.write, f"[red]Planning failed: {e}[/red]"
+                log.write, f"[#ef4444]✗ Planning failed: {e}[/]"
             )
             self.app.call_from_thread(self._show_back_button)
             return
@@ -668,7 +818,7 @@ class RunScreen(Screen):
             return
 
         # Phase 2: Execution
-        self.app.call_from_thread(log.write, "[bold]Phase 2: Executing...[/bold]")
+        self.app.call_from_thread(self._set_phase, "EXECUTING")
 
         try:
             results = execute_plan(
@@ -676,7 +826,7 @@ class RunScreen(Screen):
             )
         except Exception as e:
             self.app.call_from_thread(
-                log.write, f"[red]Execution failed: {e}[/red]"
+                log.write, f"[#ef4444]✗ Execution failed: {e}[/]"
             )
             self.app.call_from_thread(self._show_back_button)
             return
@@ -685,7 +835,7 @@ class RunScreen(Screen):
             return
 
         # Phase 3: Summarize
-        self.app.call_from_thread(log.write, "[bold]Phase 3: Summarizing...[/bold]")
+        self.app.call_from_thread(self._set_phase, "SUMMARIZING")
 
         try:
             client = get_client()
@@ -707,20 +857,31 @@ class RunScreen(Screen):
             summary = f"Summarization failed: {e}"
 
         # Show summary
-        completed = sum(1 for r in results if r.status == SubtaskStatus.COMPLETED)
+        completed = sum(
+            1 for r in results if r.status == SubtaskStatus.COMPLETED
+        )
         total = len(results)
 
         self.app.call_from_thread(
             self._show_summary, summary, completed, total
         )
 
+    def _set_phase(self, phase: str) -> None:
+        self.query_one("#phase-label", Static).update(
+            f"[#d97706]{phase}[/]"
+        )
+
     def _populate_plan(self, plan) -> None:
         plan_list = self.query_one("#plan-list", VerticalScroll)
         for s in plan.subtasks:
-            deps = f" (after {', '.join(s.depends_on)})" if s.depends_on else ""
+            deps = (
+                f" [#3a3a4a]→ {', '.join(s.depends_on)}[/]"
+                if s.depends_on
+                else ""
+            )
             plan_list.mount(
                 Static(
-                    f"[ ] {s.id} [{s.pane}] {s.description[:55]}{deps}",
+                    f"[#3a3a4a]○[/] [#c9c9d6]{s.id}[/] [#6b7280]{s.pane}[/] {s.description[:55]}{deps}",
                     id=f"subtask-{s.id}",
                 )
             )
@@ -731,10 +892,12 @@ class RunScreen(Screen):
             self._timer.stop()
             self._update_status_bar()
 
+        self._set_phase("COMPLETE")
+
         summary_panel = self.query_one("#summary-panel", RichLog)
         summary_panel.styles.display = "block"
         summary_panel.write(
-            f"[bold green]COMPLETE ({completed}/{total} subtasks)[/bold green]\n"
+            f"[b #22c55e]✓ {completed}/{total} subtasks completed[/]\n"
         )
         summary_panel.write(summary)
 
@@ -757,6 +920,9 @@ class CliveApp(App):
     BINDINGS = [
         Binding("ctrl+q", "quit", "Quit"),
     ]
+
+    def get_css_variables(self) -> dict[str, str]:
+        return {**super().get_css_variables(), **CLIVE_DARK.generate()}
 
     def on_mount(self) -> None:
         self.push_screen(SetupScreen())
