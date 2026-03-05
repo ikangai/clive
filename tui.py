@@ -61,6 +61,8 @@ HELP_TEXT = """\
   [#c9c9d6]/profile[/] [#6b7280]+<cat>[/]      Add category to current profile
   [#c9c9d6]/tools[/]                Show available and missing tools
   [#c9c9d6]/install[/]              Install missing CLI tools
+  [#c9c9d6]/status[/]               Show running task status
+  [#c9c9d6]/cancel[/]               Cancel the running task
   [#c9c9d6]/clear[/]                Clear the screen
   [#c9c9d6]/help[/]                 Show this help
 
@@ -159,6 +161,7 @@ class MainScreen(Screen):
         self._available_cmds = []
         self._missing_cmds = []
         self._running = False
+        self._current_task = ""
         self._cancelled = threading.Event()
         self._start_time = 0.0
         self._total_pt = 0
@@ -238,6 +241,35 @@ class MainScreen(Screen):
                 out.write(f"[#22c55e]✓[/] Profile: [#c9c9d6]{self._spec}[/]")
             except ValueError as e:
                 out.write(f"[#ef4444]✗[/] {e}")
+
+        elif cmd == "/status":
+            if self._running:
+                elapsed = time.time() - self._start_time
+                total = self._total_pt + self._total_ct
+                out.write(
+                    f"[#d97706]Running:[/] {self._current_task[:80]}"
+                )
+                out.write(
+                    f"[#6b7280]  elapsed {elapsed:.0f}s · {total:,} tokens[/]"
+                )
+            else:
+                out.write("[#6b7280]No task running.[/]")
+
+        elif cmd == "/cancel":
+            if self._running:
+                self._cancelled.set()
+                out.write("[#f59e0b]Cancelling...[/]")
+                try:
+                    subprocess.run(
+                        ["tmux", "kill-session", "-t", "clive"],
+                        capture_output=True,
+                    )
+                except Exception:
+                    pass
+                self._finish_task()
+                out.write("[#6b7280]Task cancelled.[/]")
+            else:
+                out.write("[#6b7280]No task running.[/]")
 
         elif cmd == "/clear":
             out.clear()
@@ -377,6 +409,7 @@ class MainScreen(Screen):
 
     def _run_task(self, task: str) -> None:
         self._running = True
+        self._current_task = task
         self._cancelled.clear()
         self._total_pt = 0
         self._total_ct = 0
@@ -440,14 +473,24 @@ class MainScreen(Screen):
 
     @work(thread=True)
     def _execute_task(self, task: str) -> None:
+        out = self.query_one("#output", RichLog)
+
+        try:
+            self._execute_task_inner(task, out)
+        except Exception as e:
+            self.app.call_from_thread(
+                out.write, f"[#ef4444]✗ Unexpected error: {e}[/]"
+            )
+        finally:
+            self.app.call_from_thread(self._finish_task)
+
+    def _execute_task_inner(self, task: str, out: RichLog) -> None:
         from session import setup_session, check_health
         from planner import create_plan
         from executor import execute_plan
         from models import SubtaskStatus
         from llm import get_client, chat
         from prompts import build_summarizer_prompt
-
-        out = self.query_one("#output", RichLog)
 
         # Setup
         self.app.call_from_thread(
@@ -461,7 +504,6 @@ class MainScreen(Screen):
             self.app.call_from_thread(
                 out.write, f"[#ef4444]✗ Session failed: {e}[/]"
             )
-            self.app.call_from_thread(self._finish_task)
             return
 
         tools_summary = build_tools_summary(
@@ -469,7 +511,6 @@ class MainScreen(Screen):
         )
 
         if self._cancelled.is_set():
-            self.app.call_from_thread(self._finish_task)
             return
 
         # Plan
@@ -483,7 +524,6 @@ class MainScreen(Screen):
             self.app.call_from_thread(
                 out.write, f"[#ef4444]✗ Planning failed: {e}[/]"
             )
-            self.app.call_from_thread(self._finish_task)
             return
 
         # Show plan
@@ -497,7 +537,6 @@ class MainScreen(Screen):
         self.app.call_from_thread(out.write, "")
 
         if self._cancelled.is_set():
-            self.app.call_from_thread(self._finish_task)
             return
 
         # Execute
@@ -509,11 +548,9 @@ class MainScreen(Screen):
             self.app.call_from_thread(
                 out.write, f"[#ef4444]✗ Execution failed: {e}[/]"
             )
-            self.app.call_from_thread(self._finish_task)
             return
 
         if self._cancelled.is_set():
-            self.app.call_from_thread(self._finish_task)
             return
 
         # Summarize
@@ -556,7 +593,6 @@ class MainScreen(Screen):
         for line in summary.split("\n"):
             self.app.call_from_thread(out.write, line)
         self.app.call_from_thread(out.write, "")
-        self.app.call_from_thread(self._finish_task)
 
 
 # ── App ──────────────────────────────────────────────────────────────────────
