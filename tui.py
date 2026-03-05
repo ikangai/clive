@@ -41,6 +41,7 @@ from textual.widgets import (
     Static,
 )
 
+from llm import PROVIDERS as LLM_PROVIDERS
 from toolsets import (
     PROFILES,
     CATEGORIES,
@@ -60,8 +61,9 @@ LOGO = """\
 
 HELP_TEXT = """\
 [#d97706]Slash commands:[/]
-  [#c9c9d6]/profile[/] [#6b7280]<name>[/]      Switch toolset profile
-  [#c9c9d6]/profile[/] [#6b7280]+<cat>[/]      Add category to current profile
+  [#c9c9d6]/profile[/] [#6b7280]<name|+cat>[/]  Switch toolset profile or add category
+  [#c9c9d6]/provider[/] [#6b7280]<name>[/]      Switch LLM provider
+  [#c9c9d6]/model[/] [#6b7280]<name>[/]         Switch model
   [#c9c9d6]/tools[/]                Show available and missing tools
   [#c9c9d6]/install[/]              Install missing CLI tools
   [#c9c9d6]/status[/]               Show running task status
@@ -69,8 +71,9 @@ HELP_TEXT = """\
   [#c9c9d6]/clear[/]                Clear the screen
   [#c9c9d6]/help[/]                 Show this help
 
-[#d97706]Profiles:[/]  {profiles}
-[#d97706]Categories:[/] {categories}
+[#d97706]Profiles:[/]   {profiles}
+[#d97706]Categories:[/]  {categories}
+[#d97706]Providers:[/]   {providers}
 
 [#6b7280]Type anything else to run it as a task.[/]"""
 
@@ -230,6 +233,7 @@ class MainScreen(Screen):
             out.write(HELP_TEXT.format(
                 profiles=", ".join(PROFILES),
                 categories=", ".join(sorted(CATEGORIES)),
+                providers=", ".join(LLM_PROVIDERS),
             ))
 
         elif cmd == "/profile":
@@ -286,6 +290,12 @@ class MainScreen(Screen):
         elif cmd == "/clear":
             out.clear()
 
+        elif cmd == "/provider":
+            self._handle_provider(arg, out)
+
+        elif cmd == "/model":
+            self._handle_model(arg, out)
+
         elif cmd == "/tools":
             self._show_tools()
 
@@ -303,6 +313,57 @@ class MainScreen(Screen):
             )
         except ValueError:
             pass
+        self._update_status()
+
+    def _handle_provider(self, arg: str, out: RichLog) -> None:
+        import llm
+
+        if not arg:
+            out.write(f"[#6b7280]Current:[/] {llm.PROVIDER_NAME} ({llm.MODEL})")
+            out.write(
+                f"[#6b7280]Available:[/] {', '.join(LLM_PROVIDERS)}"
+            )
+            return
+
+        if arg not in LLM_PROVIDERS:
+            out.write(
+                f"[#ef4444]✗ Unknown provider: {arg}[/]  "
+                f"[#6b7280]Available: {', '.join(LLM_PROVIDERS)}[/]"
+            )
+            return
+
+        provider = LLM_PROVIDERS[arg]
+        llm.PROVIDER_NAME = arg
+        llm._provider = provider
+        llm.MODEL = provider["default_model"]
+        os.environ["LLM_PROVIDER"] = arg
+
+        # Set API key env var if needed
+        key_env = provider.get("api_key_env")
+        if key_env and not os.environ.get(key_env):
+            out.write(
+                f"[#f59e0b]⚠[/] Set {key_env} in .env or environment"
+            )
+
+        out.write(
+            f"[#22c55e]✓[/] Provider: [#c9c9d6]{arg}[/]  "
+            f"Model: [#c9c9d6]{llm.MODEL}[/]"
+        )
+        self._update_status()
+
+    def _handle_model(self, arg: str, out: RichLog) -> None:
+        import llm
+
+        if not arg:
+            out.write(f"[#6b7280]Current:[/] {llm.MODEL} ({llm.PROVIDER_NAME})")
+            return
+
+        llm.MODEL = arg
+        os.environ["AGENT_MODEL"] = arg
+        out.write(
+            f"[#22c55e]✓[/] Model: [#c9c9d6]{arg}[/]  "
+            f"Provider: [#c9c9d6]{llm.PROVIDER_NAME}[/]"
+        )
         self._update_status()
 
     def _show_tools(self) -> None:
@@ -437,7 +498,11 @@ class MainScreen(Screen):
         self._update_status()
 
     def _update_status(self) -> None:
-        parts = [f"[#6b7280]profile[/] {self._spec}"]
+        import llm
+        parts = [
+            f"[#6b7280]profile[/] {self._spec}",
+            f"[#6b7280]llm[/] {llm.PROVIDER_NAME}/{llm.MODEL}",
+        ]
         if self._running:
             elapsed = time.time() - self._start_time
             total = self._total_pt + self._total_ct
