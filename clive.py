@@ -181,6 +181,21 @@ if __name__ == "__main__":
         action="store_true",
         help="Launch the interactive TUI instead of CLI mode",
     )
+    parser.add_argument(
+        "--selfmod",
+        metavar="GOAL",
+        help="Self-modify clive (experimental, requires CLIVE_EXPERIMENTAL_SELFMOD=1)",
+    )
+    parser.add_argument(
+        "--undo",
+        action="store_true",
+        help="Roll back last self-modification",
+    )
+    parser.add_argument(
+        "--safe-mode",
+        action="store_true",
+        help="Disable self-modification for this run",
+    )
     args = parser.parse_args()
 
     if args.list_toolsets:
@@ -243,6 +258,44 @@ if __name__ == "__main__":
     if args.tui:
         from tui import CliveApp
         CliveApp().run()
+        raise SystemExit(0)
+
+    if args.safe_mode:
+        import os
+        os.environ["CLIVE_EXPERIMENTAL_SELFMOD"] = "0"
+        print("Safe mode: self-modification disabled.")
+
+    if args.undo:
+        from selfmod.workspace import rollback, list_snapshots
+        snaps = list_snapshots()
+        if not snaps:
+            print("No selfmod snapshots to undo.")
+            raise SystemExit(0)
+        tag = rollback()
+        print(f"Rolled back to {tag}")
+        raise SystemExit(0)
+
+    if args.selfmod:
+        from selfmod import is_enabled
+        from selfmod.pipeline import run_pipeline
+
+        if not is_enabled():
+            print("Self-modification is disabled.")
+            print("Set CLIVE_EXPERIMENTAL_SELFMOD=1 in .env to enable.")
+            raise SystemExit(1)
+
+        def _cli_status(stage: str, msg: str) -> None:
+            print(f"  [{stage}] {msg}")
+
+        result = run_pipeline(args.selfmod, on_status=_cli_status)
+        if result.success:
+            print(f"\n✓ Applied: {result.message}")
+            print(f"  Snapshot: {result.snapshot_tag}")
+            print(f"  Tokens: {result.tokens['prompt'] + result.tokens['completion']:,}")
+            print("  Use --undo to roll back.")
+        else:
+            print(f"\n✗ {result.stage}: {result.message}")
+            raise SystemExit(1)
         raise SystemExit(0)
 
     run(args.task, toolset_spec=args.toolset)

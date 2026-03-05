@@ -144,6 +144,111 @@ Each subtask worker has its own LLM conversation and controls exactly one pane v
           └─────────────────────┘
 ```
 
+## TUI mode
+
+clive includes an interactive terminal UI built with [Textual](https://textual.textualize.io/). Launch with `clive-tui` or `clive --tui`.
+
+The TUI provides a single-screen interface: scrolling output on top, input line at the bottom. Type a task to execute it, or use slash commands for configuration.
+
+**Slash commands:**
+
+| Command | Description |
+|---|---|
+| `/profile <name\|+cat>` | Switch toolset profile or add a category |
+| `/provider <name>` | Switch LLM provider |
+| `/model <name>` | Switch model |
+| `/tools` | Show available and missing tools |
+| `/install` | Install missing CLI tools |
+| `/status` | Show running task status |
+| `/cancel` | Cancel the running task |
+| `/clear` | Clear the screen |
+| `/selfmod <goal>` | Self-modify clive (experimental) |
+| `/undo` | Roll back last self-modification |
+| `/safe-mode` | Disable self-modification for this session |
+| `/help` | Show help |
+
+**Task intelligence:** Before executing, clive triages your input through an LLM call that classifies it as a question about clive (answered directly), a task requiring clarification (asks you a follow-up question), or a task ready to execute. This avoids failed tasks from ambiguous instructions.
+
+**Concurrent tasks:** Multiple tasks can run in parallel. Use `/status` to see active tasks and `/cancel` to stop them.
+
+## Self-modification (experimental)
+
+clive can modify its own source code through a governed pipeline with separation of powers. This is an experimental feature — enable it by setting `CLIVE_EXPERIMENTAL_SELFMOD=1` in your `.env` file.
+
+### How it works
+
+```
+User goal
+    │
+    ▼
+┌──────────┐     ┌──────────┐     ┌──────────┐     ┌──────────┐
+│ Proposer │────►│ Reviewer │────►│ Auditor  │────►│   Gate   │
+│  (LLM)   │     │  (LLM)   │     │  (LLM)   │     │ (regex)  │
+│          │     │          │     │          │     │          │
+│ Generates│     │ Checks   │     │ Checks   │     │ Scans    │
+│ code     │     │ quality  │     │ governance│    │ patterns │
+└──────────┘     └──────────┘     └──────────┘     └─────┬────┘
+                                                         │
+                                                    ┌────▼────┐
+                                                    │ Snapshot│
+                                                    │  (git)  │
+                                                    └────┬────┘
+                                                         │
+                                                    ┌────▼────┐
+                                                    │  Apply  │
+                                                    └─────────┘
+```
+
+Three independent LLM roles check each other:
+
+1. **Proposer** — generates the code change based on the user's goal
+2. **Reviewer** — independently evaluates code quality, correctness, and safety
+3. **Auditor** — independently verifies governance compliance and tier rules
+
+A **deterministic gate** (regex-based, no LLM) has final veto power. It scans all proposed changes for banned patterns and enforces file tier rules. Because it runs deterministic pattern matching, it cannot be "talked past" by any LLM.
+
+### File tiers
+
+Files are classified into tiers by risk level. Higher tiers require more approvals:
+
+| Tier | Required approvals | Files |
+|---|---|---|
+| **IMMUTABLE** | Cannot be modified | `selfmod/gate.py`, `.clive/constitution.md`, `.clive/audit/*` |
+| **GOVERNANCE** | Proposer + Reviewer + Auditor (unanimous) | `selfmod/*.py` (except gate.py), `.env` |
+| **CORE** | Proposer + Reviewer | `clive.py`, `llm.py`, `executor.py`, `planner.py`, `session.py`, `models.py`, `prompts.py` |
+| **STANDARD** | Proposer (Reviewer advisory) | `tui.py`, `toolsets.py`, `completion.py`, `install.sh` |
+| **OPEN** | Proposer only | `tools/*`, temp files, everything else |
+
+### Safety mechanisms
+
+- **Deterministic gate** — regex-based pattern scanner with unconditional veto. Rejects `eval()`, `exec()`, `os.system()`, `shell=True`, obfuscated code, and more.
+- **Immutable anchor** — `gate.py` and `constitution.md` can never be modified by the selfmod system.
+- **Append-only audit trail** — every attempt (approved or rejected) is logged to `.clive/audit/` with hash-chained integrity verification.
+- **Git snapshots** — a tagged snapshot is created before every modification. Roll back with `/undo` or `--undo`.
+- **Rate limit** — maximum 5 modifications per session.
+- **Constitution** — governance rules defined in `.clive/constitution.md`, enforced by the gate.
+- **Experimental flag** — disabled by default. Requires explicit opt-in via `CLIVE_EXPERIMENTAL_SELFMOD=1`.
+
+### Usage
+
+```bash
+# CLI
+clive --selfmod "add a /history command that shows past tasks"
+clive --undo                    # roll back last modification
+clive --safe-mode               # disable selfmod for this run
+
+# TUI
+/selfmod add a /history command that shows past tasks
+/undo
+/safe-mode
+```
+
+### Constitution
+
+The constitution at `.clive/constitution.md` defines the governance rules. It specifies file tiers, required approvals, and banned patterns. The constitution itself is IMMUTABLE — it cannot be modified by the selfmod system.
+
+See [.clive/constitution.md](.clive/constitution.md) for the full document.
+
 ## Prerequisites
 
 - **tmux** — `brew install tmux` or `apt install tmux`
@@ -193,6 +298,17 @@ python clive.py --toolset full "your task"
 # List available toolsets
 python clive.py --list-toolsets
 
+# Show all tools across all surfaces
+python clive.py --list-tools
+
+# Launch the TUI
+python clive.py --tui
+
+# Self-modification (experimental)
+python clive.py --selfmod "your modification goal"
+python clive.py --undo
+python clive.py --safe-mode "your task"
+
 # Run the built-in example task
 python clive.py
 
@@ -209,7 +325,7 @@ Tools are organized into **profiles** in `toolsets.py`. Each profile is a curate
 | `minimal` | shell | Zero install, filesystem tasks |
 | `standard` | shell, browser, data, docs | Research and data processing |
 | `full` | standard + email, calendar, tasks, media | Full productivity |
-| `remote` | shell, remote browser, remote files, email | Remote server work |
+| `remote` | shell, email, browser (remote), files (remote) | Remote server work |
 
 See [TOOLS.md](TOOLS.md) for the full catalog, install instructions, and how to create custom profiles.
 
@@ -421,6 +537,7 @@ The weakest point isn't the shell or the container — it's the CLI tools themse
 | `ANTHROPIC_API_KEY` | — | API key for Anthropic |
 | `OPENAI_API_KEY` | — | API key for OpenAI |
 | `GOOGLE_API_KEY` | — | API key for Google Gemini |
+| `CLIVE_EXPERIMENTAL_SELFMOD` | `0` | Set to `1` to enable self-modification |
 | `idle_timeout` | `2.0` | Per-tool idle timeout in seconds (in tool config) |
 | `max_turns` | `15` | Per-subtask turn budget (in `models.py`) |
 
@@ -436,15 +553,30 @@ session.py        — tmux session/pane management
 toolsets.py       — tool registry with named profiles (minimal, standard, full, remote)
 models.py         — dataclasses: Subtask, Plan, SubtaskResult, PaneInfo
 llm.py            — multi-provider LLM client (OpenAI, Anthropic, Gemini, OpenRouter, LMStudio, Ollama)
-prompts.py        — all LLM prompt templates
+prompts.py        — all LLM prompt templates (planner, worker, summarizer, triage)
+tui.py            — Textual-based terminal UI with slash commands
 completion.py     — three-strategy completion detection (marker/prompt/idle)
+install.sh        — cross-platform installer
 tools/            — helper scripts
   youtube.sh      — YouTube: list/get/captions/transcribe
   podcast.sh      — Podcast: list/get/transcribe
   claude.sh       — Anthropic Messages API wrapper
+selfmod/          — self-modification system (experimental)
+  __init__.py     — package init, is_enabled() flag check
+  gate.py         — deterministic gate: regex-based pattern scanner, immutable
+  constitution.py — file tier classification, constitution loader
+  audit.py        — append-only audit trail with hash-chained integrity
+  workspace.py    — git snapshot/rollback management
+  proposer.py     — LLM role: generates code modifications
+  reviewer.py     — LLM role: checks quality and correctness
+  auditor.py      — LLM role: checks governance compliance
+  pipeline.py     — orchestrates the full Propose → Review → Audit → Gate → Apply flow
+.clive/           — governance and audit data
+  constitution.md — self-modification governance rules and file tiers
+  audit/          — append-only modification audit trail (hash-chained JSON)
 fetch_emails.sh   — IMAP email fetcher (used by the email tool)
 send_reply.sh     — email sender via msmtp
 requirements.txt  — Python dependencies
 TOOLS.md          — full tool catalog and profile documentation
-.env              — API keys (not committed)
+.env              — API keys and configuration (not committed)
 ```

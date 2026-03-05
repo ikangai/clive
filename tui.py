@@ -68,6 +68,9 @@ HELP_TEXT = """\
   [#c9c9d6]/status[/]               Show running task status
   [#c9c9d6]/cancel[/]               Cancel the running task
   [#c9c9d6]/clear[/]                Clear the screen
+  [#c9c9d6]/selfmod[/] [#6b7280]<goal>[/]       Self-modify clive (experimental)
+  [#c9c9d6]/undo[/]                 Roll back last self-modification
+  [#c9c9d6]/safe-mode[/]            Disable self-modification
   [#c9c9d6]/help[/]                 Show this help
 
 [#d97706]Profiles:[/]   {profiles}
@@ -305,6 +308,20 @@ class CliveApp(App):
 
         elif cmd == "/install":
             self._install_missing()
+
+        elif cmd == "/selfmod":
+            if not arg:
+                out.write("[#6b7280]Usage: /selfmod <goal>[/]")
+                out.write("[#6b7280]Example: /selfmod add a /history command that shows past tasks[/]")
+                return
+            self._run_selfmod(arg)
+
+        elif cmd == "/undo":
+            self._undo_selfmod()
+
+        elif cmd == "/safe-mode":
+            os.environ["CLIVE_EXPERIMENTAL_SELFMOD"] = "0"
+            out.write("[#22c55e]✓[/] Self-modification disabled for this session.")
 
         else:
             out.write(f"[#ef4444]Unknown command: {cmd}[/] — try /help")
@@ -545,6 +562,81 @@ class CliveApp(App):
             self.call_from_thread(
                 out.write, f"[#ef4444]✗ Exit code: {proc.returncode}[/]"
             )
+
+    # ── Self-modification ─────────────────────────────────────────────────
+
+    def _run_selfmod(self, goal: str) -> None:
+        from selfmod import is_enabled
+        out = self.query_one("#output", RichLog)
+        if not is_enabled():
+            out.write(
+                "[#f59e0b]⚠ Self-modification is disabled.[/]\n"
+                "[#6b7280]Set CLIVE_EXPERIMENTAL_SELFMOD=1 in .env to enable.[/]"
+            )
+            return
+        self._execute_selfmod(goal)
+
+    @work(thread=True)
+    def _execute_selfmod(self, goal: str) -> None:
+        out = self.query_one("#output", RichLog)
+        from selfmod.pipeline import run_pipeline
+
+        def on_status(stage: str, msg: str) -> None:
+            icon = {
+                "analyzing": "◐",
+                "proposing": "◐",
+                "reviewing": "◑",
+                "auditing": "◒",
+                "gate": "◓",
+                "applying": "●",
+                "complete": "✓",
+            }.get(stage, "·")
+            color = "#22c55e" if stage == "complete" else "#d97706"
+            self.call_from_thread(
+                out.write, f"  [{color}]{icon}[/] [#6b7280]{stage}:[/] {msg}"
+            )
+
+        self.call_from_thread(out.write, "")
+        self.call_from_thread(
+            out.write, "[#d97706]Self-modification pipeline[/]"
+        )
+
+        result = run_pipeline(goal, on_status=on_status)
+
+        self.call_from_thread(out.write, "")
+        if result.success:
+            self.call_from_thread(
+                out.write,
+                f"[#22c55e]✓ Applied:[/] {result.message}"
+            )
+            self.call_from_thread(
+                out.write,
+                f"[#6b7280]  Snapshot: {result.snapshot_tag} · "
+                f"Tokens: {result.tokens['prompt'] + result.tokens['completion']:,}[/]"
+            )
+            self.call_from_thread(
+                out.write,
+                "[#6b7280]  Use /undo to roll back.[/]"
+            )
+        else:
+            self.call_from_thread(
+                out.write,
+                f"[#ef4444]✗ {result.stage}:[/] {result.message}"
+            )
+        self.call_from_thread(out.write, "")
+
+    def _undo_selfmod(self) -> None:
+        out = self.query_one("#output", RichLog)
+        try:
+            from selfmod.workspace import rollback, list_snapshots
+            snaps = list_snapshots()
+            if not snaps:
+                out.write("[#6b7280]No selfmod snapshots to undo.[/]")
+                return
+            tag = rollback()
+            out.write(f"[#22c55e]✓[/] Rolled back to [#c9c9d6]{tag}[/]")
+        except Exception as e:
+            out.write(f"[#ef4444]✗ Undo failed: {e}[/]")
 
     # ── Task execution ───────────────────────────────────────────────────
 

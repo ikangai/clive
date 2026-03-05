@@ -207,6 +207,40 @@ CATEGORIES["mycategory"] = {
 
 Then add to a profile or use directly: `-t standard+mycategory`
 
+## TUI slash commands
+
+The TUI (`clive --tui` or `clive-tui`) provides interactive configuration via slash commands. These are not tools — they configure the agent or control execution.
+
+| Command | Arguments | Description |
+|---------|-----------|-------------|
+| `/profile` | `<name\|+cat>` | Switch toolset profile or add a category (e.g., `/profile standard`, `/profile +media`) |
+| `/provider` | `<name>` | Switch LLM provider (e.g., `/provider anthropic`) |
+| `/model` | `<name>` | Switch model (e.g., `/model gpt-4o`) |
+| `/tools` | — | Show available and missing tools for the current profile |
+| `/install` | — | Install missing CLI tools (brew/pip) |
+| `/status` | — | Show running tasks with elapsed time and token counts |
+| `/cancel` | — | Cancel all running tasks |
+| `/clear` | — | Clear the output screen |
+| `/selfmod` | `<goal>` | Self-modify clive (experimental, requires `CLIVE_EXPERIMENTAL_SELFMOD=1`) |
+| `/undo` | — | Roll back the last self-modification |
+| `/safe-mode` | — | Disable self-modification for the current session |
+| `/help` | — | Show help with all commands, profiles, categories, and providers |
+
+## CLI flags
+
+```
+python clive.py [OPTIONS] [TASK]
+
+Options:
+  -t, --toolset SPEC     Toolset profile or category combo (default: minimal)
+  --list-toolsets        List available profiles and categories
+  --list-tools           List all tools across all surfaces
+  --tui                  Launch the interactive TUI
+  --selfmod GOAL         Self-modify clive (experimental)
+  --undo                 Roll back last self-modification
+  --safe-mode            Disable self-modification for this run
+```
+
 ## The philosophy
 
 The CLI is the universal agent interface. Instead of building MCP servers, REST adapters, or protocol bridges, clive talks to tools the same way a human does — by reading the terminal and typing commands.
