@@ -187,7 +187,14 @@ setup_venv() {
     cd "${INSTALL_DIR}"
 
     if [[ -d ".venv" ]]; then
-        info "Virtual environment already exists"
+        # Verify the venv still works (breaks if directory was moved/renamed)
+        if .venv/bin/python3 --version &>/dev/null; then
+            info "Virtual environment already exists"
+        else
+            warn "Virtual environment is broken (directory moved?) — recreating..."
+            rm -rf .venv
+            python3 -m venv .venv
+        fi
     else
         info "Creating virtual environment..."
         python3 -m venv .venv
