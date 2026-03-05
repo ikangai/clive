@@ -1,4 +1,11 @@
-# clive
+```
+ ██████╗██╗     ██╗██╗   ██╗███████╗
+██╔════╝██║     ██║██║   ██║██╔════╝
+██║     ██║     ██║██║   ██║█████╗
+██║     ██║     ██║╚██╗ ██╔╝██╔══╝
+╚██████╗███████╗██║ ╚████╔╝ ███████╗
+ ╚═════╝╚══════╝╚═╝  ╚═══╝  ╚══════╝
+```
 
 **CLI Live Environment** — an LLM agent that drives CLI tools through tmux. It reads the terminal screen as input and sends keystrokes as output — giving a language model direct control over shell sessions, browsers, email clients, and any other terminal program.
 

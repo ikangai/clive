@@ -43,6 +43,15 @@ from textual.widgets import (
 )
 from textual.widgets.option_list import Option
 
+LOGO = """\
+ ██████╗██╗     ██╗██╗   ██╗███████╗
+██╔════╝██║     ██║██║   ██║██╔════╝
+██║     ██║     ██║██║   ██║█████╗
+██║     ██║     ██║╚██╗ ██╔╝██╔══╝
+╚██████╗███████╗██║ ╚████╔╝ ███████╗
+ ╚═════╝╚══════╝╚═╝  ╚═══╝  ╚══════╝\
+"""
+
 from toolsets import (
     PROFILES,
     CATEGORIES,
@@ -66,6 +75,14 @@ Screen {
     color: $text;
     text-style: bold;
     padding: 0 1;
+}
+
+#logo {
+    height: 7;
+    content-align: center middle;
+    color: $primary;
+    text-style: bold;
+    margin-bottom: 1;
 }
 
 /* ── Setup Screen ── */
@@ -224,9 +241,8 @@ class SetupScreen(Screen):
     current_spec = reactive(DEFAULT_TOOLSET)
 
     def compose(self) -> ComposeResult:
-        yield Static("CLIVE -- CLI Live Environment", id="title-bar")
-
         with Vertical(id="setup-container"):
+            yield Static(LOGO, id="logo")
             # Profile row
             with Horizontal(id="profile-row"):
                 yield Select(
