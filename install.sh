@@ -483,7 +483,8 @@ setup_env() {
 
     if [[ -n "${key_var:-}" ]]; then
         ask "${key_prompt}:"
-        read -r api_key
+        read -rs api_key
+        echo
         if [[ -n "${api_key}" ]]; then
             env_content="${env_content}\n${key_var}=${api_key}"
         else
@@ -492,7 +493,7 @@ setup_env() {
         fi
     fi
 
-    echo -e "${env_content}" > .env
+    printf '%b\n' "${env_content}" > .env
     info "Saved .env (provider: ${provider})"
     echo
 }

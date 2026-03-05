@@ -213,7 +213,8 @@ if __name__ == "__main__":
         raise SystemExit(0)
 
     if args.list_tools:
-        resolved = resolve_toolset("full+images+dev+voice+ai+sync+translation+social+finance")
+        all_cats = "+".join(sorted(CATEGORIES.keys()))
+        resolved = resolve_toolset(all_cats)
         available_cmds, missing_cmds = check_commands(resolved["commands"])
 
         print("\nPANES (conversation channels):\n")

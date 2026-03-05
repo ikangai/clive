@@ -1,10 +1,13 @@
 """DAG scheduler and per-subtask worker execution."""
 
+import logging
 import os
 import re
 import threading
 import time
 from concurrent.futures import ThreadPoolExecutor, Future
+
+log = logging.getLogger(__name__)
 
 from models import Plan, Subtask, SubtaskStatus, SubtaskResult, PaneInfo
 from completion import wait_for_ready, wrap_command
@@ -89,7 +92,7 @@ def _emit(on_event, *args):
         try:
             on_event(*args)
         except Exception:
-            pass
+            log.debug("on_event callback failed for %s", args[0] if args else "?", exc_info=True)
 
 
 def execute_plan(

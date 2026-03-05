@@ -13,7 +13,6 @@ Usage:
 import subprocess
 import threading
 import time
-from typing import Callable
 
 from dotenv import load_dotenv
 
@@ -28,20 +27,13 @@ from textual.screen import Screen
 from textual.widgets import (
     Button,
     Footer,
-    Header,
     Input,
     Label,
-    ListItem,
-    ListView,
-    Log,
-    OptionList,
     RichLog,
-    Rule,
     Select,
     Static,
     TextArea,
 )
-from textual.widgets.option_list import Option
 
 LOGO = """\
  ██████╗██╗     ██╗██╗   ██╗███████╗
@@ -384,15 +376,11 @@ class SetupScreen(Screen):
             ep_text = "[dim]None[/dim]"
         self.query_one("#endpoints-list", Static).update(ep_text)
 
-    @work(thread=True)
     def _install_missing(self) -> None:
         if not hasattr(self, "_missing_cmds") or not self._missing_cmds:
             return
 
-        log = self.query_one("#install-log", RichLog)
-        self.app.call_from_thread(self._show_install_log)
-
-        # Group by install method
+        # Build install plan and show confirmation
         brew_pkgs = []
         pip_pkgs = []
         for cmd in self._missing_cmds:
@@ -402,33 +390,61 @@ class SetupScreen(Screen):
             elif install.startswith("pip install "):
                 pip_pkgs.append(install.split("pip install ", 1)[1])
 
+        if not brew_pkgs and not pip_pkgs:
+            self.notify("No installable packages found", severity="warning")
+            return
+
+        summary_parts = []
         if brew_pkgs:
-            install_cmd = f"brew install {' '.join(brew_pkgs)}"
+            summary_parts.append(f"brew install {' '.join(brew_pkgs)}")
+        if pip_pkgs:
+            summary_parts.append(f"pip3 install {' '.join(pip_pkgs)}")
+
+        self.notify(
+            "Installing: " + " && ".join(summary_parts),
+            severity="information",
+        )
+        self._do_install(brew_pkgs, pip_pkgs)
+
+    @work(thread=True)
+    def _do_install(self, brew_pkgs: list, pip_pkgs: list) -> None:
+        log = self.query_one("#install-log", RichLog)
+        self.app.call_from_thread(self._show_install_log)
+
+        if brew_pkgs:
+            argv = ["brew", "install"] + brew_pkgs
             self.app.call_from_thread(
-                log.write, f"[bold]$ {install_cmd}[/bold]"
+                log.write, f"[bold]$ {' '.join(argv)}[/bold]"
             )
-            self._run_install(install_cmd, log)
+            self._run_install(argv, log)
 
         if pip_pkgs:
-            install_cmd = f"pip3 install {' '.join(pip_pkgs)}"
+            argv = ["pip3", "install"] + pip_pkgs
             self.app.call_from_thread(
-                log.write, f"[bold]$ {install_cmd}[/bold]"
+                log.write, f"[bold]$ {' '.join(argv)}[/bold]"
             )
-            self._run_install(install_cmd, log)
+            self._run_install(argv, log)
 
         self.app.call_from_thread(log.write, "[green]Install complete.[/green]")
         self.app.call_from_thread(self._refresh_tools)
 
-    def _run_install(self, cmd: str, log: RichLog) -> None:
-        proc = subprocess.Popen(
-            cmd,
-            shell=True,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.STDOUT,
-            text=True,
-        )
-        for line in proc.stdout:
-            self.app.call_from_thread(log.write, line.rstrip())
+    def _run_install(self, argv: list[str], log: RichLog) -> None:
+        try:
+            proc = subprocess.Popen(
+                argv,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
+                text=True,
+            )
+        except FileNotFoundError:
+            self.app.call_from_thread(
+                log.write, f"[red]Command not found: {argv[0]}[/red]"
+            )
+            return
+
+        if proc.stdout:
+            for line in proc.stdout:
+                self.app.call_from_thread(log.write, line.rstrip())
         proc.wait()
         if proc.returncode != 0:
             self.app.call_from_thread(
@@ -484,7 +500,7 @@ class RunScreen(Screen):
         self._total_pt = 0
         self._total_ct = 0
         self._timer = None
-        self._cancelled = False
+        self._cancelled = threading.Event()
 
     def compose(self) -> ComposeResult:
         yield Static("CLIVE -- Running", id="title-bar")
@@ -520,7 +536,7 @@ class RunScreen(Screen):
             self.app.pop_screen()
 
     def action_cancel(self) -> None:
-        self._cancelled = True
+        self._cancelled.set()
         # Kill the tmux session
         try:
             subprocess.run(
@@ -541,7 +557,7 @@ class RunScreen(Screen):
 
     def _on_event(self, event_type: str, *args) -> None:
         """Callback from executor thread — post updates to the TUI."""
-        if self._cancelled:
+        if self._cancelled.is_set():
             return
         self.app.call_from_thread(self._handle_event, event_type, *args)
 
@@ -628,7 +644,7 @@ class RunScreen(Screen):
             tool_status, self.available_cmds, self.resolved["endpoints"]
         )
 
-        if self._cancelled:
+        if self._cancelled.is_set():
             return
 
         # Phase 1: Planning
@@ -648,7 +664,7 @@ class RunScreen(Screen):
         # Populate plan panel
         self.app.call_from_thread(self._populate_plan, plan)
 
-        if self._cancelled:
+        if self._cancelled.is_set():
             return
 
         # Phase 2: Execution
@@ -665,7 +681,7 @@ class RunScreen(Screen):
             self.app.call_from_thread(self._show_back_button)
             return
 
-        if self._cancelled:
+        if self._cancelled.is_set():
             return
 
         # Phase 3: Summarize

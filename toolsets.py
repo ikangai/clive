@@ -501,7 +501,7 @@ def resolve_toolset(spec: str) -> dict:
         "panes": panes,
         "commands": commands,
         "endpoints": endpoints,
-        "categories": categories,
+        "categories": sorted(categories),
     }
 
 
@@ -521,7 +521,7 @@ def check_commands(commands: list[dict]) -> tuple[list[dict], list[dict]]:
             continue
         try:
             result = subprocess.run(
-                check, shell=True, capture_output=True, timeout=5,
+                check, shell=True, capture_output=True, timeout=2,
             )
             if result.returncode == 0:
                 available.append(cmd)
@@ -586,6 +586,8 @@ def build_tools_summary(
             + "\n".join(ep_lines)
         )
 
+    if not sections:
+        return "No tools available. Only basic shell commands can be used."
     return "\n\n".join(sections)
 
 
@@ -594,10 +596,10 @@ def print_availability(
     available_commands: list[dict],
     missing_commands: list[dict],
     endpoints: list[dict],
-    categories: set[str],
+    categories: list[str],
 ) -> None:
     """Print a startup status table showing what's available."""
-    cat_str = ", ".join(sorted(categories))
+    cat_str = ", ".join(categories)
     print(f"  Categories: {cat_str}")
     print()
 
