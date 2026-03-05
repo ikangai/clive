@@ -513,14 +513,14 @@ create_launcher() {
     # Main clive launcher
     cat > "${BIN_DIR}/clive" <<LAUNCHER
 #!/usr/bin/env bash
-exec "${INSTALL_DIR}/.venv/bin/python" "${INSTALL_DIR}/clive.py" "\$@"
+exec "${INSTALL_DIR}/.venv/bin/python3" "${INSTALL_DIR}/clive.py" "\$@"
 LAUNCHER
     chmod +x "${BIN_DIR}/clive"
 
     # TUI launcher
     cat > "${BIN_DIR}/clive-tui" <<LAUNCHER
 #!/usr/bin/env bash
-exec "${INSTALL_DIR}/.venv/bin/python" "${INSTALL_DIR}/tui.py" "\$@"
+exec "${INSTALL_DIR}/.venv/bin/python3" "${INSTALL_DIR}/tui.py" "\$@"
 LAUNCHER
     chmod +x "${BIN_DIR}/clive-tui"
 
