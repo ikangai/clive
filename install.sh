@@ -52,6 +52,50 @@ warn()  { echo -e "${YELLOW}[!]${RESET} $*"; }
 err()   { echo -e "${RED}[x]${RESET} $*"; }
 ask()   { echo -en "${CYAN}[?]${RESET} $* "; }
 
+# ── Platform detection ───────────────────────────────────────────────────────
+
+detect_platform() {
+    OS="$(uname -s)"
+    case "${OS}" in
+        Darwin) PLATFORM="macos" ;;
+        Linux)  PLATFORM="linux" ;;
+        MINGW*|MSYS*|CYGWIN*)
+            echo
+            err "Native Windows is not supported."
+            echo
+            echo "  clive requires tmux, which is not available on Windows."
+            echo "  Install WSL (Windows Subsystem for Linux) and run this"
+            echo "  installer inside your WSL terminal:"
+            echo
+            echo "    1. Open PowerShell as admin and run:"
+            echo "       wsl --install"
+            echo "    2. Restart, open Ubuntu from the Start menu"
+            echo "    3. Run this installer inside WSL:"
+            echo "       curl -sSL https://raw.githubusercontent.com/ikangai/clive/main/install.sh | bash"
+            echo
+            exit 1
+            ;;
+        *)
+            warn "Unknown OS: ${OS} — proceeding anyway"
+            PLATFORM="linux"
+            ;;
+    esac
+
+    # Detect package manager
+    PKG_MGR=""
+    if command -v brew &>/dev/null; then
+        PKG_MGR="brew"
+    elif command -v apt-get &>/dev/null; then
+        PKG_MGR="apt"
+    elif command -v dnf &>/dev/null; then
+        PKG_MGR="dnf"
+    elif command -v pacman &>/dev/null; then
+        PKG_MGR="pacman"
+    fi
+
+    info "Platform: ${PLATFORM} (package manager: ${PKG_MGR:-none})"
+}
+
 # ── Prerequisites ────────────────────────────────────────────────────────────
 
 check_prerequisites() {
@@ -98,11 +142,12 @@ sys.exit(1)
         echo
         err "Missing prerequisites: ${missing[*]}"
         echo
-        if command -v brew &>/dev/null; then
-            echo "  brew install ${missing[*]}"
-        elif command -v apt &>/dev/null; then
-            echo "  sudo apt install ${missing[*]}"
-        fi
+        case "${PKG_MGR}" in
+            brew)   echo "  brew install ${missing[*]}" ;;
+            apt)    echo "  sudo apt install ${missing[*]}" ;;
+            dnf)    echo "  sudo dnf install ${missing[*]}" ;;
+            pacman) echo "  sudo pacman -S ${missing[*]}" ;;
+        esac
         echo
         exit 1
     fi
@@ -194,48 +239,35 @@ select_profile() {
 }
 
 install_tools_for_profile() {
-    # Detect available package manager
-    local pkg_mgr=""
-    if command -v brew &>/dev/null; then
-        pkg_mgr="brew"
-    elif command -v apt-get &>/dev/null; then
-        pkg_mgr="apt"
-    fi
-
-    if [[ -z "${pkg_mgr}" ]]; then
-        warn "No supported package manager found (brew or apt)"
+    if [[ -z "${PKG_MGR}" ]]; then
+        warn "No supported package manager found (brew, apt, dnf, or pacman)"
         warn "Install CLI tools manually — see TOOLS.md"
         echo
         return
     fi
 
-    # Determine what to install based on profile
-    local brew_pkgs=()
+    # Determine what to install based on profile.
+    # We use generic tool names and map them per package manager below.
+    local tools=()
     local pip_pkgs=()
 
     case "${PROFILE}" in
         standard)
-            brew_pkgs=(lynx ripgrep jq)
-            # pandoc, miller, poppler are nice-to-have
-            brew_pkgs+=(pandoc miller poppler)
+            tools=(lynx ripgrep jq pandoc miller poppler)
             ;;
         full)
-            brew_pkgs=(lynx ripgrep jq pandoc miller poppler)
-            brew_pkgs+=(neomutt ical-buddy task ddgr)
+            tools=(lynx ripgrep jq pandoc miller poppler neomutt ical-buddy task ddgr)
             pip_pkgs=(yt-dlp)
-            # whisper is large, ask separately
             ;;
         research)
-            brew_pkgs=(lynx ripgrep jq pandoc miller poppler ddgr)
+            tools=(lynx ripgrep jq pandoc miller poppler ddgr)
             pip_pkgs=(yt-dlp)
             ;;
         business)
-            brew_pkgs=(lynx ripgrep jq pandoc miller poppler)
-            brew_pkgs+=(neomutt ical-buddy task hledger)
+            tools=(lynx ripgrep jq pandoc miller poppler neomutt ical-buddy task hledger)
             ;;
         creative)
-            brew_pkgs=(lynx ripgrep jq imagemagick exiftool)
-            brew_pkgs+=(translate-shell)
+            tools=(lynx ripgrep jq imagemagick exiftool translate-shell)
             pip_pkgs=(yt-dlp)
             ;;
         minimal)
@@ -245,31 +277,97 @@ install_tools_for_profile() {
             ;;
     esac
 
-    # Filter out already-installed packages
-    local to_install_brew=()
-    for pkg in "${brew_pkgs[@]}"; do
-        # Map brew package names to binary names for checking
-        local bin="${pkg}"
-        case "${pkg}" in
-            ripgrep)         bin="rg" ;;
-            miller)          bin="mlr" ;;
-            poppler)         bin="pdftotext" ;;
-            ical-buddy)      bin="icalBuddy" ;;
-            task)            bin="task" ;;
-            translate-shell) bin="trans" ;;
-            imagemagick)     bin="convert" ;;
+    # Map generic tool names to actual package names per package manager.
+    # Also map to binary names for installed-check.
+    pkg_name_for() {
+        local tool="$1"
+        case "${PKG_MGR}" in
+            brew)
+                echo "${tool}"  # brew names match our generic names
+                ;;
+            apt)
+                case "${tool}" in
+                    ripgrep)         echo "ripgrep" ;;
+                    miller)          echo "miller" ;;
+                    poppler)         echo "poppler-utils" ;;
+                    ical-buddy)      echo "" ;;  # macOS only
+                    task)            echo "taskwarrior" ;;
+                    imagemagick)     echo "imagemagick" ;;
+                    translate-shell) echo "translate-shell" ;;
+                    exiftool)        echo "libimage-exiftool-perl" ;;
+                    hledger)         echo "hledger" ;;
+                    *)               echo "${tool}" ;;
+                esac
+                ;;
+            dnf)
+                case "${tool}" in
+                    ripgrep)         echo "ripgrep" ;;
+                    miller)          echo "miller" ;;
+                    poppler)         echo "poppler-utils" ;;
+                    ical-buddy)      echo "" ;;
+                    task)            echo "task" ;;
+                    imagemagick)     echo "ImageMagick" ;;
+                    translate-shell) echo "" ;;  # not in dnf, use pip
+                    exiftool)        echo "perl-Image-ExifTool" ;;
+                    hledger)         echo "" ;;  # not in dnf, use pip
+                    ddgr)            echo "" ;;  # not in dnf, use pip
+                    *)               echo "${tool}" ;;
+                esac
+                ;;
+            pacman)
+                case "${tool}" in
+                    ripgrep)         echo "ripgrep" ;;
+                    miller)          echo "miller" ;;
+                    poppler)         echo "poppler" ;;
+                    ical-buddy)      echo "" ;;
+                    task)            echo "task" ;;
+                    imagemagick)     echo "imagemagick" ;;
+                    translate-shell) echo "translate-shell" ;;
+                    exiftool)        echo "perl-image-exiftool" ;;
+                    hledger)         echo "hledger" ;;
+                    ddgr)            echo "ddgr" ;;
+                    *)               echo "${tool}" ;;
+                esac
+                ;;
         esac
-        if ! command -v "${bin}" &>/dev/null; then
-            to_install_brew+=("${pkg}")
+    }
+
+    bin_name_for() {
+        local tool="$1"
+        case "${tool}" in
+            ripgrep)         echo "rg" ;;
+            miller)          echo "mlr" ;;
+            poppler)         echo "pdftotext" ;;
+            ical-buddy)      echo "icalBuddy" ;;
+            translate-shell) echo "trans" ;;
+            imagemagick)     echo "convert" ;;
+            *)               echo "${tool}" ;;
+        esac
+    }
+
+    # Filter out already-installed tools and resolve package names
+    local to_install=()
+    local pip_fallback=()
+    for tool in "${tools[@]}"; do
+        local bin
+        bin=$(bin_name_for "${tool}")
+        if command -v "${bin}" &>/dev/null; then
+            echo -e "  ${GREEN}+${RESET} ${tool} already installed"
+            continue
+        fi
+        local pkg
+        pkg=$(pkg_name_for "${tool}")
+        if [[ -n "${pkg}" ]]; then
+            to_install+=("${pkg}")
         else
-            echo -e "  ${GREEN}+${RESET} ${pkg} already installed"
+            # Tool not available in this package manager
+            echo -e "  ${DIM}-${RESET} ${tool} ${DIM}(not available via ${PKG_MGR}, skipping)${RESET}"
         fi
     done
 
     local to_install_pip=()
     for pkg in "${pip_pkgs[@]}"; do
-        local bin="${pkg}"
-        if ! command -v "${bin}" &>/dev/null; then
+        if ! command -v "${pkg}" &>/dev/null; then
             to_install_pip+=("${pkg}")
         else
             echo -e "  ${GREEN}+${RESET} ${pkg} already installed"
@@ -278,16 +376,27 @@ install_tools_for_profile() {
 
     echo
 
-    # Install brew packages
-    if [[ ${#to_install_brew[@]} -gt 0 ]]; then
-        if [[ "${pkg_mgr}" == "brew" ]]; then
-            info "Installing via brew: ${to_install_brew[*]}"
-            brew install "${to_install_brew[@]}" || warn "Some brew packages failed"
-        else
-            # apt equivalents (best-effort mapping)
-            info "Installing via apt: ${to_install_brew[*]}"
-            sudo apt-get install -y "${to_install_brew[@]}" || warn "Some apt packages failed"
-        fi
+    # Install system packages
+    if [[ ${#to_install[@]} -gt 0 ]]; then
+        case "${PKG_MGR}" in
+            brew)
+                info "Installing via brew: ${to_install[*]}"
+                brew install "${to_install[@]}" || warn "Some packages failed"
+                ;;
+            apt)
+                info "Installing via apt: ${to_install[*]}"
+                sudo apt-get update -qq
+                sudo apt-get install -y "${to_install[@]}" || warn "Some packages failed"
+                ;;
+            dnf)
+                info "Installing via dnf: ${to_install[*]}"
+                sudo dnf install -y "${to_install[@]}" || warn "Some packages failed"
+                ;;
+            pacman)
+                info "Installing via pacman: ${to_install[*]}"
+                sudo pacman -S --noconfirm "${to_install[@]}" || warn "Some packages failed"
+                ;;
+        esac
     fi
 
     # Install pip packages into the venv
@@ -303,7 +412,13 @@ install_tools_for_profile() {
             ask "Install OpenAI Whisper for audio transcription? (large download) [y/N]:"
             read -r answer
             if [[ "${answer,,}" == "y" ]]; then
-                brew install ffmpeg 2>/dev/null || true
+                # ffmpeg is needed by whisper
+                case "${PKG_MGR}" in
+                    brew)   brew install ffmpeg 2>/dev/null || true ;;
+                    apt)    sudo apt-get install -y ffmpeg 2>/dev/null || true ;;
+                    dnf)    sudo dnf install -y ffmpeg 2>/dev/null || true ;;
+                    pacman) sudo pacman -S --noconfirm ffmpeg 2>/dev/null || true ;;
+                esac
                 info "Installing whisper..."
                 "${INSTALL_DIR}/.venv/bin/pip" install --quiet openai-whisper || warn "Whisper install failed"
             fi
@@ -427,6 +542,7 @@ LAUNCHER
 
 main() {
     logo
+    detect_platform
     check_prerequisites
     setup_repo
     setup_venv

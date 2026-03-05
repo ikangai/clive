@@ -47,6 +47,8 @@ bash install.sh
 
 The installer checks prerequisites (Python 3.10+, tmux), creates a venv, installs Python deps, offers to install CLI tools for your chosen profile, configures your LLM provider, and creates `clive` / `clive-tui` launcher commands.
 
+**Supported platforms:** macOS (brew), Ubuntu/Debian (apt), Fedora/RHEL (dnf), Arch (pacman). **Windows:** clive requires tmux, which is not available natively — use [WSL](https://learn.microsoft.com/en-us/windows/wsl/install) and run the installer inside your WSL terminal.
+
 **Quick start after install:**
 ```bash
 clive "list files in /tmp and summarize"          # CLI mode
