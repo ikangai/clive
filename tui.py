@@ -61,6 +61,7 @@ HELP_TEXT = """\
   [#c9c9d6]/profile[/] [#6b7280]+<cat>[/]      Add category to current profile
   [#c9c9d6]/tools[/]                Show available and missing tools
   [#c9c9d6]/install[/]              Install missing CLI tools
+  [#c9c9d6]/clear[/]                Clear the screen
   [#c9c9d6]/help[/]                 Show this help
 
 [#d97706]Profiles:[/]  {profiles}
@@ -237,6 +238,9 @@ class MainScreen(Screen):
                 out.write(f"[#22c55e]✓[/] Profile: [#c9c9d6]{self._spec}[/]")
             except ValueError as e:
                 out.write(f"[#ef4444]✗[/] {e}")
+
+        elif cmd == "/clear":
+            out.clear()
 
         elif cmd == "/tools":
             self._show_tools()
