@@ -179,6 +179,15 @@ class MainScreen(Screen):
         yield Static(f"[#6b7280]profile[/] {self._spec}", id="status-bar")
 
     def on_mount(self) -> None:
+        # Ensure clean state (defense against stale bytecode or Textual quirks)
+        self._running = False
+        self._current_task = ""
+        self._start_time = 0.0
+        self._total_pt = 0
+        self._total_ct = 0
+        self._timer = None
+        self._cancelled.clear()
+
         out = self.query_one("#output", RichLog)
         out.write(LOGO)
         out.write("")
