@@ -228,18 +228,65 @@ def run_pipeline(
 
 
 def _gather_context(goal: str) -> dict[str, str]:
-    """Read relevant project files to give the proposer context."""
+    """Read relevant project files based on the goal keywords.
+
+    Instead of sending the entire codebase (which blows up token counts and
+    causes truncated responses), we send only the files most likely relevant
+    to the goal plus a brief index of all files.
+    """
     context = {}
-    # Always include core files for context
-    core_files = [
-        "clive.py", "llm.py", "models.py", "prompts.py",
-        "executor.py", "planner.py", "session.py",
-        "tui.py", "toolsets.py",
-    ]
-    for name in core_files:
+    goal_lower = goal.lower()
+
+    # Map keywords to likely relevant files
+    keyword_files = {
+        "tui": ["tui.py"],
+        "input": ["tui.py"],
+        "slash": ["tui.py"],
+        "command": ["tui.py", "clive.py"],
+        "ui": ["tui.py"],
+        "prompt": ["prompts.py", "tui.py"],
+        "plan": ["planner.py", "prompts.py"],
+        "execut": ["executor.py"],
+        "llm": ["llm.py"],
+        "model": ["llm.py", "models.py"],
+        "provider": ["llm.py", "tui.py"],
+        "tool": ["toolsets.py"],
+        "profile": ["toolsets.py", "tui.py"],
+        "session": ["session.py"],
+        "tmux": ["session.py"],
+        "pane": ["session.py", "models.py"],
+        "complet": ["completion.py"],
+        "install": ["install.sh"],
+        "selfmod": ["selfmod/pipeline.py"],
+    }
+
+    # Collect relevant files
+    relevant = set()
+    for keyword, files in keyword_files.items():
+        if keyword in goal_lower:
+            relevant.update(files)
+
+    # Always include tui.py for UI changes (most common selfmod target)
+    if not relevant:
+        relevant.add("tui.py")
+
+    # Read relevant files in full
+    for name in relevant:
         path = PROJECT_ROOT / name
         if path.exists():
             context[name] = path.read_text()
+
+    # Add a brief index of ALL project files (so proposer knows what exists)
+    all_files = []
+    for name in sorted(PROJECT_ROOT.glob("*.py")):
+        all_files.append(name.name)
+    for name in sorted((PROJECT_ROOT / "selfmod").glob("*.py")):
+        all_files.append(f"selfmod/{name.name}")
+    context["__FILE_INDEX__"] = (
+        "All project files (read the ones you need with their full content above):\n"
+        + "\n".join(f"  {f}" for f in all_files)
+    )
+
     return context
 
 
