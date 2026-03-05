@@ -370,6 +370,70 @@ class CliveApp(App):
         )
         self._update_status()
 
+    def _build_clive_context(self) -> str:
+        """Build rich context about clive's actual configuration for triage."""
+        import llm
+        lines = []
+
+        lines.append("CURRENT CONFIGURATION:")
+        lines.append(f"  Profile: {self._spec}")
+        lines.append(f"  LLM provider: {llm.PROVIDER_NAME}, model: {llm.MODEL}")
+        lines.append("")
+
+        # Profiles
+        lines.append("AVAILABLE PROFILES (switch with /profile <name>):")
+        for name, cats in PROFILES.items():
+            marker = " ← current" if name == self._spec else ""
+            lines.append(f"  {name}: {', '.join(cats)}{marker}")
+        lines.append("")
+
+        # Categories
+        lines.append("CATEGORIES (compose with /profile +<cat>):")
+        lines.append(f"  {', '.join(sorted(CATEGORIES))}")
+        lines.append("")
+
+        # Current profile tools
+        if self._resolved:
+            pane_names = [p["name"] for p in self._resolved["panes"]]
+            lines.append(f"CURRENT PANES (tmux windows): {', '.join(pane_names)}")
+            lines.append("")
+
+            if self._available_cmds:
+                lines.append("AVAILABLE COMMANDS (installed):")
+                for cmd in self._available_cmds:
+                    lines.append(f"  {cmd['name']}: {cmd['description']}")
+                lines.append("")
+
+            if self._missing_cmds:
+                lines.append("MISSING COMMANDS (not installed, use /install):")
+                for cmd in self._missing_cmds:
+                    lines.append(
+                        f"  {cmd['name']}: {cmd['description']} — install: {cmd.get('install', '')}"
+                    )
+                lines.append("")
+
+            if self._resolved["endpoints"]:
+                lines.append("API ENDPOINTS (always available via curl):")
+                for ep in self._resolved["endpoints"]:
+                    lines.append(f"  {ep['name']}: {ep['description']} — {ep['usage']}")
+                lines.append("")
+
+        # Key features
+        lines.append("HOW CLIVE WORKS:")
+        lines.append("  - Runs tasks by driving CLI tools in tmux panes")
+        lines.append("  - The LLM reads the terminal screen, reasons, and types commands")
+        lines.append("  - Tasks are decomposed into subtasks that run in parallel across panes")
+        lines.append("  - Configuration: .env file for LLM provider, -t flag or /profile for toolset")
+        lines.append("  - Install tools: /install command or bash install.sh")
+        lines.append("  - Email requires neomutt (add comms category: /profile +comms)")
+        lines.append("  - Media/transcription requires yt-dlp, whisper, ffmpeg (add media category)")
+        lines.append("  - LLM providers: " + ", ".join(LLM_PROVIDERS))
+        lines.append("")
+
+        lines.append("TUI SLASH COMMANDS: /help, /profile, /provider, /model, /tools, /install, /status, /cancel, /clear")
+
+        return "\n".join(lines)
+
     def _show_tools(self) -> None:
         out = self.query_one("#output", RichLog)
 
@@ -595,11 +659,9 @@ class CliveApp(App):
 
         # Triage: classify the input before executing
         client = get_client()
-        tools_summary_quick = build_tools_summary(
-            {}, self._available_cmds, self._resolved["endpoints"] if self._resolved else []
-        )
+        clive_context = self._build_clive_context()
         triage_msgs = [
-            {"role": "system", "content": build_triage_prompt(tools_summary_quick)},
+            {"role": "system", "content": build_triage_prompt(clive_context)},
             {"role": "user", "content": task},
         ]
         try:

@@ -86,18 +86,21 @@ Rules:
 """
 
 
-def build_triage_prompt(tools_summary: str) -> str:
-    return f"""You are a task triage agent for clive, a CLI automation tool that drives terminal commands via tmux.
+def build_triage_prompt(clive_context: str) -> str:
+    return f"""You are a task triage agent for clive (CLI Live Environment).
 
-Available tools:
-{tools_summary}
+clive is a Python-based LLM agent that drives CLI tools through tmux panes.
+The LLM reads the terminal screen, reasons about what it sees, and types commands.
+No structured APIs needed — the pane IS the interface.
+
+{clive_context}
 
 When the user sends a message, classify it and respond with a JSON object:
 
-1. If it's a question about clive itself (setup, config, usage, what it can do):
-   {{"action": "answer", "response": "Your helpful answer here"}}
+1. If it's a question about clive itself (setup, config, usage, profiles, tools, what it can do):
+   {{"action": "answer", "response": "Your helpful answer based on the context above"}}
 
-2. If the task is too vague or ambiguous to execute — you need to know specifics like which files, what format, which account, etc:
+2. If the task is too vague or ambiguous to execute — you need specifics like which files, what format, which account:
    {{"action": "clarify", "question": "Your specific clarifying question"}}
 
 3. If the task is clear enough to execute:
@@ -106,7 +109,8 @@ When the user sends a message, classify it and respond with a JSON object:
 Guidelines:
 - Prefer "execute" when the task is reasonably clear, even if imperfect. Don't over-ask.
 - Only "clarify" when missing critical information that would cause the task to fail.
-- For "answer", give a concise, helpful response about clive's features and usage.
+- For "answer", ONLY use information from the context above. Never hallucinate features.
+- If you don't know the answer, say so and suggest the user check /help or TOOLS.md.
 - Respond with only the JSON object, nothing else."""
 
 
