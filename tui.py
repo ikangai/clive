@@ -17,7 +17,10 @@ Usage:
     python clive.py --tui
 """
 
+import io
+import os
 import subprocess
+import sys
 import threading
 import time
 
@@ -475,6 +478,13 @@ class MainScreen(Screen):
     def _execute_task(self, task: str) -> None:
         out = self.query_one("#output", RichLog)
 
+        # Redirect stdout/stderr — Textual replaces sys.stdout with a
+        # capture object that lacks .encoding, breaking libtmux and others.
+        devnull = open(os.devnull, "w")
+        old_stdout, old_stderr = sys.stdout, sys.stderr
+        sys.stdout = devnull
+        sys.stderr = devnull
+
         try:
             self._execute_task_inner(task, out)
         except Exception as e:
@@ -482,6 +492,8 @@ class MainScreen(Screen):
                 out.write, f"[#ef4444]✗ Unexpected error: {e}[/]"
             )
         finally:
+            sys.stdout, sys.stderr = old_stdout, old_stderr
+            devnull.close()
             self.app.call_from_thread(self._finish_task)
 
     def _execute_task_inner(self, task: str, out: RichLog) -> None:
