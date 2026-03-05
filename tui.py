@@ -174,6 +174,8 @@ class CliveApp(App):
         self._tasks: list[dict] = []
         self._tasks_lock = threading.Lock()
         self._timer = None
+        # Pending clarification: {original_task, context}
+        self._pending: dict | None = None
 
     def get_css_variables(self) -> dict[str, str]:
         return {**super().get_css_variables(), **CLIVE_THEME.generate()}
@@ -213,6 +215,12 @@ class CliveApp(App):
 
         if text.startswith("/"):
             self._handle_command(text)
+        elif self._pending:
+            # User is answering a clarification question
+            pending = self._pending
+            self._pending = None
+            combined = f"{pending['task']}\n\nAdditional context: {text}"
+            self._run_task(combined)
         else:
             self._run_task(text)
 
@@ -577,12 +585,58 @@ class CliveApp(App):
             self.call_from_thread(self._finish_task, task_info)
 
     def _execute_task_inner(self, task: str, task_info: dict, out: RichLog) -> None:
+        import json as _json
         from session import setup_session, check_health
         from planner import create_plan
         from executor import execute_plan
         from models import SubtaskStatus
         from llm import get_client, chat
-        from prompts import build_summarizer_prompt
+        from prompts import build_summarizer_prompt, build_triage_prompt
+
+        # Triage: classify the input before executing
+        client = get_client()
+        tools_summary_quick = build_tools_summary(
+            {}, self._available_cmds, self._resolved["endpoints"] if self._resolved else []
+        )
+        triage_msgs = [
+            {"role": "system", "content": build_triage_prompt(tools_summary_quick)},
+            {"role": "user", "content": task},
+        ]
+        try:
+            triage_raw, pt, ct = chat(client, triage_msgs, max_tokens=512)
+            task_info["pt"] += pt
+            task_info["ct"] += ct
+            # Parse JSON from response (strip markdown fences if present)
+            clean = triage_raw.strip()
+            if clean.startswith("```"):
+                clean = clean.split("\n", 1)[1].rsplit("```", 1)[0].strip()
+            triage = _json.loads(clean)
+        except Exception:
+            # If triage fails, fall through to execute
+            triage = {"action": "execute", "task": task}
+
+        action = triage.get("action", "execute")
+
+        if action == "answer":
+            self.call_from_thread(out.write, "")
+            for line in triage.get("response", "").split("\n"):
+                self.call_from_thread(out.write, line)
+            self.call_from_thread(out.write, "")
+            return
+
+        if action == "clarify":
+            question = triage.get("question", "Could you provide more details?")
+            self.call_from_thread(
+                out.write,
+                f"\n[#d97706]?[/] {question}\n",
+            )
+            # Store pending state so next input continues this task
+            self._pending = {"task": task}
+            return
+
+        # action == "execute" — may have a refined task description
+        task = triage.get("task", task)
+        task_info["desc"] = task  # update with refined version
 
         # Setup
         self.call_from_thread(
