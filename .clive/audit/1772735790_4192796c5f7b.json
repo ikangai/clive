@@ -1,0 +1,14 @@
+{
+  "timestamp": 1772735790.593344,
+  "iso_time": "2026-03-05T18:36:30Z",
+  "proposal_id": "4192796c5f7b",
+  "action": "reject",
+  "files": [],
+  "tier": "UNKNOWN",
+  "roles": {},
+  "gate_result": {},
+  "outcome": "proposal_failed",
+  "details": "Proposal failed: Unterminated string starting at: line 4 column 15 (char 137)",
+  "prev_hash": "genesis",
+  "hash": "36f20f8df2ff92ca03d1ee82d2dcde60cfb1ca20215ec4fe68bf6047fecaa356"
+}
