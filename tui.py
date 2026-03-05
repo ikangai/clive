@@ -33,7 +33,6 @@ from textual.app import App, ComposeResult
 from textual.binding import Binding
 from textual.containers import Horizontal, Vertical
 from textual.design import ColorSystem
-from textual.screen import Screen
 from textual.widgets import (
     Footer,
     Input,
@@ -150,10 +149,14 @@ Footer {
 }
 """
 
-# ── Main Screen ──────────────────────────────────────────────────────────────
+# ── App ──────────────────────────────────────────────────────────────────────
 
 
-class MainScreen(Screen):
+class CliveApp(App):
+    """Clive TUI application."""
+
+    TITLE = "clive"
+    CSS = CSS
 
     BINDINGS = [
         Binding("ctrl+c", "quit", "Quit", show=False),
@@ -173,6 +176,9 @@ class MainScreen(Screen):
         self._total_pt = 0
         self._total_ct = 0
         self._timer = None
+
+    def get_css_variables(self) -> dict[str, str]:
+        return {**super().get_css_variables(), **CLIVE_THEME.generate()}
 
     def compose(self) -> ComposeResult:
         yield RichLog(id="output", wrap=True, markup=True)
@@ -440,20 +446,20 @@ class MainScreen(Screen):
 
         if brew_pkgs:
             argv = ["brew", "install"] + brew_pkgs
-            self.app.call_from_thread(
+            self.call_from_thread(
                 out.write, f"[#d97706]$[/] {' '.join(argv)}"
             )
             self._run_subprocess(argv, out)
 
         if pip_pkgs:
             argv = ["pip3", "install"] + pip_pkgs
-            self.app.call_from_thread(
+            self.call_from_thread(
                 out.write, f"[#d97706]$[/] {' '.join(argv)}"
             )
             self._run_subprocess(argv, out)
 
-        self.app.call_from_thread(out.write, "[#22c55e]✓ Install complete[/]")
-        self.app.call_from_thread(self._resolve_profile)
+        self.call_from_thread(out.write, "[#22c55e]✓ Install complete[/]")
+        self.call_from_thread(self._resolve_profile)
 
     def _run_subprocess(self, argv: list[str], out: RichLog) -> None:
         try:
@@ -464,17 +470,17 @@ class MainScreen(Screen):
                 text=True,
             )
         except FileNotFoundError:
-            self.app.call_from_thread(
+            self.call_from_thread(
                 out.write, f"[#ef4444]✗ Command not found: {argv[0]}[/]"
             )
             return
 
         if proc.stdout:
             for line in proc.stdout:
-                self.app.call_from_thread(out.write, line.rstrip())
+                self.call_from_thread(out.write, line.rstrip())
         proc.wait()
         if proc.returncode != 0:
-            self.app.call_from_thread(
+            self.call_from_thread(
                 out.write, f"[#ef4444]✗ Exit code: {proc.returncode}[/]"
             )
 
@@ -514,7 +520,7 @@ class MainScreen(Screen):
     def _on_event(self, event_type: str, *args) -> None:
         if self._cancelled.is_set():
             return
-        self.app.call_from_thread(self._handle_event, event_type, *args)
+        self.call_from_thread(self._handle_event, event_type, *args)
 
     def _handle_event(self, event_type: str, *args) -> None:
         out = self.query_one("#output", RichLog)
@@ -562,13 +568,13 @@ class MainScreen(Screen):
         try:
             self._execute_task_inner(task, out)
         except Exception as e:
-            self.app.call_from_thread(
+            self.call_from_thread(
                 out.write, f"[#ef4444]✗ Unexpected error: {e}[/]"
             )
         finally:
             sys.stdout, sys.stderr = old_stdout, old_stderr
             devnull.close()
-            self.app.call_from_thread(self._finish_task)
+            self.call_from_thread(self._finish_task)
 
     def _execute_task_inner(self, task: str, out: RichLog) -> None:
         from session import setup_session, check_health
@@ -579,7 +585,7 @@ class MainScreen(Screen):
         from prompts import build_summarizer_prompt
 
         # Setup
-        self.app.call_from_thread(
+        self.call_from_thread(
             out.write, "[#6b7280]Setting up session...[/]"
         )
 
@@ -587,7 +593,7 @@ class MainScreen(Screen):
             session, panes = setup_session(self._resolved["panes"])
             tool_status = check_health(panes)
         except Exception as e:
-            self.app.call_from_thread(
+            self.call_from_thread(
                 out.write, f"[#ef4444]✗ Session failed: {e}[/]"
             )
             return
@@ -600,27 +606,27 @@ class MainScreen(Screen):
             return
 
         # Plan
-        self.app.call_from_thread(out.write, "[#6b7280]Planning...[/]")
+        self.call_from_thread(out.write, "[#6b7280]Planning...[/]")
 
         try:
             plan = create_plan(
                 task, panes, tool_status, tools_summary=tools_summary
             )
         except Exception as e:
-            self.app.call_from_thread(
+            self.call_from_thread(
                 out.write, f"[#ef4444]✗ Planning failed: {e}[/]"
             )
             return
 
         # Show plan
-        self.app.call_from_thread(out.write, "")
+        self.call_from_thread(out.write, "")
         for s in plan.subtasks:
             deps = f" [#3a3a4a]→ {', '.join(s.depends_on)}[/]" if s.depends_on else ""
-            self.app.call_from_thread(
+            self.call_from_thread(
                 out.write,
                 f"  [#3a3a4a]○[/] [#c9c9d6]{s.id}[/] [#6b7280]{s.pane}[/] {s.description[:55]}{deps}",
             )
-        self.app.call_from_thread(out.write, "")
+        self.call_from_thread(out.write, "")
 
         if self._cancelled.is_set():
             return
@@ -631,7 +637,7 @@ class MainScreen(Screen):
                 plan, panes, tool_status, on_event=self._on_event
             )
         except Exception as e:
-            self.app.call_from_thread(
+            self.call_from_thread(
                 out.write, f"[#ef4444]✗ Execution failed: {e}[/]"
             )
             return
@@ -640,8 +646,8 @@ class MainScreen(Screen):
             return
 
         # Summarize
-        self.app.call_from_thread(out.write, "")
-        self.app.call_from_thread(
+        self.call_from_thread(out.write, "")
+        self.call_from_thread(
             out.write, "[#6b7280]Summarizing...[/]"
         )
 
@@ -670,36 +676,15 @@ class MainScreen(Screen):
         total = len(results)
         elapsed = time.time() - self._start_time
 
-        self.app.call_from_thread(out.write, "")
-        self.app.call_from_thread(
+        self.call_from_thread(out.write, "")
+        self.call_from_thread(
             out.write,
             f"[#22c55e]✓ {completed}/{total} subtasks[/] [#3a3a4a]in {elapsed:.1f}s · {self._total_pt + self._total_ct:,} tokens[/]",
         )
-        self.app.call_from_thread(out.write, "")
+        self.call_from_thread(out.write, "")
         for line in summary.split("\n"):
-            self.app.call_from_thread(out.write, line)
-        self.app.call_from_thread(out.write, "")
-
-
-# ── App ──────────────────────────────────────────────────────────────────────
-
-
-class CliveApp(App):
-    """Clive TUI application."""
-
-    TITLE = "clive"
-    CSS = CSS
-
-    BINDINGS = [
-        Binding("ctrl+q", "quit", "Quit", show=False),
-        Binding("ctrl+c", "quit", "Quit", show=False),
-    ]
-
-    def get_css_variables(self) -> dict[str, str]:
-        return {**super().get_css_variables(), **CLIVE_THEME.generate()}
-
-    def on_mount(self) -> None:
-        self.push_screen(MainScreen())
+            self.call_from_thread(out.write, line)
+        self.call_from_thread(out.write, "")
 
 
 if __name__ == "__main__":
