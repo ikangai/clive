@@ -31,6 +31,30 @@ The file system becomes shared memory between subtasks. The panes become rooms t
 
 There's been a quiet movement where everything became an API, everything became stateless, everything became a structured call. We lost the environment. **CLIfication** is the reversal: bring back the environment, the stream, the persistent stateful workspace — specifically for agents that navigate the world by observing and acting, not by making function calls.
 
+## Install
+
+**One-liner:**
+```bash
+curl -sSL https://raw.githubusercontent.com/ikangai/clive/main/install.sh | bash
+```
+
+**Or manually:**
+```bash
+git clone https://github.com/ikangai/clive.git
+cd clive
+bash install.sh
+```
+
+The installer checks prerequisites (Python 3.10+, tmux), creates a venv, installs Python deps, offers to install CLI tools for your chosen profile, configures your LLM provider, and creates `clive` / `clive-tui` launcher commands.
+
+**Quick start after install:**
+```bash
+clive "list files in /tmp and summarize"          # CLI mode
+clive -t standard "browse example.com"            # with browser + data tools
+clive-tui                                          # TUI mode
+clive --list-tools                                 # see what's available
+```
+
 ## How it works
 
 ```
