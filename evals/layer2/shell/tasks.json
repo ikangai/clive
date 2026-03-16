@@ -1,0 +1,85 @@
+[
+  {
+    "id": "shell_find_txt_001",
+    "layer": 2,
+    "tool": "shell",
+    "mode": "interactive",
+    "task": "Find all .txt files in the current directory (recursively) and write their paths, one per line, to /tmp/clive/result.txt. Use relative paths.",
+    "initial_state": {
+      "filesystem": "fixtures/find_txt_files/"
+    },
+    "success_criteria": {
+      "type": "deterministic",
+      "check": "sort /tmp/clive/result.txt | grep -c '.txt$' | grep -q '3'"
+    },
+    "min_turns": 2,
+    "max_turns": 8,
+    "timeout_seconds": 30
+  },
+  {
+    "id": "shell_count_pattern_002",
+    "layer": 2,
+    "tool": "shell",
+    "mode": "interactive",
+    "task": "Count the total number of lines containing 'TODO' across all files in the current directory (recursively). Write just the number to /tmp/clive/result.txt.",
+    "initial_state": {
+      "filesystem": "fixtures/count_pattern/"
+    },
+    "success_criteria": {
+      "type": "deterministic",
+      "check": "test \"$(cat /tmp/clive/result.txt | tr -d '[:space:]')\" = \"3\""
+    },
+    "min_turns": 2,
+    "max_turns": 8,
+    "timeout_seconds": 30
+  },
+  {
+    "id": "shell_pipeline_003",
+    "layer": 2,
+    "tool": "shell",
+    "mode": "interactive",
+    "task": "Using the file input.txt, count word frequencies and write the top 3 most common words (one per line, format: 'COUNT WORD') to /tmp/clive/result.txt, sorted by frequency descending.",
+    "initial_state": {
+      "filesystem": "fixtures/pipeline_test/"
+    },
+    "success_criteria": {
+      "type": "deterministic",
+      "check": "head -1 /tmp/clive/result.txt | grep -q 'the'"
+    },
+    "min_turns": 2,
+    "max_turns": 8,
+    "timeout_seconds": 30
+  },
+  {
+    "id": "shell_disk_usage_004",
+    "layer": 2,
+    "tool": "shell",
+    "mode": "interactive",
+    "task": "List all files in the current directory with their sizes in human-readable format (like ls -lh), and write the total count of files (not directories) to /tmp/clive/result.txt as a single number.",
+    "initial_state": {
+      "filesystem": "fixtures/find_txt_files/"
+    },
+    "success_criteria": {
+      "type": "deterministic",
+      "check": "test \"$(cat /tmp/clive/result.txt | tr -d '[:space:]')\" -ge 3"
+    },
+    "min_turns": 2,
+    "max_turns": 8,
+    "timeout_seconds": 30
+  },
+  {
+    "id": "shell_json_extract_005",
+    "layer": 2,
+    "tool": "shell",
+    "mode": "interactive",
+    "task": "Create a JSON file at /tmp/clive/data.json containing: [{\"name\":\"alice\",\"age\":30},{\"name\":\"bob\",\"age\":25},{\"name\":\"charlie\",\"age\":35}]. Then extract all names and write them to /tmp/clive/result.txt, one per line.",
+    "initial_state": {},
+    "success_criteria": {
+      "type": "deterministic",
+      "check": "grep -q 'alice' /tmp/clive/result.txt && grep -q 'bob' /tmp/clive/result.txt && grep -q 'charlie' /tmp/clive/result.txt"
+    },
+    "min_turns": 2,
+    "max_turns": 10,
+    "timeout_seconds": 45
+  }
+]
