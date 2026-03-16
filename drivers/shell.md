@@ -1,0 +1,33 @@
+# Shell Driver (bash)
+
+ENVIRONMENT: bash shell with PS1="[AGENT_READY] $ "
+WORKING DIR: /tmp/clive (shared workspace — write results here)
+
+COMMAND EXECUTION:
+- One command per turn. Wait for output before sending next.
+- Use && to chain dependent commands: mkdir -p out && cp file out/
+- Use ; only when second command should run regardless of first.
+- Redirect output to files for other tasks: cmd > /tmp/clive/result.txt
+
+EXIT CODES:
+- Check with: cmd; echo "EXIT:$?"
+- 0=success, 1=general error, 2=misuse, 126=not executable, 127=not found
+
+PATTERNS:
+- Long output: cmd | head -50 or cmd | tail -20
+- Search files: grep -r 'pattern' /path or rg 'pattern' /path
+- JSON processing: curl -s url | jq '.field'
+- CSV processing: mlr --csv filter '$col > val' file.csv
+- File listing: ls -la /path (not just ls)
+- Disk usage: du -sh /path/*
+- Process text: awk, sed, sort, uniq, wc, cut, tr
+
+PITFALLS:
+- Quoting: use single quotes for literal strings, double for variable expansion
+- Glob expansion: quote patterns when passing to grep/find: grep 'TODO' *.py
+- Large directories: pipe ls through head to avoid flooding the screen
+- Binary files: use file cmd to check type before cat
+- Permissions: if "Permission denied", check with ls -la, try with sudo only if appropriate
+
+COMPLETION: Use <cmd type="task_complete">summary</cmd> when goal is achieved.
+Write results to /tmp/clive/ files for other subtasks to consume.
