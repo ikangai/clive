@@ -9,6 +9,7 @@ from concurrent.futures import ThreadPoolExecutor, Future
 
 log = logging.getLogger(__name__)
 
+from output import progress
 from models import Plan, Subtask, SubtaskStatus, SubtaskResult, PaneInfo
 from completion import wait_for_ready, wrap_command
 from llm import get_client, chat
@@ -145,7 +146,7 @@ def execute_plan(
                         output_snippet="",
                     )
                     subtask.status = SubtaskStatus.SKIPPED
-                    print(f"  SKIP [{subtask.id}] {subtask.description[:50]}... (dependency failed)")
+                    progress(f"  SKIP [{subtask.id}] {subtask.description[:50]}... (dependency failed)")
                     _emit(on_event, "subtask_skip", subtask.id, "dependency failed")
                     continue
 
@@ -163,7 +164,7 @@ def execute_plan(
                 # Submit to thread pool
                 subtask.status = SubtaskStatus.RUNNING
                 start_times[subtask.id] = time.time()
-                print(f"  START [{subtask.id}] [{subtask.pane}] {subtask.description[:60]}...")
+                progress(f"  START [{subtask.id}] [{subtask.pane}] {subtask.description[:60]}...")
                 _emit(on_event, "subtask_start", subtask.id, subtask.pane, subtask.description)
                 future = pool.submit(
                     run_subtask,
@@ -193,7 +194,7 @@ def execute_plan(
                     subtask_map[sid].status = result.status
                     elapsed = time.time() - start_times.get(sid, time.time())
                     status_str = "DONE" if result.status == SubtaskStatus.COMPLETED else "FAIL"
-                    print(f"  {status_str} [{sid}] {result.summary[:60]}")
+                    progress(f"  {status_str} [{sid}] {result.summary[:60]}")
                     if result.status == SubtaskStatus.COMPLETED:
                         _emit(on_event, "subtask_done", sid, result.summary, elapsed)
                     else:
@@ -213,7 +214,7 @@ def execute_plan(
             if not futures:
                 unresolved = [s.id for s in plan.subtasks if s.id not in results]
                 if unresolved:
-                    print(f"  WARNING: Deadlocked — no running subtasks, {unresolved} unresolved")
+                    progress(f"  WARNING: Deadlocked — no running subtasks, {unresolved} unresolved")
                     for sid in unresolved:
                         results[sid] = SubtaskResult(
                             subtask_id=sid,
@@ -272,7 +273,7 @@ def run_subtask(
             total_ct += ct
             messages.append({"role": "assistant", "content": reply})
 
-            print(f"    [{subtask.id}] Turn {turn}: {reply[:80]}...")
+            progress(f"    [{subtask.id}] Turn {turn}: {reply[:80]}...")
 
             # Parse command
             cmd = parse_command(reply)

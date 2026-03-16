@@ -4,6 +4,7 @@ import time
 
 import libtmux
 
+from output import progress
 from models import PaneInfo
 
 SESSION_NAME = "clive"
@@ -84,7 +85,7 @@ def check_health(panes: dict[str, PaneInfo]) -> dict[str, dict]:
             "description": info.description,
         }
         indicator = "✓" if ready else "✗"
-        print(f"  {indicator} {name:16} [{info.app_type}]")
+        progress(f"  {indicator} {name:16} [{info.app_type}]")
     return status
 
 

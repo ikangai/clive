@@ -3,6 +3,7 @@
 import json
 import re
 
+from output import progress
 from models import Plan, Subtask, PaneInfo
 from llm import get_client, chat
 from prompts import build_planner_prompt
@@ -35,11 +36,11 @@ def create_plan(
     content = ""
     for attempt in range(1, MAX_RETRIES + 1):
         content, pt, ct = chat(client, messages, max_tokens=2048)
-        print(f"  Planning (attempt {attempt}): {pt} prompt + {ct} completion tokens")
+        progress(f"  Planning (attempt {attempt}): {pt} prompt + {ct} completion tokens")
 
         if content.strip():
             break
-        print(f"  WARNING: LLM returned empty response, retrying...")
+        progress(f"  WARNING: LLM returned empty response, retrying...")
     else:
         if not content.strip():
             raise ValueError("Planner LLM returned empty response after all retries")
@@ -79,18 +80,18 @@ def _extract_json(text: str) -> str:
 
 def display_plan(plan: Plan) -> None:
     """Print the execution plan."""
-    print(f"\n{'═' * 60}")
-    print("EXECUTION PLAN")
-    print(f"{'═' * 60}")
-    print(f"Task: {plan.task}\n")
+    progress(f"\n{'═' * 60}")
+    progress("EXECUTION PLAN")
+    progress(f"{'═' * 60}")
+    progress(f"Task: {plan.task}\n")
 
     for s in plan.subtasks:
         deps = f" (after: {', '.join(s.depends_on)})" if s.depends_on else ""
-        print(f"  [{s.id}] [{s.pane}] {s.description}{deps}")
+        progress(f"  [{s.id}] [{s.pane}] {s.description}{deps}")
 
     # Show parallelism opportunities
     no_deps = [s.id for s in plan.subtasks if not s.depends_on]
     if len(no_deps) > 1:
-        print(f"\n  Parallel start: subtasks {', '.join(no_deps)}")
+        progress(f"\n  Parallel start: subtasks {', '.join(no_deps)}")
 
-    print(f"{'═' * 60}\n")
+    progress(f"{'═' * 60}\n")

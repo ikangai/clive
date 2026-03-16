@@ -38,6 +38,7 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
+from output import progress, result
 from session import setup_session, check_health, SESSION_NAME
 from toolsets import (
     resolve_toolset, check_commands, build_tools_summary,
@@ -55,20 +56,20 @@ def run(task: str, toolset_spec: str = DEFAULT_TOOLSET):
     # Resolve toolset spec into three surfaces
     resolved = resolve_toolset(toolset_spec)
 
-    print(f"\n{'=' * 60}")
-    print(f"Setting up session: {SESSION_NAME}")
-    print(f"{'~' * 60}")
+    progress(f"\n{'=' * 60}")
+    progress(f"Setting up session: {SESSION_NAME}")
+    progress(f"{'~' * 60}")
 
     # Create tmux session with pane tools only
     session, panes = setup_session(resolved["panes"])
 
-    print(f"\nHealth check:")
+    progress(f"\nHealth check:")
     tool_status = check_health(panes)
 
     # Auto-detect which commands are installed
     available_cmds, missing_cmds = check_commands(resolved["commands"])
 
-    print()
+    progress("")
     print_availability(
         tool_status, available_cmds, missing_cmds,
         resolved["endpoints"], resolved["categories"],
@@ -79,24 +80,24 @@ def run(task: str, toolset_spec: str = DEFAULT_TOOLSET):
         tool_status, available_cmds, resolved["endpoints"],
     )
 
-    print(f"{'~' * 60}")
-    print(f"Task: {task}")
-    print(f"Watch: tmux attach -t {SESSION_NAME}")
-    print(f"{'=' * 60}\n")
+    progress(f"{'~' * 60}")
+    progress(f"Task: {task}")
+    progress(f"Watch: tmux attach -t {SESSION_NAME}")
+    progress(f"{'=' * 60}\n")
 
     start_time = time.time()
 
     # Phase 1: Planning
-    print("Phase 1: Planning...")
+    progress("Phase 1: Planning...")
     plan = create_plan(task, panes, tool_status, tools_summary=tools_summary)
     display_plan(plan)
 
     # Phase 2: Execution
-    print("Phase 2: Executing...")
+    progress("Phase 2: Executing...")
     results = execute_plan(plan, panes, tool_status)
 
     # Phase 3: Summarization
-    print("\nPhase 3: Summarizing...")
+    progress("\nPhase 3: Summarizing...")
     summary = _summarize(task, results)
 
     elapsed = time.time() - start_time
@@ -105,14 +106,14 @@ def run(task: str, toolset_spec: str = DEFAULT_TOOLSET):
     completed = sum(1 for r in results if r.status == SubtaskStatus.COMPLETED)
     total = len(results)
 
-    print(f"\n{'=' * 60}")
-    print(f"TASK COMPLETE ({completed}/{total} subtasks succeeded)")
-    print(f"{'=' * 60}")
-    print(summary)
-    print(f"{'~' * 60}")
-    print(f"Time:   {elapsed:.1f}s")
-    print(f"Tokens: {total_pt} prompt + {total_ct} completion = {total_pt + total_ct} total")
-    print(f"{'=' * 60}\n")
+    progress(f"\n{'=' * 60}")
+    progress(f"TASK COMPLETE ({completed}/{total} subtasks succeeded)")
+    progress(f"{'=' * 60}")
+    result(summary)
+    progress(f"{'~' * 60}")
+    progress(f"Time:   {elapsed:.1f}s")
+    progress(f"Tokens: {total_pt} prompt + {total_ct} completion = {total_pt + total_ct} total")
+    progress(f"{'=' * 60}\n")
 
     return summary
 

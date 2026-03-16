@@ -26,6 +26,8 @@ Public API:
 
 import subprocess
 
+from output import progress
+
 # ── Pane definitions ─────────────────────────────────────────────────────────
 # Each creates a tmux window — a conversation channel the agent controls.
 # Only use a separate pane when the tool needs persistent state (TUI)
@@ -600,24 +602,24 @@ def print_availability(
 ) -> None:
     """Print a startup status table showing what's available."""
     cat_str = ", ".join(categories)
-    print(f"  Categories: {cat_str}")
-    print()
+    progress(f"  Categories: {cat_str}")
+    progress("")
 
     # Commands
     if available_commands or missing_commands:
-        print("  Commands:")
+        progress("  Commands:")
         for cmd in available_commands:
             desc = cmd["description"].split(" — ")[0] if " — " in cmd["description"] else cmd["description"][:40]
-            print(f"    + {cmd['name']:20s} {desc}")
+            progress(f"    + {cmd['name']:20s} {desc}")
         for cmd in missing_commands:
             install = cmd.get("install", "")
-            print(f"    - {cmd['name']:20s} not found ({install})")
-        print()
+            progress(f"    - {cmd['name']:20s} not found ({install})")
+        progress("")
 
     # Endpoints
     if endpoints:
-        print(f"  APIs: {len(endpoints)} endpoints (always available)")
-        print()
+        progress(f"  APIs: {len(endpoints)} endpoints (always available)")
+        progress("")
 
 
 # ── Legacy API (backward compatible) ─────────────────────────────────────────
