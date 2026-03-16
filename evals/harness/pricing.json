@@ -1,0 +1,7 @@
+{
+  "claude-sonnet-4-20250514": {"prompt_per_1k": 0.003, "completion_per_1k": 0.015},
+  "claude-opus-4-20250514": {"prompt_per_1k": 0.015, "completion_per_1k": 0.075},
+  "gpt-4o": {"prompt_per_1k": 0.005, "completion_per_1k": 0.015},
+  "gemini-2.0-flash": {"prompt_per_1k": 0.0001, "completion_per_1k": 0.0004},
+  "default": {"prompt_per_1k": 0.003, "completion_per_1k": 0.015}
+}
