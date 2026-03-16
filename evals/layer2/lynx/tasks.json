@@ -1,0 +1,77 @@
+[
+  {
+    "id": "lynx_fetch_page_001",
+    "layer": 2,
+    "tool": "browser",
+    "mode": "interactive",
+    "task": "Fetch the page at http://example.com using lynx -dump and write the main heading (the h1 text) to /tmp/clive/result.txt.",
+    "initial_state": {},
+    "success_criteria": {
+      "type": "deterministic",
+      "check": "grep -qi 'example domain' /tmp/clive/result.txt"
+    },
+    "min_turns": 2,
+    "max_turns": 8,
+    "timeout_seconds": 30
+  },
+  {
+    "id": "lynx_extract_links_002",
+    "layer": 2,
+    "tool": "browser",
+    "mode": "interactive",
+    "task": "Extract all links from http://example.com and write them to /tmp/clive/result.txt, one URL per line.",
+    "initial_state": {},
+    "success_criteria": {
+      "type": "deterministic",
+      "check": "grep -q 'iana.org' /tmp/clive/result.txt"
+    },
+    "min_turns": 2,
+    "max_turns": 8,
+    "timeout_seconds": 30
+  },
+  {
+    "id": "lynx_json_api_003",
+    "layer": 2,
+    "tool": "browser",
+    "mode": "interactive",
+    "task": "Fetch https://jsonplaceholder.typicode.com/posts/1 using curl, extract the 'title' field, and write it to /tmp/clive/result.txt.",
+    "initial_state": {},
+    "success_criteria": {
+      "type": "deterministic",
+      "check": "grep -qi 'provident' /tmp/clive/result.txt || grep -qi 'sunt aut' /tmp/clive/result.txt"
+    },
+    "min_turns": 2,
+    "max_turns": 8,
+    "timeout_seconds": 30
+  },
+  {
+    "id": "lynx_headers_check_004",
+    "layer": 2,
+    "tool": "browser",
+    "mode": "interactive",
+    "task": "Check the HTTP headers of http://example.com using curl -sI. Write the Content-Type header value to /tmp/clive/result.txt.",
+    "initial_state": {},
+    "success_criteria": {
+      "type": "deterministic",
+      "check": "grep -qi 'text/html' /tmp/clive/result.txt"
+    },
+    "min_turns": 2,
+    "max_turns": 8,
+    "timeout_seconds": 30
+  },
+  {
+    "id": "lynx_multi_api_005",
+    "layer": 2,
+    "tool": "browser",
+    "mode": "interactive",
+    "task": "Fetch the first 3 posts from https://jsonplaceholder.typicode.com/posts (use ?_limit=3), extract their titles, and write them to /tmp/clive/result.txt, one per line.",
+    "initial_state": {},
+    "success_criteria": {
+      "type": "deterministic",
+      "check": "test $(wc -l < /tmp/clive/result.txt) -ge 3"
+    },
+    "min_turns": 2,
+    "max_turns": 10,
+    "timeout_seconds": 45
+  }
+]
