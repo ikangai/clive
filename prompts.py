@@ -1,5 +1,28 @@
 """Prompt templates for planner, worker, and summarizer."""
 
+import os
+
+# Path to drivers directory (relative to this file)
+_DRIVERS_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "drivers")
+
+DEFAULT_DRIVER = """You control this pane via shell commands.
+Read the screen output after each command to decide your next action.
+If a command fails, read the error and try a different approach."""
+
+
+def load_driver(app_type: str, drivers_dir: str | None = None) -> str:
+    """Load a driver prompt for the given app_type.
+
+    Auto-discovers drivers from the drivers/ directory by matching
+    {app_type}.md. Falls back to DEFAULT_DRIVER if no file found.
+    """
+    base = drivers_dir or _DRIVERS_DIR
+    path = os.path.join(base, f"{app_type}.md")
+    if os.path.exists(path):
+        with open(path, "r") as f:
+            return f.read().strip()
+    return DEFAULT_DRIVER
+
 
 def build_planner_prompt(tools_summary: str) -> str:
     return f"""You are a task planner for an autonomous terminal agent.
@@ -61,9 +84,14 @@ Results from prerequisite tasks (use this information):
 {dependency_context}
 """
 
+    driver = load_driver(app_type)
+
     return f"""You are an autonomous agent worker controlling a single tmux pane.
 
 Your pane: {pane_name} [{app_type}] — {tool_description}
+
+Tool knowledge:
+{driver}
 
 Your goal:
 {subtask_description}
