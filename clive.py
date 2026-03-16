@@ -197,6 +197,11 @@ if __name__ == "__main__":
         action="store_true",
         help="Disable self-modification for this run",
     )
+    parser.add_argument(
+        "--quiet", "-q",
+        action="store_true",
+        help="Quiet mode: telemetry to stderr, only result to stdout",
+    )
     args = parser.parse_args()
 
     if args.list_toolsets:
@@ -298,5 +303,9 @@ if __name__ == "__main__":
             print(f"\n✗ {result.stage}: {result.message}")
             raise SystemExit(1)
         raise SystemExit(0)
+
+    if args.quiet:
+        from output import set_quiet
+        set_quiet(True)
 
     run(args.task, toolset_spec=args.toolset)
