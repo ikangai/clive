@@ -346,10 +346,11 @@ def execute_plan(
                     subtask_obj = subtask_map[sid]
                     if (result.status == SubtaskStatus.FAILED
                             and subtask_obj.mode == "script"
-                            and not getattr(subtask_obj, '_retried', False)):
+                            and not subtask_obj._retried):
                         progress(f"  RETRY [{sid}] script failed, retrying as interactive")
                         _emit(on_event, "subtask_fail", sid, f"script failed, retrying interactive")
                         subtask_obj.mode = "interactive"
+                        subtask_obj.max_turns = max(subtask_obj.max_turns, 10)
                         subtask_obj._retried = True
                         subtask_obj.status = SubtaskStatus.PENDING
                         del futures[sid]
@@ -442,22 +443,23 @@ def run_subtask(
             # Capture current pane state
             screen = capture_pane(pane_info)
 
-            # Check for DONE: protocol (clive-to-clive communication)
-            for line in screen.splitlines():
-                if line.strip().startswith("DONE:"):
-                    done_payload = line.strip()[5:].strip()
-                    try:
-                        done_data = json.loads(done_payload)
-                        summary = done_data.get("result", done_data.get("reason", str(done_data)))
-                        status = SubtaskStatus.COMPLETED if done_data.get("status") == "success" else SubtaskStatus.FAILED
-                    except (json.JSONDecodeError, AttributeError):
-                        summary = done_payload
-                        status = SubtaskStatus.COMPLETED
-                    return SubtaskResult(
-                        subtask_id=subtask.id, status=status, summary=summary,
-                        output_snippet=screen[-500:], turns_used=turn,
-                        prompt_tokens=total_pt, completion_tokens=total_ct,
-                    )
+            # Check for DONE: protocol (clive-to-clive, agent panes only)
+            if pane_info.app_type == "agent":
+                for line in screen.splitlines():
+                    if line.strip().startswith("DONE:"):
+                        done_payload = line.strip()[5:].strip()
+                        try:
+                            done_data = json.loads(done_payload)
+                            summary = done_data.get("result", done_data.get("reason", str(done_data)))
+                            status = SubtaskStatus.COMPLETED if done_data.get("status") == "success" else SubtaskStatus.FAILED
+                        except (json.JSONDecodeError, AttributeError):
+                            summary = done_payload
+                            status = SubtaskStatus.COMPLETED
+                        return SubtaskResult(
+                            subtask_id=subtask.id, status=status, summary=summary,
+                            output_snippet=screen[-500:], turns_used=turn,
+                            prompt_tokens=total_pt, completion_tokens=total_ct,
+                        )
 
             meta = get_meta(pane_info.pane)
             context = (

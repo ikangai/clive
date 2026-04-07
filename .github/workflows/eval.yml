@@ -29,7 +29,18 @@ jobs:
         run: |
           tmux start-server
 
+      - name: Check API key
+        id: check_key
+        run: |
+          if [ -z "${{ secrets.OPENROUTER_API_KEY }}" ] && [ -z "${{ secrets.ANTHROPIC_API_KEY }}" ]; then
+            echo "skip=true" >> $GITHUB_OUTPUT
+            echo "No API key configured, skipping evals"
+          else
+            echo "skip=false" >> $GITHUB_OUTPUT
+          fi
+
       - name: Run Layer 2 evals
+        if: steps.check_key.outputs.skip != 'true'
         env:
           LLM_PROVIDER: ${{ vars.LLM_PROVIDER || 'openrouter' }}
           OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
@@ -40,7 +51,7 @@ jobs:
             2>&1
 
       - name: Upload eval results
-        if: always()
+        if: always() && steps.check_key.outputs.skip != 'true'
         uses: actions/upload-artifact@v4
         with:
           name: eval-results

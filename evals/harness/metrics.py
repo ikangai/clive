@@ -80,7 +80,7 @@ class EvalReport:
             return 0.0
         return sum(1 for r in completed if r.false_completion) / len(completed)
 
-    def estimated_cost(self) -> float:
+    def estimated_cost(self, model: str | None = None) -> float:
         """Estimate cost using pricing.json. Returns 0.0 if pricing unavailable."""
         import json as _json
         import os
@@ -88,7 +88,9 @@ class EvalReport:
         try:
             with open(pricing_path) as f:
                 pricing = _json.load(f)
-            rates = pricing.get("default", {"prompt_per_1k": 0.003, "completion_per_1k": 0.015})
+            # Look up model-specific rates, fall back to default
+            model = model or os.environ.get("AGENT_MODEL", "")
+            rates = pricing.get(model, pricing.get("default", {"prompt_per_1k": 0.003, "completion_per_1k": 0.015}))
             total_prompt = sum(r.prompt_tokens for r in self.results)
             total_completion = sum(r.completion_tokens for r in self.results)
             return (total_prompt / 1000 * rates["prompt_per_1k"] +

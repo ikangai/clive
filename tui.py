@@ -925,6 +925,11 @@ class CliveApp(App):
             self.call_from_thread(out.write, line)
         self.call_from_thread(out.write, "")
 
+        # Cleanup session directory
+        import shutil as _shutil
+        if session_dir and os.path.isdir(session_dir):
+            _shutil.rmtree(session_dir, ignore_errors=True)
+
 
 if __name__ == "__main__":
     app = CliveApp()

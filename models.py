@@ -2,9 +2,12 @@
 
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass, field
 from enum import Enum
 from typing import Optional
+
+log = logging.getLogger(__name__)
 
 import libtmux
 
@@ -17,6 +20,9 @@ class SubtaskStatus(Enum):
     SKIPPED = "skipped"
 
 
+VALID_MODES = {"script", "interactive", "streaming"}
+
+
 @dataclass
 class Subtask:
     id: str
@@ -26,6 +32,12 @@ class Subtask:
     status: SubtaskStatus = SubtaskStatus.PENDING
     max_turns: int = 15
     mode: str = "interactive"
+    _retried: bool = field(default=False, repr=False)
+
+    def __post_init__(self):
+        if self.mode not in VALID_MODES:
+            log.warning(f"Unknown mode '{self.mode}' for subtask {self.id}, defaulting to interactive")
+            self.mode = "interactive"
 
 
 @dataclass
