@@ -40,6 +40,60 @@ def _check_command_safety(command: str) -> str | None:
     return None
 
 
+# ─── Outcome Detection ───────────────────────────────────────────────────────
+
+_SUCCESS_PATTERNS = [
+    re.compile(r'\b(saved|written|created|completed|success|done|ok)\b', re.IGNORECASE),
+]
+_ERROR_PATTERNS = [
+    re.compile(r'\b(error|failed|not found|no such|cannot|denied|refused)\b', re.IGNORECASE),
+]
+
+
+def _detect_outcome_signal(screen: str) -> str:
+    """Detect semantic success/failure from screen content (no LLM, just regex)."""
+    last_lines = "\n".join(screen.splitlines()[-5:])
+    errors = any(p.search(last_lines) for p in _ERROR_PATTERNS)
+    successes = any(p.search(last_lines) for p in _SUCCESS_PATTERNS)
+    if errors and not successes:
+        return "error indicators detected"
+    if successes and not errors:
+        return "success indicators detected"
+    return ""
+
+
+def _auto_verify_command(command: str, session_dir: str) -> str:
+    """Auto-verify file writes after shell commands. Saves verification turns.
+
+    Detects redirect operators (>, >>) and checks if the target file exists.
+    Returns a verification string or empty if nothing to verify.
+    """
+    # Detect file writes: cmd > file or cmd >> file
+    m = re.search(r'>\s*(\S+)\s*$', command)
+    if not m:
+        m = re.search(r'>>\s*(\S+)\s*$', command)
+    if not m:
+        return ""
+
+    target = m.group(1).strip("'\"")
+    # Resolve relative to session_dir if not absolute
+    if not target.startswith("/"):
+        target = os.path.join(session_dir, target)
+
+    if os.path.exists(target):
+        size = os.path.getsize(target)
+        # Quick content check for JSON/CSV validity
+        if target.endswith(".json") and size > 0:
+            try:
+                import json as _json
+                _json.load(open(target))
+                return f"{os.path.basename(target)} exists, {size} bytes, valid JSON"
+            except Exception:
+                return f"{os.path.basename(target)} exists, {size} bytes, invalid JSON"
+        return f"{os.path.basename(target)} exists, {size} bytes"
+    return ""
+
+
 # ─── Command Parsing ──────────────────────────────────────────────────────────
 
 def parse_command(text: str) -> dict:
@@ -108,13 +162,13 @@ def write_file(path: str, content: str) -> str:
 # ─── Script Extraction ────────────────────────────────────────────────────────
 
 def _extract_script(text: str) -> str:
-    """Extract bash script from LLM response."""
-    # Try fenced code block (greedy to handle nested blocks)
-    m = re.search(r'```(?:bash|sh)?\s*\n([\s\S]*?)```', text)
+    """Extract bash or Python script from LLM response."""
+    # Try fenced code block (bash, sh, or python)
+    m = re.search(r'```(?:bash|sh|python[3]?)?\s*\n([\s\S]*?)```', text)
     if m:
         return m.group(1).strip()
-    # Try unfenced: everything from #!/bin/bash to end (or next ```)
-    m = re.search(r'(#!/bin/bash[\s\S]*?)(?:```|$)', text)
+    # Try unfenced: everything from shebang to end (or next ```)
+    m = re.search(r'(#!(?:/bin/bash|/usr/bin/env python[3]?)[\s\S]*?)(?:```|$)', text)
     if m:
         return m.group(1).strip()
     raise ValueError(f"No script found in response:\n{text[:200]}")
@@ -150,7 +204,8 @@ def run_subtask_script(
         {"role": "user", "content": f"Generate the script. Goal: {subtask.description}"},
     ]
 
-    script_path = os.path.join(session_dir, f"_script_{subtask.id}.sh")
+    # Script path determined by language after extraction
+    default_script_path = os.path.join(session_dir, f"_script_{subtask.id}.sh")
 
     with _pane_locks[subtask.pane]:
         for attempt in range(1, subtask.max_turns + 1):
@@ -168,6 +223,14 @@ def run_subtask_script(
                 progress(f"    [{subtask.id}] Script extraction failed: {e}")
                 messages.append({"role": "user", "content": "Error: could not extract script. Respond with a bash script inside ```bash ``` markers."})
                 continue
+
+            # Detect language from shebang and set path/executor accordingly
+            if script.startswith("#!/usr/bin/env python") or script.startswith("#!/usr/bin/python"):
+                script_path = os.path.join(session_dir, f"_script_{subtask.id}.py")
+                script_executor = "python3"
+            else:
+                script_path = default_script_path
+                script_executor = "bash"
 
             # Write and execute script (also log to audit trail if available)
             write_file(script_path, script)
@@ -191,7 +254,7 @@ def run_subtask_script(
             import uuid as _uuid
             nonce = _uuid.uuid4().hex[:4]
             marker = f"___DONE_{subtask.id}_{nonce}___"
-            combined = f'bash {script_path}; echo "EXIT:$? {marker}"'
+            combined = f'{script_executor} {script_path}; echo "EXIT:$? {marker}"'
             pane_info.pane.send_keys(combined, enter=True)
             screen, method = wait_for_ready(pane_info, marker=marker, max_wait=60.0)
 
@@ -482,6 +545,20 @@ def execute_plan(
     return [results[s.id] for s in plan.subtasks]
 
 
+def _write_recovery_pattern(session_dir: str, agent: str, successful_cmd: str):
+    """Write an error-recovery pattern to the scratchpad for parallel agents."""
+    scratchpad = os.path.join(session_dir, "_scratchpad.jsonl")
+    try:
+        with open(scratchpad, "a") as f:
+            f.write(json.dumps({
+                "agent": agent,
+                "type": "recovery",
+                "fix": successful_cmd[:200],
+            }) + "\n")
+    except OSError:
+        pass
+
+
 def _build_plan_context(plan: Plan, current: Subtask) -> str:
     """Build a brief plan summary so the agent knows its role."""
     total = len(plan.subtasks)
@@ -604,6 +681,7 @@ def run_subtask(
     # Interactive/streaming mode: turn-by-turn observation loop
     client = get_client()
     total_pt = 0
+    last_cmd_had_error = False  # for error recovery sharing
     total_ct = 0
 
     # Build enriched system prompt with plan context and pane environment
@@ -741,7 +819,6 @@ def run_subtask(
                     continue
 
                 # Wrap shell commands with end marker for reliable detection
-                # All shell-like panes benefit from markers (avoid 2s idle timeout)
                 _SHELL_LIKE = {"shell", "data", "docs", "media", "browser", "files"}
                 if pane_info.app_type in _SHELL_LIKE:
                     wrapped, marker = wrap_command(cmd["value"], subtask.id)
@@ -756,6 +833,30 @@ def run_subtask(
                         pane_info,
                         detect_intervention=detect_intervention,
                     )
+
+                # Command echo + semantic signals + auto-verification
+                echo_parts = [f"[Command executed: {cmd['value'][:100]}]"]
+                echo_parts.append(f"[Completion: {method}]")
+
+                # Semantic completion signals (cheap regex, no LLM)
+                signal = _detect_outcome_signal(screen)
+                if signal:
+                    echo_parts.append(f"[Outcome: {signal}]")
+
+                # Auto-verify file writes (saves 1-2 verification turns)
+                auto_verify = _auto_verify_command(cmd["value"], session_dir)
+                if auto_verify:
+                    echo_parts.append(f"[Verified: {auto_verify}]")
+
+                # Error recovery sharing: if this command succeeded after a previous failure,
+                # write the recovery pattern to the scratchpad for parallel agents
+                current_has_error = signal == "error indicators detected"
+                if last_cmd_had_error and not current_has_error:
+                    _write_recovery_pattern(session_dir, subtask.pane, cmd["value"])
+                last_cmd_had_error = current_has_error
+
+                # Inject command feedback before screen diff on next turn
+                messages.append({"role": "user", "content": "\n".join(echo_parts)})
 
                 # If intervention detected, inject context for agent to handle
                 if method.startswith("intervention:"):

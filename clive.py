@@ -212,12 +212,38 @@ def run(task: str, toolset_spec: str = DEFAULT_TOOLSET, output_format: str = "de
     progress(f"Tokens: {total_pt} prompt + {total_ct} completion = {total_pt + total_ct} total")
     progress(f"{'=' * 60}\n")
 
+    # Cross-run session log — record task, plan shape, tokens, time
+    _log_session(task, plan, results, elapsed, total_pt + total_ct)
+
     # Cleanup session directory (unless --keep-session)
     import shutil
     if os.path.isdir(session_dir) and not os.environ.get("CLIVE_KEEP_SESSION"):
         shutil.rmtree(session_dir, ignore_errors=True)
 
     return summary
+
+
+SESSION_LOG = os.path.expanduser("~/.clive_session_log.jsonl")
+
+
+def _log_session(task: str, plan, results: list, elapsed: float, total_tokens: int):
+    """Append a session record for cross-run learning."""
+    import json as _json
+    entry = {
+        "timestamp": time.strftime("%Y-%m-%dT%H:%M:%S"),
+        "task": task[:200],
+        "subtasks": len(plan.subtasks),
+        "modes": [s.mode for s in plan.subtasks],
+        "completed": sum(1 for r in results if r.status == SubtaskStatus.COMPLETED),
+        "failed": sum(1 for r in results if r.status == SubtaskStatus.FAILED),
+        "tokens": total_tokens,
+        "elapsed_s": round(elapsed, 1),
+    }
+    try:
+        with open(SESSION_LOG, "a") as f:
+            f.write(_json.dumps(entry) + "\n")
+    except OSError:
+        pass
 
 
 def _summarize(task: str, results: list, output_format: str = "default", session_dir: str = "") -> str:

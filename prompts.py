@@ -166,11 +166,15 @@ Tool knowledge:
 Your goal:
 {subtask_description}
 {dep_section}
-Generate a single shell script that accomplishes this goal. The script will be executed in one shot — you will not see intermediate output.
+Generate a single script that accomplishes this goal. The script will be executed in one shot — you will not see intermediate output.
+
+Choose bash or Python — whichever fits the task best:
+- Bash: file operations, pipelines, curl, text processing
+- Python: JSON/CSV manipulation, math, regex, structured data
 
 Requirements:
-- Write a complete bash script (starting with #!/bin/bash)
-- Use set -euo pipefail so the script stops on any error (including in pipes)
+- Bash: start with #!/bin/bash and use set -euo pipefail
+- Python: start with #!/usr/bin/env python3
 - Input files are in the current working directory (use relative paths to read them)
 - Write output/results to {session_dir}/ (use absolute paths for output)
 - The script should be self-contained and deterministic
