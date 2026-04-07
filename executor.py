@@ -372,6 +372,9 @@ def execute_plan(
         ("turn",          subtask_id, turn_num, command_snippet)
         ("tokens",        subtask_id, prompt_tokens, completion_tokens)
     """
+    # Plan-to-script compiler: collapse sequential all-script same-pane plans
+    plan = _try_collapse_plan(plan)
+
     # Per-plan pane locks (scoped to this execution, not module-level)
     plan_locks: dict[str, threading.Lock] = {}
     for pane_name in panes:
@@ -576,6 +579,54 @@ def _write_recovery_pattern(session_dir: str, agent: str, successful_cmd: str):
         pass
 
 
+def _try_collapse_plan(plan: Plan) -> Plan:
+    """Collapse sequential all-script same-pane plans into a single subtask.
+
+    If all subtasks are script mode, on the same pane, in a linear chain
+    (each depends only on the previous), merge them into one subtask with
+    a combined description. This turns 3 LLM calls into 1.
+    """
+    subtasks = plan.subtasks
+    if len(subtasks) <= 1:
+        return plan
+
+    # Check: all script mode?
+    if not all(s.mode == "script" for s in subtasks):
+        return plan
+
+    # Check: all same pane?
+    panes = {s.pane for s in subtasks}
+    if len(panes) > 1:
+        return plan
+
+    # Check: linear chain? (each depends only on the previous)
+    for i, s in enumerate(subtasks):
+        if i == 0:
+            if s.depends_on:
+                return plan  # first has deps
+        else:
+            expected_dep = subtasks[i - 1].id
+            if s.depends_on != [expected_dep]:
+                return plan  # not a simple chain
+
+    # Collapse: merge descriptions into one subtask
+    merged_desc = " Then: ".join(
+        f"Step {i+1}: {s.description}" for i, s in enumerate(subtasks)
+    )
+    progress(f"  COMPILE: collapsed {len(subtasks)} script subtasks into 1")
+
+    collapsed = Plan(task=plan.task, subtasks=[
+        Subtask(
+            id="compiled",
+            description=merged_desc,
+            pane=subtasks[0].pane,
+            mode="script",
+            max_turns=max(s.max_turns for s in subtasks),
+        ),
+    ])
+    return collapsed
+
+
 def _build_plan_context(plan: Plan, current: Subtask) -> str:
     """Build a brief plan summary so the agent knows its role."""
     total = len(plan.subtasks)
@@ -699,6 +750,12 @@ def run_subtask(
 
     # Streaming mode uses interactive loop with intervention detection
     detect_intervention = subtask.mode == "streaming"
+
+    # Smart max_turns: mode-aware defaults when planner didn't specify
+    _MODE_TURNS = {"script": 3, "interactive": 8, "streaming": 10}
+    if subtask.max_turns == 15:  # default wasn't overridden
+        subtask.max_turns = _MODE_TURNS.get(subtask.mode, 8)
+
     log.info(f"Subtask {subtask.id}: mode={subtask.mode}, pane={subtask.pane}, max_turns={subtask.max_turns}")
 
     # Interactive/streaming mode: turn-by-turn observation loop
@@ -733,12 +790,15 @@ def run_subtask(
 
     last_screen = None
     no_change_count = 0
-    NO_CHANGE_LIMIT = 3  # stop if screen unchanged for this many consecutive turns
+    NO_CHANGE_LIMIT = 3
+    skip_capture = False  # skip capture after file ops (screen unchanged)
 
     with _pane_locks[subtask.pane]:
         for turn in range(1, subtask.max_turns + 1):
-            # Capture current pane state
-            screen = capture_pane(pane_info)
+            # Capture current pane state (skip if last action was a file op)
+            if not skip_capture:
+                screen = capture_pane(pane_info)
+            skip_capture = False
 
             # No-change early stop: if screen is identical for N turns, the task is stuck
             if last_screen is not None and screen == last_screen:
@@ -804,6 +864,15 @@ def run_subtask(
 
             # Trim context to prevent unbounded growth
             messages = _trim_messages(messages, max_user_turns=4)
+
+            # Progressive prompt thinning: after turn 1, use minimal system prompt
+            # (for non-caching providers; Anthropic caches automatically)
+            if turn > 1 and len(messages) > 0 and messages[0]["role"] == "system":
+                if len(messages[0]["content"]) > 200:
+                    messages[0] = {"role": "system", "content": (
+                        f"Continue task on pane {subtask.pane}. Pipeline commands OK. "
+                        f"Auto-verify active. Exit codes captured. Session: {session_dir}"
+                    )}
 
             # Call LLM with streaming for early command detection
             cmd_start = time.time()
@@ -928,11 +997,13 @@ def run_subtask(
                     content = read_file(cmd["value"])
                     messages.append({"role": "user", "content": content})
                     no_change_count = 0
+                    skip_capture = True
 
                 elif cmd["type"] == "write_file":
                     result = write_file(cmd["path"], cmd["value"])
                     messages.append({"role": "user", "content": result})
                     no_change_count = 0
+                    skip_capture = True
 
                 elif cmd["type"] == "peek":
                     target_pane = cmd.get("pane") or cmd.get("value", "").strip()

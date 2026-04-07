@@ -64,10 +64,51 @@ TRIVIAL_PATTERNS = [
 def _is_trivial(task: str, num_panes: int) -> bool:
     """Detect tasks that don't need planning."""
     if num_panes > 1:
-        return False  # multi-pane tasks always need planning
+        return False
     if len(task.split()) > 20:
         return False
     return any(p.search(task.strip()) for p in TRIVIAL_PATTERNS)
+
+
+def _find_cached_plan(task: str, panes: dict) -> Plan | None:
+    """Look up session log for a similar successful plan to reuse."""
+    import json as _json
+    if not os.path.exists(SESSION_LOG):
+        return None
+    try:
+        # Read last 50 entries
+        with open(SESSION_LOG, "r") as f:
+            entries = [_json.loads(l) for l in f.readlines()[-50:] if l.strip()]
+
+        # Find entries where task words overlap > 60%
+        task_words = set(task.lower().split())
+        for entry in reversed(entries):
+            if entry.get("failed", 0) > 0:
+                continue  # skip failed plans
+            if entry.get("completed", 0) == 0:
+                continue
+            prev_words = set(entry.get("task", "").lower().split())
+            if not prev_words:
+                continue
+            overlap = len(task_words & prev_words) / max(len(task_words), 1)
+            if overlap > 0.6:
+                # Reconstruct plan from cached shape
+                modes = entry.get("modes", ["script"])
+                pane_names = list(panes.keys())
+                subtasks = []
+                for i, mode in enumerate(modes):
+                    pane = pane_names[0] if len(pane_names) == 1 else pane_names[min(i, len(pane_names)-1)]
+                    subtasks.append(Subtask(
+                        id=str(i + 1),
+                        description=task if len(modes) == 1 else f"Step {i+1} of: {task}",
+                        pane=pane,
+                        mode=mode,
+                        depends_on=[str(i)] if i > 0 else [],
+                    ))
+                return Plan(task=task, subtasks=subtasks)
+    except Exception:
+        pass
+    return None
 
 
 def run(task: str, toolset_spec: str = DEFAULT_TOOLSET, output_format: str = "default", max_tokens: int = 50000):
@@ -137,16 +178,22 @@ def run(task: str, toolset_spec: str = DEFAULT_TOOLSET, output_format: str = "de
         ])
         display_plan(plan)
     else:
-        progress("Phase 1: Planning...")
-        # Cost-aware planning: tell planner about token budget
-        budget_hint = (
-            f"\n\nToken budget: {max_tokens:,}. Approximate costs:"
-            f"\n  - Script subtask: ~1,000 tokens (preferred)"
-            f"\n  - Interactive subtask: ~5,000 tokens"
-            f"\n  Plan within budget. Prefer script mode to stay within limits."
-        )
-        plan = create_plan(task, panes, tool_status, tools_summary=tools_summary + budget_hint)
-        display_plan(plan)
+        # Check cached plan templates from session log
+        cached = _find_cached_plan(task, panes)
+        if cached:
+            progress("Phase 1: Reusing cached plan template")
+            plan = cached
+            display_plan(plan)
+        else:
+            progress("Phase 1: Planning...")
+            budget_hint = (
+                f"\n\nToken budget: {max_tokens:,}. Approximate costs:"
+                f"\n  - Script subtask: ~1,000 tokens (preferred)"
+                f"\n  - Interactive subtask: ~5,000 tokens"
+                f"\n  Plan within budget. Prefer script mode to stay within limits."
+            )
+            plan = create_plan(task, panes, tool_status, tools_summary=tools_summary + budget_hint)
+            display_plan(plan)
 
     # Phase 2: Execution
     progress("Phase 2: Executing...")

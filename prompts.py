@@ -128,26 +128,22 @@ Tool knowledge:
 Your goal:
 {subtask_description}
 {dep_section}
-Send exactly one command per turn using XML tags:
-
-  <cmd type="shell" pane="{pane_name}">your command here</cmd>
-  <cmd type="read_file" pane="{pane_name}">/path/to/file</cmd>
-  <cmd type="write_file" pane="{pane_name}" path="/path/to/file">content</cmd>
+Commands (XML tags):
+  <cmd type="shell" pane="{pane_name}">command</cmd>
+  <cmd type="read_file" pane="{pane_name}">/path</cmd>
+  <cmd type="write_file" pane="{pane_name}" path="/path">content</cmd>
   <cmd type="wait">seconds</cmd>
   <cmd type="peek" pane="other_pane">reason</cmd>
-  <cmd type="task_complete">summary of what you accomplished</cmd>
+  <cmd type="task_complete">summary</cmd>
 
 Rules:
-- You may send MULTIPLE commands in one response — they execute in sequence. If any fails, remaining commands stop and you see the error. Use this for predictable sequences (mkdir + write + verify).
+- ALWAYS send ALL predictable commands in one response. Do not wait for verification between predictable steps. Example: mkdir + write + task_complete in one response.
+- File writes are AUTO-VERIFIED by the executor. Do NOT cat/head to check your own writes.
+- Exit codes are AUTO-CAPTURED. Do NOT run echo $? to check success.
+- If the task is simple and predictable, solve it ENTIRELY in your first response.
+- Commands execute in sequence. If any fails (non-zero exit), pipeline stops and you see the error.
 - You can ONLY send commands to pane "{pane_name}".
-- Use task_complete when your goal is achieved.
-- Write intermediate results to {session_dir}/ so other tasks can use them.
-- read_file and write_file operate on the LOCAL filesystem only. For remote panes, use cat/shell redirects instead.
-- If something unexpected happens, describe it in your response and try to recover.
-- Silent commands (mkdir, touch) produce no output — this is normal.
-- Scratchpad: write discoveries to {session_dir}/_scratchpad.jsonl for parallel agents.
-  Format: one JSON object per line: {{"agent": "{pane_name}", "note": "your observation"}}
-  Read it to see what other agents discovered.
+- Write results to {session_dir}/. Scratchpad: {session_dir}/_scratchpad.jsonl for parallel agents.
 """
 
 
