@@ -32,6 +32,7 @@ Environment:
 """
 
 import argparse
+import os
 import time
 
 from dotenv import load_dotenv
@@ -118,6 +119,11 @@ def run(task: str, toolset_spec: str = DEFAULT_TOOLSET, output_format: str = "de
     progress(f"Time:   {elapsed:.1f}s")
     progress(f"Tokens: {total_pt} prompt + {total_ct} completion = {total_pt + total_ct} total")
     progress(f"{'=' * 60}\n")
+
+    # Cleanup session directory (unless --keep-session)
+    import shutil
+    if os.path.isdir(session_dir) and not os.environ.get("CLIVE_KEEP_SESSION"):
+        shutil.rmtree(session_dir, ignore_errors=True)
 
     return summary
 

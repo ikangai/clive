@@ -80,6 +80,22 @@ class EvalReport:
             return 0.0
         return sum(1 for r in completed if r.false_completion) / len(completed)
 
+    def estimated_cost(self) -> float:
+        """Estimate cost using pricing.json. Returns 0.0 if pricing unavailable."""
+        import json as _json
+        import os
+        pricing_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "pricing.json")
+        try:
+            with open(pricing_path) as f:
+                pricing = _json.load(f)
+            rates = pricing.get("default", {"prompt_per_1k": 0.003, "completion_per_1k": 0.015})
+            total_prompt = sum(r.prompt_tokens for r in self.results)
+            total_completion = sum(r.completion_tokens for r in self.results)
+            return (total_prompt / 1000 * rates["prompt_per_1k"] +
+                    total_completion / 1000 * rates["completion_per_1k"])
+        except Exception:
+            return 0.0
+
     def to_dict(self) -> dict:
         return {
             "total_tasks": self.total_tasks,

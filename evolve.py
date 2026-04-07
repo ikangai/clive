@@ -40,7 +40,7 @@ def _eval_tool_for_driver(driver_name: str) -> str | None:
 
 
 def run_evals_with_driver(driver_file: str, driver_name: str) -> tuple[EvalReport, dict]:
-    """Run all Layer 2 evals for a driver, return report and dict."""
+    """Run Layer 2 + Layer 3 evals for a driver, return report and dict."""
     os.environ["CLIVE_EVAL_DRIVER_OVERRIDE"] = driver_file
 
     tool = _eval_tool_for_driver(driver_name)
@@ -48,6 +48,11 @@ def run_evals_with_driver(driver_file: str, driver_name: str) -> tuple[EvalRepor
     # Also include script mode tasks if shell driver
     if driver_name == "shell":
         tasks.extend(load_tasks(layer=2, tool="shell_script"))
+        # Include Layer 3 for harder selection pressure
+        for suite in ["script_correctness", "script_robustness", "debug_loop"]:
+            l3 = load_tasks(layer=3, tool=suite)
+            if l3:
+                tasks.extend(l3)
 
     results = []
     for task_def in tasks:

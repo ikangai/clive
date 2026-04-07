@@ -149,9 +149,23 @@ def run_subtask_script(
                 messages.append({"role": "user", "content": "Error: could not extract script. Respond with a bash script inside ```bash ``` markers."})
                 continue
 
-            # Write and execute script
+            # Write and execute script (also log to audit trail if available)
             write_file(script_path, script)
             os.chmod(script_path, 0o755)
+            try:
+                from selfmod.audit import log_attempt
+                log_attempt(
+                    proposal_id=f"script_{subtask.id}_{attempt}",
+                    action="script_generate",
+                    files=[script_path],
+                    tier="OPEN",
+                    roles={},
+                    gate_result={"allowed": True, "reason": "script generation"},
+                    outcome="generated",
+                    details=f"Script for subtask {subtask.id}, attempt {attempt}",
+                )
+            except Exception:
+                pass  # audit logging is best-effort
 
             wrapped, marker = wrap_command(f"bash {script_path}", subtask.id)
             pane_info.pane.send_keys(wrapped, enter=True)
@@ -328,6 +342,20 @@ def execute_plan(
                             output_snippet="",
                             error=str(e),
                         )
+                    # Script→interactive fallback: retry failed script subtasks as interactive
+                    subtask_obj = subtask_map[sid]
+                    if (result.status == SubtaskStatus.FAILED
+                            and subtask_obj.mode == "script"
+                            and not getattr(subtask_obj, '_retried', False)):
+                        progress(f"  RETRY [{sid}] script failed, retrying as interactive")
+                        _emit(on_event, "subtask_fail", sid, f"script failed, retrying interactive")
+                        subtask_obj.mode = "interactive"
+                        subtask_obj._retried = True
+                        subtask_obj.status = SubtaskStatus.PENDING
+                        del futures[sid]
+                        collected_any = True
+                        continue
+
                     results[sid] = result
                     subtask_map[sid].status = result.status
                     elapsed = time.time() - start_times.get(sid, time.time())
@@ -413,6 +441,24 @@ def run_subtask(
         for turn in range(1, subtask.max_turns + 1):
             # Capture current pane state
             screen = capture_pane(pane_info)
+
+            # Check for DONE: protocol (clive-to-clive communication)
+            for line in screen.splitlines():
+                if line.strip().startswith("DONE:"):
+                    done_payload = line.strip()[5:].strip()
+                    try:
+                        done_data = json.loads(done_payload)
+                        summary = done_data.get("result", done_data.get("reason", str(done_data)))
+                        status = SubtaskStatus.COMPLETED if done_data.get("status") == "success" else SubtaskStatus.FAILED
+                    except (json.JSONDecodeError, AttributeError):
+                        summary = done_payload
+                        status = SubtaskStatus.COMPLETED
+                    return SubtaskResult(
+                        subtask_id=subtask.id, status=status, summary=summary,
+                        output_snippet=screen[-500:], turns_used=turn,
+                        prompt_tokens=total_pt, completion_tokens=total_ct,
+                    )
+
             meta = get_meta(pane_info.pane)
             context = (
                 f"[Subtask {subtask.id} Turn {turn}]\n"

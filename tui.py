@@ -71,6 +71,7 @@ HELP_TEXT = """\
   [#c9c9d6]/selfmod[/] [#6b7280]<goal>[/]       Self-modify clive (experimental)
   [#c9c9d6]/undo[/]                 Roll back last self-modification
   [#c9c9d6]/safe-mode[/]            Disable self-modification
+  [#c9c9d6]/evolve[/] [#6b7280]<driver>[/]     Evolve a driver (shell, browser, all)
   [#c9c9d6]/help[/]                 Show this help
 
 [#d97706]Profiles:[/]   {profiles}
@@ -322,6 +323,14 @@ class CliveApp(App):
         elif cmd == "/safe-mode":
             os.environ["CLIVE_EXPERIMENTAL_SELFMOD"] = "0"
             out.write("[#22c55e]✓[/] Self-modification disabled for this session.")
+
+        elif cmd == "/evolve":
+            if arg:
+                out.write(f"[bold]Evolving {arg} driver...[/bold]")
+                self._run_evolve(arg, out)
+            else:
+                out.write("[yellow]Usage: /evolve <driver> (shell, browser, all)[/yellow]")
+            return
 
         else:
             out.write(f"[#ef4444]Unknown command: {cmd}[/] — try /help")
@@ -638,6 +647,22 @@ class CliveApp(App):
         except Exception as e:
             out.write(f"[#ef4444]✗ Undo failed: {e}[/]")
 
+    def _run_evolve(self, driver: str, out: RichLog) -> None:
+        """Run driver evolution in background thread."""
+        import threading
+        def _worker():
+            try:
+                from evolve import evolve_driver
+                result = evolve_driver(driver, dry_run=False)
+                if result["improved"]:
+                    out.write(f"[green]✓ {driver} driver improved: {result['baseline_score']:.3f} → {result['final_score']:.3f}[/green]")
+                else:
+                    out.write(f"[yellow]No improvement found for {driver} (baseline: {result['baseline_score']:.3f})[/yellow]")
+            except Exception as e:
+                out.write(f"[red]Evolution error: {e}[/red]")
+        threading.Thread(target=_worker, daemon=True).start()
+        out.write(f"[dim]Evolution running in background for {driver}...[/dim]")
+
     # ── Task execution ───────────────────────────────────────────────────
 
     def _run_task(self, task: str) -> None:
@@ -742,12 +767,15 @@ class CliveApp(App):
 
     def _execute_task_inner(self, task: str, task_info: dict, out: RichLog) -> None:
         import json as _json
-        from session import setup_session, check_health
+        from session import setup_session, check_health, generate_session_id
         from planner import create_plan
         from executor import execute_plan
         from models import SubtaskStatus
         from llm import get_client, chat
         from prompts import build_summarizer_prompt, build_triage_prompt
+
+        session_id = generate_session_id()
+        session_dir = f"/tmp/clive/{session_id}"
 
         # Triage: classify the input before executing
         client = get_client()
@@ -798,7 +826,7 @@ class CliveApp(App):
         )
 
         try:
-            session, panes = setup_session(self._resolved["panes"])
+            session, panes = setup_session(self._resolved["panes"], session_dir=session_dir)
             tool_status = check_health(panes)
         except Exception as e:
             self.call_from_thread(
@@ -843,7 +871,8 @@ class CliveApp(App):
         try:
             results = execute_plan(
                 plan, panes, tool_status,
-                on_event=lambda et, *a: self._on_event(et, task_info, *a)
+                on_event=lambda et, *a: self._on_event(et, task_info, *a),
+                session_dir=session_dir
             )
         except Exception as e:
             self.call_from_thread(

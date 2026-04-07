@@ -1,0 +1,47 @@
+[
+  {
+    "id": "data_csv_sum_001",
+    "layer": 2,
+    "tool": "shell",
+    "mode": "script",
+    "task": "Read sales.csv and compute the total revenue (quantity * price for each row, then sum). Write the total as a number (rounded to 2 decimal places) to /tmp/clive/result.txt.",
+    "initial_state": {"filesystem": "fixtures/csv_data/"},
+    "success_criteria": {
+      "type": "deterministic",
+      "check": "python3 -c \"v=float(open('/tmp/clive/result.txt').read().strip()); assert abs(v - 164.04) < 0.01, f'Expected 164.04, got {v}'\""
+    },
+    "min_turns": 1,
+    "max_turns": 4,
+    "timeout_seconds": 30
+  },
+  {
+    "id": "data_csv_group_002",
+    "layer": 2,
+    "tool": "shell",
+    "mode": "script",
+    "task": "Read sales.csv and compute total quantity per product. Write the results as CSV (product,total_quantity) sorted by product name to /tmp/clive/result.txt, no header.",
+    "initial_state": {"filesystem": "fixtures/csv_data/"},
+    "success_criteria": {
+      "type": "deterministic",
+      "check": "grep -q 'doohickey,7' /tmp/clive/result.txt && grep -q 'gadget,7' /tmp/clive/result.txt && grep -q 'widget,13' /tmp/clive/result.txt"
+    },
+    "min_turns": 1,
+    "max_turns": 4,
+    "timeout_seconds": 30
+  },
+  {
+    "id": "data_json_transform_003",
+    "layer": 2,
+    "tool": "shell",
+    "mode": "script",
+    "task": "Convert sales.csv to a JSON array where each row becomes an object with keys matching the CSV headers. Write the JSON to /tmp/clive/result.txt.",
+    "initial_state": {"filesystem": "fixtures/csv_data/"},
+    "success_criteria": {
+      "type": "deterministic",
+      "check": "python3 -c \"import json; d=json.load(open('/tmp/clive/result.txt')); assert isinstance(d,list) and len(d)==5 and 'product' in d[0]\""
+    },
+    "min_turns": 1,
+    "max_turns": 4,
+    "timeout_seconds": 30
+  }
+]

@@ -174,6 +174,14 @@ def run_single_task(
     if "initial_state" in task_def and "filesystem" in task_def["initial_state"]:
         fixture_dir = os.path.join(source_dir, task_def["initial_state"]["filesystem"])
 
+    # Clean shared state to prevent cross-test contamination
+    import shutil
+    if os.path.exists("/tmp/clive"):
+        for f in os.listdir("/tmp/clive"):
+            fp = os.path.join("/tmp/clive", f)
+            if os.path.isfile(fp):
+                os.unlink(fp)
+
     start_time = time.time()
 
     with EvalFixture(fixture_dir=fixture_dir, pane_app_type=tool) as ef:
@@ -294,6 +302,25 @@ def main():
         with open(args.output, "w") as f:
             json.dump(report.to_dict(), f, indent=2)
         print(f"Report saved to {args.output}", file=sys.stderr)
+
+    # Baseline comparison
+    if args.baseline:
+        try:
+            with open(args.baseline) as bf:
+                baseline = json.load(bf)
+            baseline_rate = baseline.get("completion_rate", 0)
+            current_rate = report.completion_rate
+            print(f"\nBaseline comparison:", file=sys.stderr)
+            print(f"  Baseline: {baseline_rate:.0%}", file=sys.stderr)
+            print(f"  Current:  {current_rate:.0%}", file=sys.stderr)
+            if current_rate < baseline_rate:
+                print(f"  REGRESSION detected", file=sys.stderr)
+                if args.ci:
+                    sys.exit(1)
+            else:
+                print(f"  OK: no regression", file=sys.stderr)
+        except FileNotFoundError:
+            print(f"  Baseline not found: {args.baseline}", file=sys.stderr)
 
     if args.ci and report.completion_rate < 1.0:
         sys.exit(1)
