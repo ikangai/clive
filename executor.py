@@ -167,22 +167,23 @@ def run_subtask_script(
             except Exception:
                 pass  # audit logging is best-effort
 
-            wrapped, marker = wrap_command(f"bash {script_path}", subtask.id)
-            pane_info.pane.send_keys(wrapped, enter=True)
+            # Execute script and capture exit code in one round-trip
+            import uuid as _uuid
+            nonce = _uuid.uuid4().hex[:4]
+            marker = f"___DONE_{subtask.id}_{nonce}___"
+            combined = f'bash {script_path}; echo "EXIT:$? {marker}"'
+            pane_info.pane.send_keys(combined, enter=True)
             screen, method = wait_for_ready(pane_info, marker=marker, max_wait=60.0)
 
             progress(f"    [{subtask.id}] Script attempt {attempt}: {screen[-80:]}")
 
-            # Check exit code
-            exit_check, exit_marker = wrap_command("echo EXIT:$?", subtask.id)
-            pane_info.pane.send_keys(exit_check, enter=True)
-            exit_screen, _ = wait_for_ready(pane_info, marker=exit_marker)
-
+            # Parse exit code from the combined marker line
             exit_code = None
-            for line in exit_screen.splitlines():
-                if line.strip().startswith("EXIT:"):
+            for line in screen.splitlines():
+                if marker in line and "EXIT:" in line:
                     try:
-                        exit_code = int(line.strip().split(":")[1])
+                        exit_part = line.split("EXIT:")[1].split()[0]
+                        exit_code = int(exit_part)
                     except (ValueError, IndexError):
                         pass
 
@@ -397,6 +398,28 @@ def execute_plan(
     return [results[s.id] for s in plan.subtasks]
 
 
+def _trim_messages(messages: list[dict], max_user_turns: int = 4) -> list[dict]:
+    """Trim conversation history to system prompt + last N user-assistant pairs.
+
+    Prevents unbounded context growth in the interactive loop.
+    """
+    if not messages:
+        return messages
+
+    system = [m for m in messages if m["role"] == "system"]
+    conversation = [m for m in messages if m["role"] != "system"]
+
+    user_indices = [i for i, m in enumerate(conversation) if m["role"] == "user"]
+
+    if len(user_indices) <= max_user_turns:
+        return messages
+
+    cutoff_idx = user_indices[-max_user_turns]
+    trimmed_conversation = conversation[cutoff_idx:]
+
+    return system + trimmed_conversation
+
+
 # ─── Per-Subtask Worker ───────────────────────────────────────────────────────
 
 def run_subtask(
@@ -438,6 +461,7 @@ def run_subtask(
         {"role": "user", "content": f"Begin. Achieve this goal: {subtask.description}"},
     ]
 
+    last_screen = None
     with _pane_locks[subtask.pane]:
         for turn in range(1, subtask.max_turns + 1):
             # Capture current pane state
@@ -461,12 +485,18 @@ def run_subtask(
                             prompt_tokens=total_pt, completion_tokens=total_ct,
                         )
 
+            from screen_diff import compute_screen_diff
+            screen_content = compute_screen_diff(last_screen, screen)
+            last_screen = screen
             meta = get_meta(pane_info.pane)
             context = (
                 f"[Subtask {subtask.id} Turn {turn}]\n"
-                f"[Pane: {subtask.pane}] [Meta: {meta}]\n{screen}"
+                f"[Pane: {subtask.pane}] [Meta: {meta}]\n{screen_content}"
             )
             messages.append({"role": "user", "content": context})
+
+            # Trim context to prevent unbounded growth
+            messages = _trim_messages(messages, max_user_turns=4)
 
             # Call LLM
             reply, pt, ct = chat(client, messages)
@@ -497,7 +527,9 @@ def run_subtask(
 
             elif cmd["type"] == "shell":
                 # Wrap shell commands with end marker for reliable detection
-                if pane_info.app_type == "shell":
+                # All shell-like panes benefit from markers (avoid 2s idle timeout)
+                _SHELL_LIKE = {"shell", "data", "docs", "media", "browser", "files"}
+                if pane_info.app_type in _SHELL_LIKE:
                     wrapped, marker = wrap_command(cmd["value"], subtask.id)
                     pane_info.pane.send_keys(wrapped, enter=True)
                     screen, method = wait_for_ready(

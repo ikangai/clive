@@ -54,7 +54,7 @@ RULES:
 10. Each subtask has a "mode" — this controls how much the agent observes during execution:
     - "script": One-shot. The agent generates a shell script, executes it, checks the exit code. No observation during execution. Use for: deterministic pipelines, file operations, data extraction, known API calls, text processing. Faster and cheaper.
     - "interactive": Turn-by-turn. The agent reads the screen after each command and decides what to do next. Use for: exploring unknown content, debugging, multi-step workflows where the next step depends on the previous result, interactive applications.
-    Default to "script" when the task is deterministic and the commands are known.
+    STRONGLY prefer "script" — it is 2.5x cheaper and equally reliable. Only use "interactive" when the task explicitly requires reading unknown output, navigating an interactive application, or multi-step exploration where the next step depends on observing the previous result.
 
 Respond with a JSON object and nothing else:
 {{
