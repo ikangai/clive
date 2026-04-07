@@ -102,14 +102,17 @@ def capture_pane(pane_info: PaneInfo, scrollback: int = 50) -> str:
 
     Uses -J to join wrapped lines (prevents long output lines from appearing
     as multiple screen lines) and -S to include recent scrollback.
-    Scrollback is moderate (50 lines) to balance visibility with token cost.
+    Strips leading/trailing blank lines to reduce noise and token waste.
     """
     lines = pane_info.pane.cmd(
         "capture-pane", "-p", "-J", f"-S-{scrollback}"
     ).stdout
-    # Strip trailing blank lines to reduce noise
-    content = "\n".join(lines).rstrip() if lines else ""
-    return content
+    if not lines:
+        return ""
+    # Strip leading blank lines (empty scrollback above first command)
+    while lines and not lines[0].strip():
+        lines.pop(0)
+    return "\n".join(lines).rstrip()
 
 
 def get_meta(pane: libtmux.Pane) -> str:

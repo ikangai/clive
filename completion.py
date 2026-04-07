@@ -46,13 +46,14 @@ def wait_for_ready(
     Returns (screen_content, detection_method) where detection_method is
     one of: "marker", "prompt", "idle", "max_wait", "intervention:<type>".
 
-    If detect_intervention is True, also scans for patterns that indicate
-    the agent should intervene (prompts, errors, confirmations).
+    Uses adaptive polling (10ms → 500ms exponential backoff) for fast
+    detection of quick commands while avoiding CPU waste on slow ones.
     """
     idle_timeout = timeout or pane_info.idle_timeout or DEFAULT_IDLE_TIMEOUT
     last_content = ""
     last_change = time.time()
     start = time.time()
+    poll_interval = 0.01  # adaptive: start fast (10ms), backoff to 500ms
 
     while True:
         lines = pane_info.pane.cmd("capture-pane", "-p").stdout
@@ -68,7 +69,6 @@ def wait_for_ready(
 
         # Strategy 2.5: intervention detection (streaming observation)
         if detect_intervention and screen != last_content:
-            # Only check new content for intervention patterns
             for pattern, intervention_type in INTERVENTION_PATTERNS:
                 if pattern.search(screen):
                     return screen, f"intervention:{intervention_type}"
@@ -77,6 +77,7 @@ def wait_for_ready(
         if screen != last_content:
             last_content = screen
             last_change = time.time()
+            poll_interval = 0.01  # reset to fast polling on change
         elif time.time() - last_change > idle_timeout:
             return screen, "idle"
 
@@ -84,7 +85,8 @@ def wait_for_ready(
         if time.time() - start > max_wait:
             return screen, "max_wait"
 
-        time.sleep(0.1)
+        time.sleep(poll_interval)
+        poll_interval = min(poll_interval * 2, 0.5)  # exponential backoff
 
 
 def wrap_command(
@@ -106,9 +108,10 @@ def wrap_command(
     marker = f"___DONE_{subtask_id}_{nonce}___"
     if done_file:
         # Side-channel: write exit code to file AND echo marker to screen
-        wrapped = f'{command}; _ec=$?; echo "$_ec" > {done_file}; echo "{marker}"; exit $_ec'
+        wrapped = f'{command}; _ec=$?; echo "$_ec" > {done_file}; echo "EXIT:$_ec {marker}"; (exit $_ec)'
     else:
-        wrapped = f'{command}; echo "{marker}"'
+        # Always capture exit code alongside marker
+        wrapped = f'{command}; echo "EXIT:$? {marker}"'
     return wrapped, marker
 
 

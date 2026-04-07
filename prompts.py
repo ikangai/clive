@@ -126,7 +126,7 @@ Send exactly one command per turn using XML tags:
   <cmd type="task_complete">summary of what you accomplished</cmd>
 
 Rules:
-- One command per turn.
+- You may send MULTIPLE commands in one response — they execute in sequence. If any fails, remaining commands stop and you see the error. Use this for predictable sequences (mkdir + write + verify).
 - You can ONLY send commands to pane "{pane_name}".
 - Use task_complete when your goal is achieved.
 - Write intermediate results to {session_dir}/ so other tasks can use them.

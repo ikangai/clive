@@ -16,6 +16,7 @@ from completion import wait_for_ready, wrap_command
 from llm import get_client, chat
 from prompts import build_worker_prompt
 from session import capture_pane, get_meta
+from screen_diff import compute_screen_diff
 
 # Per-pane locks: only one subtask can use a pane at a time
 _pane_locks: dict[str, threading.Lock] = {}
@@ -133,6 +134,22 @@ def parse_command(text: str) -> dict:
         return {"type": m.group(1), "pane": None, "value": m.group(2).strip()}
 
     return {"type": "none", "pane": None, "value": ""}
+
+
+def parse_commands(text: str) -> list[dict]:
+    """Extract ALL commands from LLM response (for pipelining).
+
+    Returns a list of command dicts. If only one command found,
+    returns a single-element list. Falls back to parse_command for
+    responses with just one command.
+    """
+    cmds = []
+    # Find all <cmd ...>...</cmd> blocks
+    for m in re.finditer(r'<cmd\s+[^>]*>[\s\S]*?</cmd>', text):
+        cmd = parse_command(m.group(0))
+        if cmd["type"] != "none":
+            cmds.append(cmd)
+    return cmds if cmds else [parse_command(text)]
 
 
 # ─── File Channel ─────────────────────────────────────────────────────────────
@@ -752,10 +769,8 @@ def run_subtask(
                             prompt_tokens=total_pt, completion_tokens=total_ct,
                         )
 
-            from screen_diff import compute_screen_diff
             screen_content = compute_screen_diff(last_screen, screen)
             last_screen = screen
-            meta = get_meta(pane_info.pane)
 
             # Read shared scratchpad for cross-agent discoveries
             scratchpad_note = ""
@@ -775,7 +790,7 @@ def run_subtask(
 
             context = (
                 f"[Subtask {subtask.id} Turn {turn}]\n"
-                f"[Pane: {subtask.pane}] [Meta: {meta}]\n{screen_content}"
+                f"[Pane: {subtask.pane}]\n{screen_content}"
                 f"{scratchpad_note}{budget_note}"
             )
             messages.append({"role": "user", "content": context})
@@ -791,124 +806,137 @@ def run_subtask(
 
             progress(f"    [{subtask.id}] Turn {turn}: {reply[:80]}...")
 
-            # Parse command
-            cmd = parse_command(reply)
+            # Parse commands — support pipelining (multiple commands per LLM call)
+            cmds = parse_commands(reply)
 
-            # Emit turn event with command snippet
-            cmd_snippet = cmd["value"][:80] if cmd["value"] else cmd["type"]
+            # Emit turn event
+            cmd_snippet = cmds[0]["value"][:80] if cmds[0]["value"] else cmds[0]["type"]
+            if len(cmds) > 1:
+                cmd_snippet += f" (+{len(cmds)-1} more)"
             _emit(on_event, "turn", subtask.id, turn, cmd_snippet)
             _emit(on_event, "tokens", subtask.id, pt, ct)
 
-            if cmd["type"] == "task_complete":
-                return SubtaskResult(
-                    subtask_id=subtask.id,
-                    status=SubtaskStatus.COMPLETED,
-                    summary=cmd["value"],
-                    output_snippet=screen[-500:] if len(screen) > 500 else screen,
-                    turns_used=turn,
-                    prompt_tokens=total_pt,
-                    completion_tokens=total_ct,
-                )
-
-            elif cmd["type"] == "shell":
-                # Safety check before sending to pane
-                violation = _check_command_safety(cmd["value"])
-                if violation:
-                    log.warning(violation)
-                    messages.append({"role": "user", "content": f"[BLOCKED] {violation}. Choose a safer approach."})
-                    continue
-
-                # Wrap shell commands with end marker for reliable detection
-                _SHELL_LIKE = {"shell", "data", "docs", "media", "browser", "files"}
-                if pane_info.app_type in _SHELL_LIKE:
-                    wrapped, marker = wrap_command(cmd["value"], subtask.id)
-                    pane_info.pane.send_keys(wrapped, enter=True)
-                    screen, method = wait_for_ready(
-                        pane_info, marker=marker,
-                        detect_intervention=detect_intervention,
-                    )
-                else:
-                    pane_info.pane.send_keys(cmd["value"], enter=True)
-                    screen, method = wait_for_ready(
-                        pane_info,
-                        detect_intervention=detect_intervention,
+            # Execute commands in pipeline order; stop on first requiring LLM feedback
+            pipeline_broke = False
+            for cmd_idx, cmd in enumerate(cmds):
+                if cmd["type"] == "task_complete":
+                    return SubtaskResult(
+                        subtask_id=subtask.id,
+                        status=SubtaskStatus.COMPLETED,
+                        summary=cmd["value"],
+                        output_snippet=screen[-500:] if len(screen) > 500 else screen,
+                        turns_used=turn,
+                        prompt_tokens=total_pt,
+                        completion_tokens=total_ct,
                     )
 
-                # Command echo + semantic signals + auto-verification
-                echo_parts = [f"[Command executed: {cmd['value'][:100]}]"]
-                echo_parts.append(f"[Completion: {method}]")
+                elif cmd["type"] == "shell":
+                    violation = _check_command_safety(cmd["value"])
+                    if violation:
+                        log.warning(violation)
+                        messages.append({"role": "user", "content": f"[BLOCKED] {violation}. Choose a safer approach."})
+                        pipeline_broke = True
+                        break
 
-                # Semantic completion signals (cheap regex, no LLM)
-                signal = _detect_outcome_signal(screen)
-                if signal:
-                    echo_parts.append(f"[Outcome: {signal}]")
+                    _SHELL_LIKE = {"shell", "data", "docs", "media", "browser", "files"}
+                    if pane_info.app_type in _SHELL_LIKE:
+                        wrapped, marker = wrap_command(cmd["value"], subtask.id)
+                        pane_info.pane.send_keys(wrapped, enter=True)
+                        screen, method = wait_for_ready(
+                            pane_info, marker=marker,
+                            detect_intervention=detect_intervention,
+                        )
+                    else:
+                        pane_info.pane.send_keys(cmd["value"], enter=True)
+                        screen, method = wait_for_ready(
+                            pane_info,
+                            detect_intervention=detect_intervention,
+                        )
 
-                # Auto-verify file writes (saves 1-2 verification turns)
-                auto_verify = _auto_verify_command(cmd["value"], session_dir)
-                if auto_verify:
-                    echo_parts.append(f"[Verified: {auto_verify}]")
+                    # Parse exit code from marker line
+                    exit_code = None
+                    for line in screen.splitlines():
+                        if "EXIT:" in line and "___DONE_" in line:
+                            try:
+                                exit_code = int(line.split("EXIT:")[1].split()[0])
+                            except (ValueError, IndexError):
+                                pass
 
-                # Error recovery sharing: if this command succeeded after a previous failure,
-                # write the recovery pattern to the scratchpad for parallel agents
-                current_has_error = signal == "error indicators detected"
-                if last_cmd_had_error and not current_has_error:
-                    _write_recovery_pattern(session_dir, subtask.pane, cmd["value"])
-                last_cmd_had_error = current_has_error
+                    echo_parts = [f"[Command executed: {cmd['value'][:100]}]"]
+                    if exit_code is not None:
+                        echo_parts.append(f"[Exit code: {exit_code} | Completion: {method}]")
+                    else:
+                        echo_parts.append(f"[Completion: {method}]")
 
-                # Inject command feedback before screen diff on next turn
-                messages.append({"role": "user", "content": "\n".join(echo_parts)})
+                    signal = _detect_outcome_signal(screen)
+                    if signal:
+                        echo_parts.append(f"[Outcome: {signal}]")
 
-                # If intervention detected, inject context for agent to handle
-                if method.startswith("intervention:"):
-                    intervention_type = method.split(":", 1)[1]
-                    messages.append({
-                        "role": "user",
-                        "content": f"[INTERVENTION DETECTED: {intervention_type}] "
-                                   f"The command needs your input. Screen:\n{screen}",
-                    })
-                    continue  # extra turn to handle the intervention
+                    auto_verify = _auto_verify_command(cmd["value"], session_dir)
+                    if auto_verify:
+                        echo_parts.append(f"[Verified: {auto_verify}]")
 
-            elif cmd["type"] == "read_file":
-                content = read_file(cmd["value"])
-                messages.append({"role": "user", "content": content})
-                no_change_count = 0  # file ops don't change screen but are progress
-                continue
+                    current_has_error = signal == "error indicators detected"
+                    if last_cmd_had_error and not current_has_error:
+                        _write_recovery_pattern(session_dir, subtask.pane, cmd["value"])
+                    last_cmd_had_error = current_has_error
 
-            elif cmd["type"] == "write_file":
-                result = write_file(cmd["path"], cmd["value"])
-                messages.append({"role": "user", "content": result})
-                no_change_count = 0  # file ops don't change screen but are progress
-                continue
+                    messages.append({"role": "user", "content": "\n".join(echo_parts)})
 
-            elif cmd["type"] == "peek":
-                # Cross-pane peek: read another pane's screen (read-only, no lock)
-                target_pane = cmd.get("pane") or cmd.get("value", "").strip()
-                if all_panes and target_pane in all_panes:
-                    peek_screen = capture_pane(all_panes[target_pane])
-                    messages.append({
-                        "role": "user",
-                        "content": f"[Peek at pane {target_pane}]:\n{peek_screen[-500:]}",
-                    })
-                else:
-                    messages.append({
-                        "role": "user",
-                        "content": f"[Peek failed: pane '{target_pane}' not found. Available: {list(all_panes.keys()) if all_panes else 'none'}]",
-                    })
-                no_change_count = 0
-                continue
+                    # Pipeline break: if command failed or needs intervention, stop pipeline
+                    if method.startswith("intervention:"):
+                        intervention_type = method.split(":", 1)[1]
+                        messages.append({
+                            "role": "user",
+                            "content": f"[INTERVENTION DETECTED: {intervention_type}] "
+                                       f"The command needs your input. Screen:\n{screen}",
+                        })
+                        pipeline_broke = True
+                        break
+                    if exit_code is not None and exit_code != 0:
+                        pipeline_broke = True
+                        break  # stop pipeline, let LLM see the error
 
-            elif cmd["type"] == "wait":
-                # Agent explicitly requests to wait and re-observe
-                wait_secs = 2
-                try:
-                    wait_secs = max(1, min(int(cmd["value"]), 10))
-                except (ValueError, TypeError):
-                    pass
-                progress(f"    [{subtask.id}] Waiting {wait_secs}s...")
-                time.sleep(wait_secs)
+                elif cmd["type"] == "read_file":
+                    content = read_file(cmd["value"])
+                    messages.append({"role": "user", "content": content})
+                    no_change_count = 0
 
-            elif cmd["type"] == "none":
-                pass  # LLM produced no command, will see pane state next turn
+                elif cmd["type"] == "write_file":
+                    result = write_file(cmd["path"], cmd["value"])
+                    messages.append({"role": "user", "content": result})
+                    no_change_count = 0
+
+                elif cmd["type"] == "peek":
+                    target_pane = cmd.get("pane") or cmd.get("value", "").strip()
+                    if all_panes and target_pane in all_panes:
+                        peek_screen = capture_pane(all_panes[target_pane])
+                        messages.append({
+                            "role": "user",
+                            "content": f"[Peek at pane {target_pane}]:\n{peek_screen[-500:]}",
+                        })
+                    else:
+                        messages.append({
+                            "role": "user",
+                            "content": f"[Peek failed: pane '{target_pane}' not found]",
+                        })
+                    no_change_count = 0
+
+                elif cmd["type"] == "wait":
+                    wait_secs = 2
+                    try:
+                        wait_secs = max(1, min(int(cmd["value"]), 10))
+                    except (ValueError, TypeError):
+                        pass
+                    progress(f"    [{subtask.id}] Waiting {wait_secs}s...")
+                    time.sleep(wait_secs)
+
+                elif cmd["type"] == "none":
+                    pass  # no command, next turn will observe screen
+
+            # If pipeline broke (error/intervention), stop executing remaining commands
+            if pipeline_broke:
+                break
 
     # Exhausted turns
     final_screen = capture_pane(pane_info)
