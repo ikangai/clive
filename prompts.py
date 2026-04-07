@@ -41,28 +41,35 @@ RULES:
 5. A worker can execute multiple commands to achieve its subtask goal.
 6. Minimize the number of subtasks — prefer fewer, broader subtasks over many tiny ones.
 7. Only create dependencies where there is a genuine data flow or ordering requirement.
-8. Workers can share data by writing files to /tmp/clive/.
+8. Workers can share data by writing files to the session working directory.
 9. When a task needs COMMANDS or APIS, route to a shell-type pane (shell, browser, data, docs all work).
+10. Each subtask has a "mode" — this controls how much the agent observes during execution:
+    - "script": One-shot. The agent generates a shell script, executes it, checks the exit code. No observation during execution. Use for: deterministic pipelines, file operations, data extraction, known API calls, text processing. Faster and cheaper.
+    - "interactive": Turn-by-turn. The agent reads the screen after each command and decides what to do next. Use for: exploring unknown content, debugging, multi-step workflows where the next step depends on the previous result, interactive applications.
+    Default to "script" when the task is deterministic and the commands are known.
 
 Respond with a JSON object and nothing else:
 {{
   "subtasks": [
     {{
       "id": "1",
-      "description": "Clear description of what this subtask should accomplish",
+      "description": "Extract all ERROR lines from syslog and save to result.txt",
       "pane": "shell",
+      "mode": "script",
       "depends_on": []
     }},
     {{
       "id": "2",
-      "description": "Another subtask that can run in parallel on a different pane",
+      "description": "Browse the documentation site and find the configuration reference",
       "pane": "browser",
+      "mode": "interactive",
       "depends_on": []
     }},
     {{
       "id": "3",
-      "description": "A subtask that needs results from 1 and 2",
+      "description": "Summarize the errors using the config context",
       "pane": "shell",
+      "mode": "script",
       "depends_on": ["1", "2"]
     }}
   ]

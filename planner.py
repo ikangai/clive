@@ -58,6 +58,7 @@ def create_plan(
             description=s["description"],
             pane=s["pane"],
             depends_on=[str(d) for d in s.get("depends_on", [])],
+            mode=s.get("mode", "interactive"),
         ))
 
     errors = plan.validate(valid_panes=set(panes.keys()))
@@ -87,7 +88,7 @@ def display_plan(plan: Plan) -> None:
 
     for s in plan.subtasks:
         deps = f" (after: {', '.join(s.depends_on)})" if s.depends_on else ""
-        progress(f"  [{s.id}] [{s.pane}] {s.description}{deps}")
+        progress(f"  [{s.id}] [{s.pane}] [{s.mode}] {s.description}{deps}")
 
     # Show parallelism opportunities
     no_deps = [s.id for s in plan.subtasks if not s.depends_on]
