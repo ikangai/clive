@@ -117,6 +117,7 @@ Send exactly one command per turn using XML tags:
   <cmd type="shell" pane="{pane_name}">your command here</cmd>
   <cmd type="read_file" pane="{pane_name}">/path/to/file</cmd>
   <cmd type="write_file" pane="{pane_name}" path="/path/to/file">content</cmd>
+  <cmd type="wait">seconds</cmd>
   <cmd type="task_complete">summary of what you accomplished</cmd>
 
 Rules:

@@ -97,10 +97,16 @@ def check_health(panes: dict[str, PaneInfo]) -> dict[str, dict]:
     return status
 
 
-def capture_pane(pane_info: PaneInfo) -> str:
-    """Capture current screen content from a single pane."""
-    lines = pane_info.pane.cmd("capture-pane", "-p").stdout
-    return "\n".join(lines) if lines else ""
+def capture_pane(pane_info: PaneInfo, scrollback: int = 100) -> str:
+    """Capture current screen content from a single pane.
+
+    Uses -J to join wrapped lines (prevents long output lines from appearing
+    as multiple screen lines) and -S to include recent scrollback.
+    """
+    lines = pane_info.pane.cmd(
+        "capture-pane", "-p", "-J", f"-S-{scrollback}"
+    ).stdout
+    return "\n".join(lines).rstrip() if lines else ""
 
 
 def get_meta(pane: libtmux.Pane) -> str:

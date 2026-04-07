@@ -80,3 +80,10 @@ def test_parse_command_without_pane():
     assert cmd["type"] == "shell"
     assert cmd["pane"] is None
     assert cmd["value"] == "ls"
+
+
+def test_parse_wait_command():
+    text = '<cmd type="wait">3</cmd>'
+    cmd = parse_command(text)
+    assert cmd["type"] == "wait"
+    assert cmd["value"] == "3"

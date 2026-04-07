@@ -462,10 +462,30 @@ def run_subtask(
     ]
 
     last_screen = None
+    no_change_count = 0
+    NO_CHANGE_LIMIT = 3  # stop if screen unchanged for this many consecutive turns
+
     with _pane_locks[subtask.pane]:
         for turn in range(1, subtask.max_turns + 1):
             # Capture current pane state
             screen = capture_pane(pane_info)
+
+            # No-change early stop: if screen is identical for N turns, the task is stuck
+            if last_screen is not None and screen == last_screen:
+                no_change_count += 1
+                if no_change_count >= NO_CHANGE_LIMIT:
+                    progress(f"    [{subtask.id}] Screen unchanged for {NO_CHANGE_LIMIT} turns, stopping")
+                    return SubtaskResult(
+                        subtask_id=subtask.id,
+                        status=SubtaskStatus.FAILED,
+                        summary=f"Stuck: screen unchanged for {NO_CHANGE_LIMIT} consecutive turns",
+                        output_snippet=screen[-500:] if len(screen) > 500 else screen,
+                        turns_used=turn,
+                        prompt_tokens=total_pt,
+                        completion_tokens=total_ct,
+                    )
+            else:
+                no_change_count = 0
 
             # Check for DONE: protocol (clive-to-clive, agent panes only)
             if pane_info.app_type == "agent":
@@ -562,6 +582,16 @@ def run_subtask(
                 result = write_file(cmd["path"], cmd["value"])
                 messages.append({"role": "user", "content": result})
                 continue
+
+            elif cmd["type"] == "wait":
+                # Agent explicitly requests to wait and re-observe
+                wait_secs = 2
+                try:
+                    wait_secs = max(1, min(int(cmd["value"]), 10))
+                except (ValueError, TypeError):
+                    pass
+                progress(f"    [{subtask.id}] Waiting {wait_secs}s...")
+                time.sleep(wait_secs)
 
             elif cmd["type"] == "none":
                 pass  # LLM produced no command, will see pane state next turn
