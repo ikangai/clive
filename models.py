@@ -25,6 +25,7 @@ class Subtask:
     depends_on: list[str] = field(default_factory=list)
     status: SubtaskStatus = SubtaskStatus.PENDING
     max_turns: int = 15
+    mode: str = "interactive"
 
 
 @dataclass
