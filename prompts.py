@@ -15,7 +15,15 @@ def load_driver(app_type: str, drivers_dir: str | None = None) -> str:
 
     Auto-discovers drivers from the drivers/ directory by matching
     {app_type}.md. Falls back to DEFAULT_DRIVER if no file found.
+
+    If CLIVE_EVAL_DRIVER_OVERRIDE env var is set to a file path,
+    that file is used instead (for eval/evolution overrides).
     """
+    override = os.environ.get("CLIVE_EVAL_DRIVER_OVERRIDE")
+    if override and os.path.exists(override):
+        with open(override, "r") as f:
+            return f.read().strip()
+
     base = drivers_dir or _DRIVERS_DIR
     path = os.path.join(base, f"{app_type}.md")
     if os.path.exists(path):
