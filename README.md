@@ -85,11 +85,20 @@ clive --list-tools                                 # see what's available
 
 The agent runs in three phases:
 
-1. **Plan** — The LLM decomposes your task into subtasks with dependencies, forming a DAG
-2. **Execute** — Independent subtasks run in parallel on different tmux panes; dependent subtasks wait for their prerequisites
+1. **Plan** — The LLM decomposes your task into subtasks with dependencies, forming a DAG. Each subtask is assigned an **observation level** — how closely the agent watches the terminal during execution.
+2. **Execute** — Independent subtasks run in parallel on different tmux panes; dependent subtasks wait for their prerequisites. Each subtask runs in an isolated session directory (`/tmp/clive/{session_id}/`).
 3. **Summarize** — Results from all subtasks are synthesized into a final report
 
-Each subtask worker has its own LLM conversation and controls exactly one pane via screen capture (input) and keystrokes (output).
+### Observation levels
+
+The planner assigns an observation level per subtask — how often the agent reads the screen during execution:
+
+| Level | How it works | When to use |
+|---|---|---|
+| **script** | Generate a shell script → execute in one shot → check exit code. On failure, read error and repair. | Deterministic pipelines, file ops, data extraction, known API calls. ~2.5x cheaper on tokens. |
+| **interactive** | Read screen → reason → type command → repeat. Full turn-by-turn loop. | Multi-step exploration, debugging, unknown content, interactive applications. |
+
+The planner defaults to `script` when the task is deterministic. Interactive mode engages when the task requires observation and adaptation. Both use the same pane interface — the difference is observation frequency.
 
 ### Architecture
 
@@ -304,10 +313,18 @@ python clive.py --list-tools
 # Launch the TUI
 python clive.py --tui
 
+# Quiet mode — telemetry to stderr, only result to stdout
+python clive.py --quiet "your task"
+result=$(python clive.py -q "count files in /tmp")  # use as shell primitive
+
 # Self-modification (experimental)
 python clive.py --selfmod "your modification goal"
 python clive.py --undo
 python clive.py --safe-mode "your task"
+
+# Run evals
+python evals/harness/run_eval.py --layer 2              # all Layer 2 evals
+python evals/harness/run_eval.py --layer 2 --tool shell  # shell evals only
 
 # Run the built-in example task
 python clive.py
@@ -540,6 +557,7 @@ The weakest point isn't the shell or the container — it's the CLI tools themse
 | `CLIVE_EXPERIMENTAL_SELFMOD` | `0` | Set to `1` to enable self-modification |
 | `idle_timeout` | `2.0` | Per-tool idle timeout in seconds (in tool config) |
 | `max_turns` | `15` | Per-subtask turn budget (in `models.py`) |
+| `--quiet` / `-q` | off | CLI flag: telemetry to stderr, only result to stdout |
 
 Local providers (`lmstudio`, `ollama`) don't need API keys.
 
@@ -548,19 +566,28 @@ Local providers (`lmstudio`, `ollama`) don't need API keys.
 ```
 clive.py          — orchestrator: plan → execute → summarize
 planner.py        — LLM decomposes task into subtask DAG (JSON)
-executor.py       — DAG scheduler + per-subtask worker loops
-session.py        — tmux session/pane management
+executor.py       — DAG scheduler + per-subtask worker loops (script + interactive modes)
+session.py        — tmux session/pane management, session ID generation
 toolsets.py       — tool registry with named profiles (minimal, standard, full, remote)
-models.py         — dataclasses: Subtask, Plan, SubtaskResult, PaneInfo
+models.py         — dataclasses: Subtask (with mode field), Plan, SubtaskResult, PaneInfo
 llm.py            — multi-provider LLM client (OpenAI, Anthropic, Gemini, OpenRouter, LMStudio, Ollama)
-prompts.py        — all LLM prompt templates (planner, worker, summarizer, triage)
+prompts.py        — prompt templates (planner, worker, script generator, summarizer, triage)
+output.py         — output routing: telemetry to stderr in --quiet mode, results to stdout
 tui.py            — Textual-based terminal UI with slash commands
 completion.py     — three-strategy completion detection (marker/prompt/idle)
 install.sh        — cross-platform installer
+drivers/          — auto-discovered driver prompts (per app_type)
+  shell.md        — bash shell reference card
+  browser.md      — lynx/curl/wget reference card
+  default.md      — generic fallback driver
 tools/            — helper scripts
   youtube.sh      — YouTube: list/get/captions/transcribe
   podcast.sh      — Podcast: list/get/transcribe
   claude.sh       — Anthropic Messages API wrapper
+evals/            — eval framework
+  harness/        — session fixture, verifier, metrics, runner CLI
+  layer2/         — Layer 2 eval tasks (shell, browser, script mode)
+  baselines/      — saved eval baselines for regression comparison
 selfmod/          — self-modification system (experimental)
   __init__.py     — package init, is_enabled() flag check
   gate.py         — deterministic gate: regex-based pattern scanner, immutable
@@ -574,6 +601,7 @@ selfmod/          — self-modification system (experimental)
 .clive/           — governance and audit data
   constitution.md — self-modification governance rules and file tiers
   audit/          — append-only modification audit trail (hash-chained JSON)
+docs/plans/       — implementation plans
 fetch_emails.sh   — IMAP email fetcher (used by the email tool)
 send_reply.sh     — email sender via msmtp
 requirements.txt  — Python dependencies
