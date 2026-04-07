@@ -387,7 +387,10 @@ def run_subtask(
             session_dir=session_dir,
         )
 
-    # Interactive mode: existing turn-by-turn observation loop
+    # Streaming mode uses interactive loop with intervention detection
+    detect_intervention = subtask.mode == "streaming"
+
+    # Interactive/streaming mode: turn-by-turn observation loop
     client = get_client()
     total_pt = 0
     total_ct = 0
@@ -449,10 +452,26 @@ def run_subtask(
                 if pane_info.app_type == "shell":
                     wrapped, marker = wrap_command(cmd["value"], subtask.id)
                     pane_info.pane.send_keys(wrapped, enter=True)
-                    screen, method = wait_for_ready(pane_info, marker=marker)
+                    screen, method = wait_for_ready(
+                        pane_info, marker=marker,
+                        detect_intervention=detect_intervention,
+                    )
                 else:
                     pane_info.pane.send_keys(cmd["value"], enter=True)
-                    screen, method = wait_for_ready(pane_info)
+                    screen, method = wait_for_ready(
+                        pane_info,
+                        detect_intervention=detect_intervention,
+                    )
+
+                # If intervention detected, inject context for agent to handle
+                if method.startswith("intervention:"):
+                    intervention_type = method.split(":", 1)[1]
+                    messages.append({
+                        "role": "user",
+                        "content": f"[INTERVENTION DETECTED: {intervention_type}] "
+                                   f"The command needs your input. Screen:\n{screen}",
+                    })
+                    continue  # extra turn to handle the intervention
 
             elif cmd["type"] == "read_file":
                 content = read_file(cmd["value"])
