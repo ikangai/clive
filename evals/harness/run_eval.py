@@ -78,8 +78,8 @@ def run_single_task(
         import threading
         _pane_locks["eval"] = threading.Lock()
 
-        # Ensure shared working dir exists
-        ef.send_keys("mkdir -p /tmp/clive", enter=True)
+        # Ensure working dir exists
+        ef.send_keys(f"mkdir -p {ef.workdir}", enter=True)
         time.sleep(0.3)
 
         # Create subtask for the worker
@@ -88,6 +88,7 @@ def run_single_task(
             description=task_def["task"],
             pane="eval",
             max_turns=max_turns,
+            mode=task_def.get("mode", "interactive"),
         )
 
         try:
@@ -95,6 +96,7 @@ def run_single_task(
                 subtask=subtask,
                 pane_info=ef.pane_info,
                 dep_context="",
+                session_dir=ef.workdir,
             )
 
             elapsed = time.time() - start_time
