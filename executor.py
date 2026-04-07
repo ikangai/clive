@@ -20,6 +20,25 @@ from session import capture_pane, get_meta
 # Per-pane locks: only one subtask can use a pane at a time
 _pane_locks: dict[str, threading.Lock] = {}
 
+# ─── Command Safety ──────────────────────────────────────────────────────────
+
+BLOCKED_COMMANDS = [
+    re.compile(r'rm\s+(-\w*)*\s*-rf\s+/\s*$'),
+    re.compile(r'\b(shutdown|reboot|halt|poweroff)\b'),
+    re.compile(r'\bmkfs\b'),
+    re.compile(r'\bdd\s+.*of=/dev/'),
+    re.compile(r':\(\)\s*\{\s*:\s*\|\s*:\s*&\s*\}\s*;\s*:'),
+    re.compile(r'>\s*/dev/sd[a-z]'),
+]
+
+
+def _check_command_safety(command: str) -> str | None:
+    """Check command against blocklist. Returns violation or None."""
+    for pattern in BLOCKED_COMMANDS:
+        if pattern.search(command):
+            return f"Blocked dangerous command: {command[:80]}"
+    return None
+
 
 # ─── Command Parsing ──────────────────────────────────────────────────────────
 
@@ -254,6 +273,7 @@ def execute_plan(
     tool_status: dict[str, dict],
     on_event=None,
     session_dir: str = "/tmp/clive",
+    max_tokens: int = 50000,
 ) -> list[SubtaskResult]:
     """Execute all subtasks, respecting DAG dependencies and pane exclusivity.
 
@@ -265,10 +285,12 @@ def execute_plan(
         ("turn",          subtask_id, turn_num, command_snippet)
         ("tokens",        subtask_id, prompt_tokens, completion_tokens)
     """
-    # Initialize per-pane locks (clear stale locks from prior runs)
-    _pane_locks.clear()
+    # Per-plan pane locks (scoped to this execution, not module-level)
+    plan_locks: dict[str, threading.Lock] = {}
     for pane_name in panes:
-        _pane_locks[pane_name] = threading.Lock()
+        plan_locks[pane_name] = threading.Lock()
+    # Also update module-level for backward compat (eval harness registers locks here)
+    _pane_locks.update(plan_locks)
 
     results: dict[str, SubtaskResult] = {}
     futures: dict[str, Future] = {}
@@ -371,6 +393,24 @@ def execute_plan(
                     del futures[sid]
                     collected_any = True
 
+                    # Token budget enforcement
+                    total_tokens = sum(r.prompt_tokens + r.completion_tokens for r in results.values())
+                    if total_tokens > max_tokens:
+                        progress(f"  TOKEN BUDGET EXCEEDED: {total_tokens:,} > {max_tokens:,}")
+                        # Cancel remaining futures
+                        for remaining_sid in list(futures.keys()):
+                            futures[remaining_sid].cancel()
+                            del futures[remaining_sid]
+                        for s in plan.subtasks:
+                            if s.id not in results:
+                                results[s.id] = SubtaskResult(
+                                    subtask_id=s.id,
+                                    status=SubtaskStatus.SKIPPED,
+                                    summary="Skipped: token budget exceeded",
+                                    output_snippet="",
+                                )
+                        break
+
             # All subtasks resolved?
             if len(results) == len(plan.subtasks):
                 break
@@ -400,9 +440,11 @@ def execute_plan(
 
 
 def _trim_messages(messages: list[dict], max_user_turns: int = 4) -> list[dict]:
-    """Trim conversation history to system prompt + last N user-assistant pairs.
+    """Trim conversation history to system prompt + first turn + last N turns.
 
-    Prevents unbounded context growth in the interactive loop.
+    Bookend strategy: keeps the first user turn (initial screen context —
+    working directory, available files) alongside the most recent turns.
+    Prevents unbounded growth while preserving critical early context.
     """
     if not messages:
         return messages
@@ -415,10 +457,12 @@ def _trim_messages(messages: list[dict], max_user_turns: int = 4) -> list[dict]:
     if len(user_indices) <= max_user_turns:
         return messages
 
-    cutoff_idx = user_indices[-max_user_turns]
-    trimmed_conversation = conversation[cutoff_idx:]
+    # Keep first user-assistant pair (initial context) + last N-1 pairs
+    first_pair = conversation[:2] if len(conversation) >= 2 else conversation[:1]
+    cutoff_idx = user_indices[-(max_user_turns - 1)] if max_user_turns > 1 else user_indices[-1]
+    recent = conversation[cutoff_idx:]
 
-    return system + trimmed_conversation
+    return system + first_pair + recent
 
 
 # ─── Per-Subtask Worker ───────────────────────────────────────────────────────
@@ -548,6 +592,13 @@ def run_subtask(
                 )
 
             elif cmd["type"] == "shell":
+                # Safety check before sending to pane
+                violation = _check_command_safety(cmd["value"])
+                if violation:
+                    log.warning(violation)
+                    messages.append({"role": "user", "content": f"[BLOCKED] {violation}. Choose a safer approach."})
+                    continue
+
                 # Wrap shell commands with end marker for reliable detection
                 # All shell-like panes benefit from markers (avoid 2s idle timeout)
                 _SHELL_LIKE = {"shell", "data", "docs", "media", "browser", "files"}

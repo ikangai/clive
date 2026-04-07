@@ -102,8 +102,8 @@ def test_trim_preserves_recent_diffs():
         messages.append({"role": "assistant", "content": f"<cmd type='shell'>cmd {i}</cmd>"})
 
     trimmed = _trim_messages(messages, max_user_turns=4)
-    # Should keep system + last 4 user-assistant pairs
+    # Bookend: system + first pair + last 3 pairs
     assert trimmed[0]["role"] == "system"
-    assert "turn 7" in trimmed[-2]["content"]  # most recent
-    assert "turn 4" in trimmed[1]["content"]   # oldest kept
-    assert "turn 3" not in str(trimmed)        # dropped
+    assert "turn 0" in trimmed[1]["content"]   # first turn kept (bookend)
+    assert "turn 7" in trimmed[-2]["content"]  # most recent kept
+    assert "turn 2" not in str(trimmed)        # middle dropped

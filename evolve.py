@@ -126,32 +126,45 @@ def evolve_driver(
         gen_best_dict = None
 
         for i, vf in enumerate(variant_files):
-            print(f"  Evaluating variant {i+1}/{num_variants}...", file=sys.stderr)
-            report, report_dict = run_evals_with_driver(vf, driver_name)
-            score = fitness_score(report, baseline_pass_rate=baseline_pass_rate)
+            print(f"  Evaluating variant {i+1}/{num_variants} (2 runs)...", file=sys.stderr)
 
-            cost = report.estimated_cost()
-            status = "+" if score > current_best_score else "-"
+            # Run twice, take minimum score (conservative selection)
+            scores = []
+            best_report = None
+            best_dict = None
+            for run_idx in range(2):
+                report, report_dict = run_evals_with_driver(vf, driver_name)
+                s = fitness_score(report, baseline_pass_rate=baseline_pass_rate)
+                scores.append(s)
+                if best_report is None or s <= (scores[0] if run_idx == 1 else float('inf')):
+                    best_report = report
+                    best_dict = report_dict
+
+            score = min(scores)  # conservative: take worst of 2 runs
+
+            cost = best_report.estimated_cost()
             cost_str = f", ${cost:.4f}" if cost > 0 else ""
-            print(f"    [{status}] score={score:.3f} "
-                  f"({report.passed_tasks}/{report.total_tasks} passed, "
-                  f"{report.avg_turn_efficiency:.0%} turn eff, "
-                  f"{report.total_tokens:,} tokens{cost_str})", file=sys.stderr)
+            status = "+" if score > current_best_score else "-"
+            print(f"    [{status}] score={score:.3f} (runs: {scores[0]:.3f}, {scores[1]:.3f}) "
+                  f"({best_report.passed_tasks}/{best_report.total_tasks} passed, "
+                  f"{best_report.avg_turn_efficiency:.0%} turn eff, "
+                  f"{best_report.total_tokens:,} tokens{cost_str})", file=sys.stderr)
 
             gen_results.append({
                 "variant": i,
                 "score": round(score, 3),
-                "passed": report.passed_tasks,
-                "total": report.total_tasks,
-                "turn_efficiency": round(report.avg_turn_efficiency, 3),
-                "tokens": report.total_tokens,
+                "scores": [round(s, 3) for s in scores],
+                "passed": best_report.passed_tasks,
+                "total": best_report.total_tasks,
+                "turn_efficiency": round(best_report.avg_turn_efficiency, 3),
+                "tokens": best_report.total_tokens,
                 "cost_usd": round(cost, 4),
             })
 
             if score > gen_best_score:
                 gen_best_score = score
                 gen_best_file = vf
-                gen_best_dict = report_dict
+                gen_best_dict = best_dict
 
         # Select best of this generation
         improved = gen_best_score > current_best_score

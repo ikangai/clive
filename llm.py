@@ -46,14 +46,22 @@ _provider = PROVIDERS[PROVIDER_NAME]
 MODEL = os.getenv("AGENT_MODEL", _provider["default_model"])
 
 
+_client_cache = None
+
 def get_client() -> openai.OpenAI | anthropic.Anthropic:
+    global _client_cache
+    if _client_cache is not None:
+        return _client_cache
+
     api_key_env = _provider["api_key_env"]
     api_key = os.environ.get(api_key_env) if api_key_env else "not-needed"
 
     if PROVIDER_NAME == "anthropic":
-        return anthropic.Anthropic(api_key=api_key)
+        _client_cache = anthropic.Anthropic(api_key=api_key)
+    else:
+        _client_cache = openai.OpenAI(base_url=_provider["base_url"], api_key=api_key)
 
-    return openai.OpenAI(base_url=_provider["base_url"], api_key=api_key)
+    return _client_cache
 
 
 def chat(
@@ -73,10 +81,12 @@ def chat(
             else:
                 filtered.append(msg)
 
+        # Use cache_control for system prompt (cached after first call, 90% cheaper)
+        system_blocks = [{"type": "text", "text": system, "cache_control": {"type": "ephemeral"}}] if system else []
         response = client.messages.create(
             model=model or MODEL,
             max_tokens=max_tokens,
-            system=system,
+            system=system_blocks,
             messages=filtered,
         )
         content = response.content[0].text if response.content else ""

@@ -87,12 +87,35 @@ def wait_for_ready(
         time.sleep(0.1)
 
 
-def wrap_command(command: str, subtask_id: str) -> tuple[str, str]:
+def wrap_command(
+    command: str,
+    subtask_id: str,
+    done_file: str | None = None,
+) -> tuple[str, str]:
     """Wrap a shell command with a unique end marker for reliable detection.
+
+    Args:
+        command: The shell command to wrap
+        subtask_id: Used to make the marker unique
+        done_file: If provided, also write exit code to this file (side-channel).
+                   This prevents marker loss when output is very long.
 
     Returns (wrapped_command, marker_string).
     """
     nonce = uuid.uuid4().hex[:4]
     marker = f"___DONE_{subtask_id}_{nonce}___"
-    wrapped = f'{command}; echo "{marker}"'
+    if done_file:
+        # Side-channel: write exit code to file AND echo marker to screen
+        wrapped = f'{command}; _ec=$?; echo "$_ec" > {done_file}; echo "{marker}"; exit $_ec'
+    else:
+        wrapped = f'{command}; echo "{marker}"'
     return wrapped, marker
+
+
+def check_done_file(done_file: str) -> int | None:
+    """Check if a done file exists and return the exit code, or None."""
+    try:
+        with open(done_file, "r") as f:
+            return int(f.read().strip())
+    except (FileNotFoundError, ValueError):
+        return None

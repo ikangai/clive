@@ -55,7 +55,7 @@ from llm import get_client, chat
 from prompts import build_summarizer_prompt
 
 
-def run(task: str, toolset_spec: str = DEFAULT_TOOLSET, output_format: str = "default"):
+def run(task: str, toolset_spec: str = DEFAULT_TOOLSET, output_format: str = "default", max_tokens: int = 50000):
     session_id = generate_session_id()
     session_dir = f"/tmp/clive/{session_id}"
 
@@ -120,11 +120,15 @@ def run(task: str, toolset_spec: str = DEFAULT_TOOLSET, output_format: str = "de
 
     # Phase 2: Execution
     progress("Phase 2: Executing...")
-    results = execute_plan(plan, panes, tool_status, session_dir=session_dir)
+    results = execute_plan(plan, panes, tool_status, session_dir=session_dir, max_tokens=max_tokens)
 
-    # Phase 3: Summarization
-    progress("\nPhase 3: Summarizing...")
-    summary = _summarize(task, results, output_format=output_format)
+    # Phase 3: Summarization (skip for single-subtask plans — result IS the summary)
+    if len(results) == 1 and results[0].status == SubtaskStatus.COMPLETED:
+        progress("\nPhase 3: Single subtask — using result directly")
+        summary = results[0].summary
+    else:
+        progress("\nPhase 3: Summarizing...")
+        summary = _summarize(task, results, output_format=output_format)
 
     elapsed = time.time() - start_time
     total_pt = sum(r.prompt_tokens for r in results)
@@ -245,6 +249,10 @@ if __name__ == "__main__":
         "--debug",
         action="store_true",
         help="Enable debug logging to stderr",
+    )
+    parser.add_argument(
+        "--max-tokens", type=int, default=50000,
+        help="Maximum total tokens before aborting (default: 50000)",
     )
     args = parser.parse_args()
 
@@ -382,7 +390,7 @@ if __name__ == "__main__":
         from output import set_quiet
         set_quiet(True)
 
-    summary = run(args.task, toolset_spec=args.toolset, output_format=output_format)
+    summary = run(args.task, toolset_spec=args.toolset, output_format=output_format, max_tokens=args.max_tokens)
 
     if args.bool:
         import sys
