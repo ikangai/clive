@@ -89,11 +89,14 @@ def write_file(path: str, content: str) -> str:
 
 def _extract_script(text: str) -> str:
     """Extract bash script from LLM response."""
+    # Try fenced code block (greedy to handle nested blocks)
     m = re.search(r'```(?:bash|sh)?\s*\n([\s\S]*?)```', text)
     if m:
         return m.group(1).strip()
-    if text.strip().startswith("#!/bin/bash"):
-        return text.strip()
+    # Try unfenced: everything from #!/bin/bash to end (or next ```)
+    m = re.search(r'(#!/bin/bash[\s\S]*?)(?:```|$)', text)
+    if m:
+        return m.group(1).strip()
     raise ValueError(f"No script found in response:\n{text[:200]}")
 
 

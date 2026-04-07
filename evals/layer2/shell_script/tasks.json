@@ -1,0 +1,83 @@
+[
+  {
+    "id": "script_csv_filter_001",
+    "layer": 2,
+    "tool": "shell",
+    "mode": "script",
+    "task": "Filter data.csv to only rows where city is 'london', and write the matching rows (without header) to /tmp/clive/result.txt, one per line in the original CSV format.",
+    "initial_state": {
+      "filesystem": "fixtures/csv_transform/"
+    },
+    "success_criteria": {
+      "type": "deterministic",
+      "check": "test \"$(wc -l < /tmp/clive/result.txt | tr -d ' ')\" = \"3\" && grep -q 'alice' /tmp/clive/result.txt && grep -q 'eve' /tmp/clive/result.txt"
+    },
+    "min_turns": 1,
+    "max_turns": 3,
+    "timeout_seconds": 30
+  },
+  {
+    "id": "script_log_errors_002",
+    "layer": 2,
+    "tool": "shell",
+    "mode": "script",
+    "task": "Extract all ERROR lines from app.log, count them, and write the count as a single number to /tmp/clive/result.txt.",
+    "initial_state": {
+      "filesystem": "fixtures/log_extract/"
+    },
+    "success_criteria": {
+      "type": "deterministic",
+      "check": "test \"$(cat /tmp/clive/result.txt | tr -d '[:space:]')\" = \"3\""
+    },
+    "min_turns": 1,
+    "max_turns": 3,
+    "timeout_seconds": 30
+  },
+  {
+    "id": "script_word_count_003",
+    "layer": 2,
+    "tool": "shell",
+    "mode": "script",
+    "task": "Create a file containing exactly 'hello world hello foo hello bar' and write the count of how many times 'hello' appears to /tmp/clive/result.txt as a single number.",
+    "initial_state": {},
+    "success_criteria": {
+      "type": "deterministic",
+      "check": "test \"$(cat /tmp/clive/result.txt | tr -d '[:space:]')\" = \"3\""
+    },
+    "min_turns": 1,
+    "max_turns": 3,
+    "timeout_seconds": 30
+  },
+  {
+    "id": "script_file_list_004",
+    "layer": 2,
+    "tool": "shell",
+    "mode": "script",
+    "task": "List all .txt files in the current directory (not recursive), sort them alphabetically, and write the sorted filenames (one per line, no path prefix) to /tmp/clive/result.txt.",
+    "initial_state": {
+      "filesystem": "fixtures/file_rename/"
+    },
+    "success_criteria": {
+      "type": "deterministic",
+      "check": "head -1 /tmp/clive/result.txt | grep -q 'report_2026_Q1.txt' && test \"$(wc -l < /tmp/clive/result.txt | tr -d ' ')\" = \"3\""
+    },
+    "min_turns": 1,
+    "max_turns": 3,
+    "timeout_seconds": 30
+  },
+  {
+    "id": "script_json_create_005",
+    "layer": 2,
+    "tool": "shell",
+    "mode": "script",
+    "task": "Create a JSON file at /tmp/clive/result.txt containing a JSON object with keys 'hostname' (value: output of hostname command), 'date' (value: today's date in YYYY-MM-DD format), and 'user' (value: current username).",
+    "initial_state": {},
+    "success_criteria": {
+      "type": "deterministic",
+      "check": "python3 -c \"import json; d=json.load(open('/tmp/clive/result.txt')); assert 'hostname' in d and 'date' in d and 'user' in d\""
+    },
+    "min_turns": 1,
+    "max_turns": 3,
+    "timeout_seconds": 30
+  }
+]

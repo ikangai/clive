@@ -153,8 +153,9 @@ Generate a single shell script that accomplishes this goal. The script will be e
 
 Requirements:
 - Write a complete bash script (starting with #!/bin/bash)
-- Use set -e so the script stops on the first error
-- Write results to {session_dir}/
+- Use set -euo pipefail so the script stops on any error (including in pipes)
+- Input files are in the current working directory (use relative paths to read them)
+- Write output/results to {session_dir}/ (use absolute paths for output)
 - The script should be self-contained and deterministic
 - Handle expected edge cases (empty files, missing dirs) with guards
 - Print a one-line summary of what was accomplished as the last line of output

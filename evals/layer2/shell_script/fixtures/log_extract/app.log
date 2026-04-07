@@ -1,0 +1,7 @@
+2026-04-01 10:00:01 INFO  Server started
+2026-04-01 10:00:05 ERROR Connection refused to db-primary
+2026-04-01 10:00:06 WARN  Retrying connection...
+2026-04-01 10:00:07 INFO  Connected to db-replica
+2026-04-01 10:00:10 ERROR Timeout waiting for response from api-gateway
+2026-04-01 10:01:00 INFO  Health check passed
+2026-04-01 10:01:30 ERROR Disk usage at 95%

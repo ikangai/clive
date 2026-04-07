@@ -24,15 +24,23 @@ from models import Subtask, PaneInfo
 from llm import get_client
 
 
+def _annotate_tasks(tasks: list[dict], source_dir: str) -> list[dict]:
+    """Tag each task with the directory its tasks.json lives in."""
+    for t in tasks:
+        t["_source_dir"] = source_dir
+    return tasks
+
+
 def load_tasks(layer: int, tool: str | None = None) -> list[dict]:
     """Load task definitions for a layer (and optionally a specific tool)."""
     base = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
     if tool:
-        tasks_path = os.path.join(base, f"layer{layer}", tool, "tasks.json")
+        tool_dir = os.path.join(base, f"layer{layer}", tool)
+        tasks_path = os.path.join(tool_dir, "tasks.json")
         if os.path.exists(tasks_path):
             with open(tasks_path) as f:
-                return json.load(f)
+                return _annotate_tasks(json.load(f), tool_dir)
         return []
 
     # Load all tools for this layer
@@ -42,10 +50,11 @@ def load_tasks(layer: int, tool: str | None = None) -> list[dict]:
 
     all_tasks = []
     for tool_name in sorted(os.listdir(layer_dir)):
-        tasks_path = os.path.join(layer_dir, tool_name, "tasks.json")
+        tool_dir = os.path.join(layer_dir, tool_name)
+        tasks_path = os.path.join(tool_dir, "tasks.json")
         if os.path.exists(tasks_path):
             with open(tasks_path) as f:
-                all_tasks.extend(json.load(f))
+                all_tasks.extend(_annotate_tasks(json.load(f), tool_dir))
     return all_tasks
 
 
@@ -59,12 +68,11 @@ def run_single_task(
     layer = task_def.get("layer", 2)
     max_turns = task_def.get("max_turns", 8)
 
-    # Resolve fixture directory
-    base = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+    # Resolve fixture directory (relative to the tasks.json source dir)
+    source_dir = task_def.get("_source_dir", "")
     fixture_dir = None
     if "initial_state" in task_def and "filesystem" in task_def["initial_state"]:
-        fixture_dir = os.path.join(base, f"layer{layer}", tool,
-                                   task_def["initial_state"]["filesystem"])
+        fixture_dir = os.path.join(source_dir, task_def["initial_state"]["filesystem"])
 
     start_time = time.time()
 
@@ -78,8 +86,8 @@ def run_single_task(
         import threading
         _pane_locks["eval"] = threading.Lock()
 
-        # Ensure working dir exists
-        ef.send_keys(f"mkdir -p {ef.workdir}", enter=True)
+        # Ensure /tmp/clive exists (tasks reference it as absolute path)
+        ef.send_keys("mkdir -p /tmp/clive", enter=True)
         time.sleep(0.3)
 
         # Create subtask for the worker
@@ -96,7 +104,7 @@ def run_single_task(
                 subtask=subtask,
                 pane_info=ef.pane_info,
                 dep_context="",
-                session_dir=ef.workdir,
+                session_dir="/tmp/clive",
             )
 
             elapsed = time.time() - start_time

@@ -1,0 +1,92 @@
+{
+  "total_tasks": 10,
+  "passed": 10,
+  "completion_rate": 1.0,
+  "avg_turn_efficiency": 0.547,
+  "total_tokens": 55370,
+  "total_elapsed_seconds": 211.6,
+  "error_recovery_rate": 1.0,
+  "false_completion_rate": 0.0,
+  "results": [
+    {
+      "task_id": "lynx_fetch_page_001",
+      "passed": true,
+      "turns": 5,
+      "tokens": 7395,
+      "elapsed": 19.1,
+      "detail": "deterministic check passed"
+    },
+    {
+      "task_id": "lynx_extract_links_002",
+      "passed": true,
+      "turns": 4,
+      "tokens": 5725,
+      "elapsed": 26.0,
+      "detail": "deterministic check passed"
+    },
+    {
+      "task_id": "lynx_json_api_003",
+      "passed": true,
+      "turns": 3,
+      "tokens": 3871,
+      "elapsed": 12.2,
+      "detail": "deterministic check passed"
+    },
+    {
+      "task_id": "lynx_headers_check_004",
+      "passed": true,
+      "turns": 5,
+      "tokens": 7797,
+      "elapsed": 46.9,
+      "detail": "deterministic check passed"
+    },
+    {
+      "task_id": "lynx_multi_api_005",
+      "passed": true,
+      "turns": 3,
+      "tokens": 4042,
+      "elapsed": 13.2,
+      "detail": "deterministic check passed"
+    },
+    {
+      "task_id": "shell_find_txt_001",
+      "passed": true,
+      "turns": 3,
+      "tokens": 3818,
+      "elapsed": 27.5,
+      "detail": "deterministic check passed"
+    },
+    {
+      "task_id": "shell_count_pattern_002",
+      "passed": true,
+      "turns": 3,
+      "tokens": 3863,
+      "elapsed": 9.9,
+      "detail": "deterministic check passed"
+    },
+    {
+      "task_id": "shell_pipeline_003",
+      "passed": true,
+      "turns": 4,
+      "tokens": 6468,
+      "elapsed": 13.0,
+      "detail": "deterministic check passed"
+    },
+    {
+      "task_id": "shell_disk_usage_004",
+      "passed": true,
+      "turns": 4,
+      "tokens": 6434,
+      "elapsed": 13.5,
+      "detail": "deterministic check passed"
+    },
+    {
+      "task_id": "shell_json_extract_005",
+      "passed": true,
+      "turns": 4,
+      "tokens": 5957,
+      "elapsed": 30.2,
+      "detail": "deterministic check passed"
+    }
+  ]
+}
