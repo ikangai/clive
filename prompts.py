@@ -122,6 +122,53 @@ Rules:
 """
 
 
+def build_script_prompt(
+    subtask_description: str,
+    pane_name: str,
+    app_type: str,
+    tool_description: str,
+    dependency_context: str,
+    session_dir: str = "/tmp/clive",
+) -> str:
+    dep_section = ""
+    if dependency_context:
+        dep_section = f"""
+Context from prerequisite tasks:
+{dependency_context}
+"""
+
+    driver = load_driver(app_type)
+
+    return f"""You are a script generator for an autonomous terminal agent.
+
+Your pane: {pane_name} [{app_type}] — {tool_description}
+
+Tool knowledge:
+{driver}
+
+Your goal:
+{subtask_description}
+{dep_section}
+Generate a single shell script that accomplishes this goal. The script will be executed in one shot — you will not see intermediate output.
+
+Requirements:
+- Write a complete bash script (starting with #!/bin/bash)
+- Use set -e so the script stops on the first error
+- Write results to {session_dir}/
+- The script should be self-contained and deterministic
+- Handle expected edge cases (empty files, missing dirs) with guards
+- Print a one-line summary of what was accomplished as the last line of output
+
+Respond with ONLY the script inside a code block:
+
+```bash
+#!/bin/bash
+set -e
+# your script here
+```
+"""
+
+
 def build_triage_prompt(clive_context: str) -> str:
     return f"""You are a task triage agent for clive (CLI Live Environment).
 

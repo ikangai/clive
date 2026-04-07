@@ -85,6 +85,121 @@ def write_file(path: str, content: str) -> str:
         return f"[Error writing {path}: {e}]"
 
 
+# ─── Script Extraction ────────────────────────────────────────────────────────
+
+def _extract_script(text: str) -> str:
+    """Extract bash script from LLM response."""
+    m = re.search(r'```(?:bash|sh)?\s*\n([\s\S]*?)```', text)
+    if m:
+        return m.group(1).strip()
+    if text.strip().startswith("#!/bin/bash"):
+        return text.strip()
+    raise ValueError(f"No script found in response:\n{text[:200]}")
+
+
+# ─── Script Mode Worker ─────────────────────────────────────────────────────
+
+def run_subtask_script(
+    subtask: Subtask,
+    pane_info: PaneInfo,
+    dep_context: str,
+    on_event=None,
+    session_dir: str = "/tmp/clive",
+) -> SubtaskResult:
+    """Execute a subtask in script mode: generate → execute → verify → repair loop."""
+    from prompts import build_script_prompt
+    client = get_client()
+    total_pt = 0
+    total_ct = 0
+
+    system_prompt = build_script_prompt(
+        subtask_description=subtask.description,
+        pane_name=subtask.pane,
+        app_type=pane_info.app_type,
+        tool_description=pane_info.description,
+        dependency_context=dep_context,
+        session_dir=session_dir,
+    )
+
+    messages = [
+        {"role": "system", "content": system_prompt},
+        {"role": "user", "content": f"Generate the script. Goal: {subtask.description}"},
+    ]
+
+    script_path = os.path.join(session_dir, f"_script_{subtask.id}.sh")
+
+    with _pane_locks[subtask.pane]:
+        for attempt in range(1, subtask.max_turns + 1):
+            reply, pt, ct = chat(client, messages)
+            total_pt += pt
+            total_ct += ct
+            messages.append({"role": "assistant", "content": reply})
+
+            _emit(on_event, "turn", subtask.id, attempt, f"script gen attempt {attempt}")
+            _emit(on_event, "tokens", subtask.id, pt, ct)
+
+            try:
+                script = _extract_script(reply)
+            except ValueError as e:
+                progress(f"    [{subtask.id}] Script extraction failed: {e}")
+                messages.append({"role": "user", "content": "Error: could not extract script. Respond with a bash script inside ```bash ``` markers."})
+                continue
+
+            # Write and execute script
+            write_file(script_path, script)
+            os.chmod(script_path, 0o755)
+
+            wrapped, marker = wrap_command(f"bash {script_path}", subtask.id)
+            pane_info.pane.send_keys(wrapped, enter=True)
+            screen, method = wait_for_ready(pane_info, marker=marker, max_wait=60.0)
+
+            progress(f"    [{subtask.id}] Script attempt {attempt}: {screen[-80:]}")
+
+            # Check exit code
+            exit_check, exit_marker = wrap_command("echo EXIT:$?", subtask.id)
+            pane_info.pane.send_keys(exit_check, enter=True)
+            exit_screen, _ = wait_for_ready(pane_info, marker=exit_marker)
+
+            exit_code = None
+            for line in exit_screen.splitlines():
+                if line.strip().startswith("EXIT:"):
+                    try:
+                        exit_code = int(line.strip().split(":")[1])
+                    except (ValueError, IndexError):
+                        pass
+
+            if exit_code == 0:
+                output_lines = [l for l in screen.splitlines() if l.strip() and marker not in l]
+                summary = output_lines[-1] if output_lines else "Script completed successfully"
+                return SubtaskResult(
+                    subtask_id=subtask.id,
+                    status=SubtaskStatus.COMPLETED,
+                    summary=summary,
+                    output_snippet=screen[-500:] if len(screen) > 500 else screen,
+                    turns_used=attempt,
+                    prompt_tokens=total_pt,
+                    completion_tokens=total_ct,
+                )
+
+            # Script failed — repair
+            progress(f"    [{subtask.id}] Script failed (exit {exit_code}), repairing...")
+            messages.append({
+                "role": "user",
+                "content": f"Script failed with exit code {exit_code}. Terminal output:\n\n{screen[-1000:]}\n\nFix the script and provide the corrected version.",
+            })
+
+    final_screen = capture_pane(pane_info)
+    return SubtaskResult(
+        subtask_id=subtask.id,
+        status=SubtaskStatus.FAILED,
+        summary=f"Script mode exhausted {subtask.max_turns} attempts",
+        output_snippet=final_screen[-500:],
+        turns_used=subtask.max_turns,
+        prompt_tokens=total_pt,
+        completion_tokens=total_ct,
+    )
+
+
 # ─── DAG Scheduler ────────────────────────────────────────────────────────────
 
 def _emit(on_event, *args):
@@ -242,6 +357,16 @@ def run_subtask(
     session_dir: str = "/tmp/clive",
 ) -> SubtaskResult:
     """Execute a single subtask. Dispatches based on observation level (mode)."""
+    if subtask.mode == "script":
+        return run_subtask_script(
+            subtask=subtask,
+            pane_info=pane_info,
+            dep_context=dep_context,
+            on_event=on_event,
+            session_dir=session_dir,
+        )
+
+    # Interactive mode: existing turn-by-turn observation loop
     client = get_client()
     total_pt = 0
     total_ct = 0
