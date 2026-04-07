@@ -415,7 +415,7 @@ def execute_plan(
                     if result.status == SubtaskStatus.COMPLETED:
                         _emit(on_event, "subtask_done", sid, result.summary, elapsed)
                         # Scan session dir for files written by this subtask
-                        _track_result_files(sid, session_dir, result_files)
+                        _track_result_files(sid, session_dir, result_files, result)
                     else:
                         _emit(on_event, "subtask_fail", sid, result.summary)
                         # Branch cancellation: cancel futures whose results are now useless
@@ -472,14 +472,15 @@ def execute_plan(
     return [results[s.id] for s in plan.subtasks]
 
 
-def _track_result_files(subtask_id: str, session_dir: str, registry: dict[str, list[str]]):
-    """Scan session dir for files written by a subtask. Update registry."""
-    files = []
-    if os.path.isdir(session_dir):
-        for f in os.listdir(session_dir):
-            if subtask_id in f:
-                files.append(f)
-    registry[subtask_id] = files
+def _track_result_files(subtask_id: str, session_dir: str, registry: dict[str, list[str]],
+                        result: SubtaskResult | None = None):
+    """Scan session dir for files, inspect them for schema info. Update registry."""
+    from file_inspect import sniff_session_files
+    file_infos = sniff_session_files(session_dir, subtask_id)
+    registry[subtask_id] = file_infos
+    # Also enrich the SubtaskResult with file metadata
+    if result is not None:
+        result.output_files = file_infos
 
 
 def _cancel_orphaned_branches(
@@ -637,9 +638,23 @@ def run_subtask(
             screen_content = compute_screen_diff(last_screen, screen)
             last_screen = screen
             meta = get_meta(pane_info.pane)
+
+            # Read shared scratchpad for cross-agent discoveries
+            scratchpad_note = ""
+            scratchpad_path = os.path.join(session_dir, "_scratchpad.jsonl")
+            if os.path.exists(scratchpad_path):
+                try:
+                    with open(scratchpad_path, "r") as sf:
+                        notes = [l.strip() for l in sf.readlines()[-5:] if l.strip()]
+                    if notes:
+                        scratchpad_note = f"\n[Scratchpad from other agents]:\n" + "\n".join(notes)
+                except OSError:
+                    pass
+
             context = (
                 f"[Subtask {subtask.id} Turn {turn}]\n"
                 f"[Pane: {subtask.pane}] [Meta: {meta}]\n{screen_content}"
+                f"{scratchpad_note}"
             )
             messages.append({"role": "user", "content": context})
 
@@ -749,25 +764,33 @@ def run_subtask(
 def _build_dependency_context(
     subtask: Subtask,
     results: dict[str, SubtaskResult],
-    result_files: dict[str, list[str]] | None = None,
+    result_files: dict[str, list[dict]] | None = None,
 ) -> str:
-    """Build context string from completed dependency results.
+    """Build semantic dependency context from completed results.
 
-    Includes result summaries, output snippets, and file registry
-    (what files each dependency wrote to the session directory).
+    Compact, scannable format with schema info from file inspection.
+    Downstream agents see exactly what data is available.
     """
     if not subtask.depends_on:
         return ""
 
-    parts = []
+    parts = ["Dependencies completed:"]
     for dep_id in subtask.depends_on:
-        if dep_id in results:
-            r = results[dep_id]
-            parts.append(f"[Subtask {dep_id} result]: {r.summary}")
-            if r.output_snippet:
-                parts.append(f"[Subtask {dep_id} last output]:\n{r.output_snippet[:300]}")
-            # File registry: tell downstream what files are available
-            if result_files and dep_id in result_files and result_files[dep_id]:
-                files_str = ", ".join(result_files[dep_id])
-                parts.append(f"[Subtask {dep_id} files]: {files_str}")
+        if dep_id not in results:
+            continue
+        r = results[dep_id]
+        status = "DONE" if r.status == SubtaskStatus.COMPLETED else "FAIL"
+        parts.append(f"  [{dep_id}] {status}: {r.summary}")
+
+        # Include file info with schema detection
+        if result_files and dep_id in result_files:
+            from file_inspect import format_file_context
+            file_ctx = format_file_context(result_files[dep_id])
+            if file_ctx:
+                parts.append(file_ctx)
+
+        # For failures, include error detail
+        if r.error:
+            parts.append(f"  [{dep_id}] Error: {r.error[:200]}")
+
     return "\n".join(parts)

@@ -33,6 +33,7 @@ Environment:
 
 import argparse
 import os
+import re as _re
 import signal
 import sys
 import time
@@ -50,9 +51,23 @@ from toolsets import (
 )
 from planner import create_plan, display_plan
 from executor import execute_plan
-from models import SubtaskStatus
+from models import SubtaskStatus, Plan, Subtask
 from llm import get_client, chat
 from prompts import build_summarizer_prompt
+
+
+TRIVIAL_PATTERNS = [
+    _re.compile(r'^(list|count|find|show|cat|head|tail|wc|grep|ls|du|df)\b', _re.IGNORECASE),
+    _re.compile(r'^(curl|wget|fetch)\s+\S+$', _re.IGNORECASE),
+]
+
+def _is_trivial(task: str, num_panes: int) -> bool:
+    """Detect tasks that don't need planning."""
+    if num_panes > 1:
+        return False  # multi-pane tasks always need planning
+    if len(task.split()) > 20:
+        return False
+    return any(p.search(task.strip()) for p in TRIVIAL_PATTERNS)
 
 
 def run(task: str, toolset_spec: str = DEFAULT_TOOLSET, output_format: str = "default", max_tokens: int = 50000):
@@ -113,10 +128,18 @@ def run(task: str, toolset_spec: str = DEFAULT_TOOLSET, output_format: str = "de
 
     start_time = time.time()
 
-    # Phase 1: Planning
-    progress("Phase 1: Planning...")
-    plan = create_plan(task, panes, tool_status, tools_summary=tools_summary)
-    display_plan(plan)
+    # Fast path: skip planner for trivial single-pane tasks
+    if _is_trivial(task, len(panes)):
+        progress("Phase 1: Trivial task — skipping planner")
+        first_pane = list(panes.keys())[0]
+        plan = Plan(task=task, subtasks=[
+            Subtask(id="1", description=task, pane=first_pane, mode="script"),
+        ])
+        display_plan(plan)
+    else:
+        progress("Phase 1: Planning...")
+        plan = create_plan(task, panes, tool_status, tools_summary=tools_summary)
+        display_plan(plan)
 
     # Phase 2: Execution
     progress("Phase 2: Executing...")
@@ -131,6 +154,33 @@ def run(task: str, toolset_spec: str = DEFAULT_TOOLSET, output_format: str = "de
             progress(f"  ✗ [{sid}] {msg[:70]}")
 
     results = execute_plan(plan, panes, tool_status, on_event=_progress_event, session_dir=session_dir, max_tokens=max_tokens)
+
+    # Check for failures with skipped dependents → attempt replan
+    failed = [r for r in results if r.status == SubtaskStatus.FAILED]
+    skipped = [r for r in results if r.status == SubtaskStatus.SKIPPED]
+    if failed and skipped and len(failed) <= 2:
+        progress("\nReplanning: some subtasks failed, attempting recovery...")
+        failure_context = "\n".join(
+            f"  Subtask {r.subtask_id} FAILED: {r.summary}" for r in failed
+        )
+        remaining = "\n".join(
+            f"  Subtask {r.subtask_id} SKIPPED: {r.summary}" for r in skipped
+        )
+        replan_task = (
+            f"Original task: {task}\n\n"
+            f"These subtasks failed:\n{failure_context}\n\n"
+            f"These subtasks were skipped:\n{remaining}\n\n"
+            f"Find an alternative approach to complete the remaining work. "
+            f"Account for the failures — try a different method."
+        )
+        try:
+            replan = create_plan(replan_task, panes, tool_status, tools_summary=tools_summary)
+            if replan.subtasks:
+                progress("Replanned — executing recovery subtasks...")
+                recovery_results = execute_plan(replan, panes, tool_status, on_event=_progress_event, session_dir=session_dir, max_tokens=max_tokens // 2)
+                results.extend(recovery_results)
+        except Exception as e:
+            progress(f"  Replan failed: {e}")
 
     # Phase 3: Summarization (skip for single-subtask plans — result IS the summary)
     if len(results) == 1 and results[0].status == SubtaskStatus.COMPLETED:

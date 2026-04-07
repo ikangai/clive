@@ -55,6 +55,7 @@ RULES:
     - "script": One-shot. The agent generates a shell script, executes it, checks the exit code. No observation during execution. Use for: deterministic pipelines, file operations, data extraction, known API calls, text processing. Faster and cheaper.
     - "interactive": Turn-by-turn. The agent reads the screen after each command and decides what to do next. Use for: exploring unknown content, debugging, multi-step workflows where the next step depends on the previous result, interactive applications.
     STRONGLY prefer "script" — it is 2.5x cheaper and equally reliable. Only use "interactive" when the task explicitly requires reading unknown output, navigating an interactive application, or multi-step exploration where the next step depends on observing the previous result.
+11. Each subtask can optionally declare "produces" (filename it will write to the session dir) and "expects" (files it needs from dependencies). This helps downstream subtasks know exactly what data is available.
 
 Respond with a JSON object and nothing else:
 {{
@@ -64,6 +65,7 @@ Respond with a JSON object and nothing else:
       "description": "Extract all ERROR lines from syslog and save to result.txt",
       "pane": "shell",
       "mode": "script",
+      "produces": "errors.txt",
       "depends_on": []
     }},
     {{
@@ -71,6 +73,7 @@ Respond with a JSON object and nothing else:
       "description": "Browse the documentation site and find the configuration reference",
       "pane": "browser",
       "mode": "interactive",
+      "produces": "config_ref.txt",
       "depends_on": []
     }},
     {{
@@ -78,6 +81,7 @@ Respond with a JSON object and nothing else:
       "description": "Summarize the errors using the config context",
       "pane": "shell",
       "mode": "script",
+      "expects": ["errors.txt", "config_ref.txt"],
       "depends_on": ["1", "2"]
     }}
   ]
@@ -128,6 +132,9 @@ Rules:
 - read_file and write_file operate on the LOCAL filesystem only. For remote panes, use cat/shell redirects instead.
 - If something unexpected happens, describe it in your response and try to recover.
 - Silent commands (mkdir, touch) produce no output — this is normal.
+- Scratchpad: write discoveries to {session_dir}/_scratchpad.jsonl for parallel agents.
+  Format: one JSON object per line: {{"agent": "{pane_name}", "note": "your observation"}}
+  Read it to see what other agents discovered.
 """
 
 

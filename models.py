@@ -95,6 +95,8 @@ class SubtaskResult:
     turns_used: int = 0
     prompt_tokens: int = 0
     completion_tokens: int = 0
+    output_files: list[dict] = field(default_factory=list)  # [{path, type, size, preview}]
+    exit_code: Optional[int] = None
 
 
 @dataclass
