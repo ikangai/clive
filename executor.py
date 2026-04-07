@@ -13,7 +13,7 @@ log = logging.getLogger(__name__)
 from output import progress
 from models import Plan, Subtask, SubtaskStatus, SubtaskResult, PaneInfo
 from completion import wait_for_ready, wrap_command
-from llm import get_client, chat
+from llm import get_client, chat, chat_stream
 from prompts import build_worker_prompt
 from session import capture_pane, get_meta
 from screen_diff import compute_screen_diff
@@ -593,8 +593,14 @@ def _build_plan_context(plan: Plan, current: Subtask) -> str:
 
 def _capture_pane_env(pane_info: PaneInfo, session_dir: str) -> str:
     """Capture pane environment state cheaply (no LLM call)."""
-    parts = [f"[Pane: {pane_info.name} [{pane_info.app_type}], session_dir={session_dir}]"]
-    return parts[0]
+    # Get pane dimensions
+    try:
+        w = pane_info.pane.cmd("display-message", "-p", "#{pane_width}").stdout[0]
+        h = pane_info.pane.cmd("display-message", "-p", "#{pane_height}").stdout[0]
+        dims = f", {w}x{h}"
+    except Exception:
+        dims = ""
+    return f"[Pane: {pane_info.name} [{pane_info.app_type}]{dims}, session_dir={session_dir}]"
 
 
 def _track_result_files(subtask_id: str, session_dir: str, registry: dict[str, list[str]],
@@ -784,12 +790,13 @@ def run_subtask(
                 except OSError:
                     pass
 
-            # Budget awareness: tell agent how many tokens remain
+            # Turn progress + budget awareness
             budget_remaining = max_tokens - tokens_used - total_pt - total_ct
             budget_note = f"\n[Budget: {budget_remaining:,} tokens remaining]" if budget_remaining < max_tokens * 0.5 else ""
+            turn_stats = f"[Turn {turn}/{subtask.max_turns} | {total_pt+total_ct:,} tokens used]"
 
             context = (
-                f"[Subtask {subtask.id} Turn {turn}]\n"
+                f"{turn_stats}\n"
                 f"[Pane: {subtask.pane}]\n{screen_content}"
                 f"{scratchpad_note}{budget_note}"
             )
@@ -798,8 +805,25 @@ def run_subtask(
             # Trim context to prevent unbounded growth
             messages = _trim_messages(messages, max_user_turns=4)
 
-            # Call LLM
-            reply, pt, ct = chat(client, messages)
+            # Call LLM with streaming for early command detection
+            cmd_start = time.time()
+            early_cmd = None
+            early_cmd_event = threading.Event()
+
+            def _on_stream_token(partial):
+                nonlocal early_cmd
+                # Detect first </cmd> in stream for early action
+                if early_cmd is None and "</cmd>" in partial:
+                    early_cmd = parse_command(partial)
+                    if early_cmd["type"] != "none":
+                        early_cmd_event.set()
+
+            try:
+                reply, pt, ct = chat_stream(client, messages, on_token=_on_stream_token)
+            except Exception:
+                # Fallback to synchronous if streaming fails
+                reply, pt, ct = chat(client, messages)
+
             total_pt += pt
             total_ct += ct
             messages.append({"role": "assistant", "content": reply})
@@ -839,6 +863,7 @@ def run_subtask(
                         break
 
                     _SHELL_LIKE = {"shell", "data", "docs", "media", "browser", "files"}
+                    cmd_t0 = time.time()
                     if pane_info.app_type in _SHELL_LIKE:
                         wrapped, marker = wrap_command(cmd["value"], subtask.id)
                         pane_info.pane.send_keys(wrapped, enter=True)
@@ -852,6 +877,7 @@ def run_subtask(
                             pane_info,
                             detect_intervention=detect_intervention,
                         )
+                    cmd_elapsed = time.time() - cmd_t0
 
                     # Parse exit code from marker line
                     exit_code = None
@@ -862,11 +888,12 @@ def run_subtask(
                             except (ValueError, IndexError):
                                 pass
 
+                    # Command echo with timing + exit code
                     echo_parts = [f"[Command executed: {cmd['value'][:100]}]"]
                     if exit_code is not None:
-                        echo_parts.append(f"[Exit code: {exit_code} | Completion: {method}]")
+                        echo_parts.append(f"[Exit: {exit_code} | {cmd_elapsed:.1f}s | {method}]")
                     else:
-                        echo_parts.append(f"[Completion: {method}]")
+                        echo_parts.append(f"[{cmd_elapsed:.1f}s | {method}]")
 
                     signal = _detect_outcome_signal(screen)
                     if signal:

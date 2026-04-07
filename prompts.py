@@ -10,11 +10,15 @@ Read the screen output after each command to decide your next action.
 If a command fails, read the error and try a different approach."""
 
 
+_driver_cache: dict[str, str] = {}
+
+
 def load_driver(app_type: str, drivers_dir: str | None = None) -> str:
     """Load a driver prompt for the given app_type.
 
     Auto-discovers drivers from the drivers/ directory by matching
     {app_type}.md. Falls back to DEFAULT_DRIVER if no file found.
+    Caches loaded drivers to avoid repeated disk reads.
 
     If CLIVE_EVAL_DRIVER_OVERRIDE env var is set to a file path,
     that file is used instead (for eval/evolution overrides).
@@ -24,11 +28,19 @@ def load_driver(app_type: str, drivers_dir: str | None = None) -> str:
         with open(override, "r") as f:
             return f.read().strip()
 
+    cache_key = f"{app_type}:{drivers_dir or 'default'}"
+    if cache_key in _driver_cache:
+        return _driver_cache[cache_key]
+
     base = drivers_dir or _DRIVERS_DIR
     path = os.path.join(base, f"{app_type}.md")
     if os.path.exists(path):
         with open(path, "r") as f:
-            return f.read().strip()
+            content = f.read().strip()
+        _driver_cache[cache_key] = content
+        return content
+
+    _driver_cache[cache_key] = DEFAULT_DRIVER
     return DEFAULT_DRIVER
 
 
