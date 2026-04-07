@@ -1,0 +1,132 @@
+{
+  "total_tasks": 15,
+  "passed": 14,
+  "completion_rate": 0.933,
+  "avg_turn_efficiency": 0.593,
+  "total_tokens": 66408,
+  "total_elapsed_seconds": 196.8,
+  "error_recovery_rate": 0.0,
+  "false_completion_rate": 0.067,
+  "results": [
+    {
+      "task_id": "lynx_fetch_page_001",
+      "passed": true,
+      "turns": 4,
+      "tokens": 5558,
+      "elapsed": 16.1,
+      "detail": "deterministic check passed"
+    },
+    {
+      "task_id": "lynx_extract_links_002",
+      "passed": true,
+      "turns": 5,
+      "tokens": 7723,
+      "elapsed": 27.1,
+      "detail": "deterministic check passed"
+    },
+    {
+      "task_id": "lynx_json_api_003",
+      "passed": true,
+      "turns": 3,
+      "tokens": 3842,
+      "elapsed": 13.8,
+      "detail": "deterministic check passed"
+    },
+    {
+      "task_id": "lynx_headers_check_004",
+      "passed": true,
+      "turns": 4,
+      "tokens": 5827,
+      "elapsed": 7.1,
+      "detail": "deterministic check passed"
+    },
+    {
+      "task_id": "lynx_multi_api_005",
+      "passed": true,
+      "turns": 4,
+      "tokens": 5438,
+      "elapsed": 24.3,
+      "detail": "deterministic check passed"
+    },
+    {
+      "task_id": "shell_find_txt_001",
+      "passed": false,
+      "turns": 3,
+      "tokens": 4058,
+      "elapsed": 9.7,
+      "detail": "deterministic check failed"
+    },
+    {
+      "task_id": "shell_count_pattern_002",
+      "passed": true,
+      "turns": 3,
+      "tokens": 4163,
+      "elapsed": 18.6,
+      "detail": "deterministic check passed"
+    },
+    {
+      "task_id": "shell_pipeline_003",
+      "passed": true,
+      "turns": 4,
+      "tokens": 6565,
+      "elapsed": 11.3,
+      "detail": "deterministic check passed"
+    },
+    {
+      "task_id": "shell_disk_usage_004",
+      "passed": true,
+      "turns": 4,
+      "tokens": 6755,
+      "elapsed": 9.0,
+      "detail": "deterministic check passed"
+    },
+    {
+      "task_id": "shell_json_extract_005",
+      "passed": true,
+      "turns": 4,
+      "tokens": 5747,
+      "elapsed": 10.1,
+      "detail": "deterministic check passed"
+    },
+    {
+      "task_id": "script_csv_filter_001",
+      "passed": true,
+      "turns": 2,
+      "tokens": 3041,
+      "elapsed": 14.4,
+      "detail": "deterministic check passed"
+    },
+    {
+      "task_id": "script_log_errors_002",
+      "passed": true,
+      "turns": 2,
+      "tokens": 2534,
+      "elapsed": 10.6,
+      "detail": "deterministic check passed"
+    },
+    {
+      "task_id": "script_word_count_003",
+      "passed": true,
+      "turns": 1,
+      "tokens": 1402,
+      "elapsed": 7.1,
+      "detail": "deterministic check passed"
+    },
+    {
+      "task_id": "script_file_list_004",
+      "passed": true,
+      "turns": 2,
+      "tokens": 2570,
+      "elapsed": 12.9,
+      "detail": "deterministic check passed"
+    },
+    {
+      "task_id": "script_json_create_005",
+      "passed": true,
+      "turns": 1,
+      "tokens": 1185,
+      "elapsed": 4.7,
+      "detail": "deterministic check passed"
+    }
+  ]
+}
