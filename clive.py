@@ -206,6 +206,11 @@ if __name__ == "__main__":
         action="store_true",
         help="Quiet mode: telemetry to stderr, only result to stdout",
     )
+    parser.add_argument(
+        "--evolve",
+        metavar="DRIVER",
+        help="Evolve a driver prompt (shell, browser, all)",
+    )
     args = parser.parse_args()
 
     if args.list_toolsets:
@@ -306,6 +311,11 @@ if __name__ == "__main__":
         else:
             print(f"\n✗ {result.stage}: {result.message}")
             raise SystemExit(1)
+        raise SystemExit(0)
+
+    if args.evolve:
+        from evolve import evolve_driver
+        evolve_driver(args.evolve)
         raise SystemExit(0)
 
     if args.quiet:
