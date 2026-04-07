@@ -39,7 +39,7 @@ from dotenv import load_dotenv
 load_dotenv()
 
 from output import progress, result
-from session import setup_session, check_health, SESSION_NAME
+from session import setup_session, check_health, generate_session_id, SESSION_NAME
 from toolsets import (
     resolve_toolset, check_commands, build_tools_summary,
     print_availability, list_toolsets, list_categories,
@@ -53,6 +53,9 @@ from prompts import build_summarizer_prompt
 
 
 def run(task: str, toolset_spec: str = DEFAULT_TOOLSET):
+    session_id = generate_session_id()
+    session_dir = f"/tmp/clive/{session_id}"
+
     # Resolve toolset spec into three surfaces
     resolved = resolve_toolset(toolset_spec)
 
@@ -61,7 +64,7 @@ def run(task: str, toolset_spec: str = DEFAULT_TOOLSET):
     progress(f"{'~' * 60}")
 
     # Create tmux session with pane tools only
-    session, panes = setup_session(resolved["panes"])
+    session, panes = setup_session(resolved["panes"], session_dir=session_dir)
 
     progress(f"\nHealth check:")
     tool_status = check_health(panes)
@@ -82,6 +85,7 @@ def run(task: str, toolset_spec: str = DEFAULT_TOOLSET):
 
     progress(f"{'~' * 60}")
     progress(f"Task: {task}")
+    progress(f"Session: {session_dir}")
     progress(f"Watch: tmux attach -t {SESSION_NAME}")
     progress(f"{'=' * 60}\n")
 
@@ -94,7 +98,7 @@ def run(task: str, toolset_spec: str = DEFAULT_TOOLSET):
 
     # Phase 2: Execution
     progress("Phase 2: Executing...")
-    results = execute_plan(plan, panes, tool_status)
+    results = execute_plan(plan, panes, tool_status, session_dir=session_dir)
 
     # Phase 3: Summarization
     progress("\nPhase 3: Summarizing...")

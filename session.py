@@ -1,6 +1,7 @@
 """Tmux session and pane management."""
 
 import time
+import uuid
 
 import libtmux
 
@@ -10,9 +11,15 @@ from models import PaneInfo
 SESSION_NAME = "clive"
 
 
+def generate_session_id() -> str:
+    """Generate a short unique session ID."""
+    return uuid.uuid4().hex[:8]
+
+
 def setup_session(
     tools: list[dict],
     session_name: str = SESSION_NAME,
+    session_dir: str | None = None,
 ) -> tuple[libtmux.Session, dict[str, PaneInfo]]:
     """Create tmux session with one window+pane per tool."""
     server = libtmux.Server()
@@ -65,8 +72,9 @@ def setup_session(
             idle_timeout=tool.get("idle_timeout", 2.0),
         )
 
-    # shared working directory
-    list(panes.values())[0].pane.send_keys("mkdir -p /tmp/clive", enter=True)
+    # session-scoped working directory
+    workdir = session_dir or "/tmp/clive"
+    list(panes.values())[0].pane.send_keys(f"mkdir -p {workdir}", enter=True)
     time.sleep(1.5)
 
     return session, panes

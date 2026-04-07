@@ -83,6 +83,7 @@ def build_worker_prompt(
     app_type: str,
     tool_description: str,
     dependency_context: str,
+    session_dir: str = "/tmp/clive",
 ) -> str:
     dep_section = ""
     if dependency_context:
@@ -114,7 +115,7 @@ Rules:
 - One command per turn.
 - You can ONLY send commands to pane "{pane_name}".
 - Use task_complete when your goal is achieved.
-- Write intermediate results to /tmp/clive/ so other tasks can use them.
+- Write intermediate results to {session_dir}/ so other tasks can use them.
 - read_file and write_file operate on the LOCAL filesystem only. For remote panes, use cat/shell redirects instead.
 - If something unexpected happens, describe it in your response and try to recover.
 - Silent commands (mkdir, touch) produce no output — this is normal.

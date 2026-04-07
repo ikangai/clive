@@ -101,6 +101,7 @@ def execute_plan(
     panes: dict[str, PaneInfo],
     tool_status: dict[str, dict],
     on_event=None,
+    session_dir: str = "/tmp/clive",
 ) -> list[SubtaskResult]:
     """Execute all subtasks, respecting DAG dependencies and pane exclusivity.
 
@@ -172,6 +173,7 @@ def execute_plan(
                     pane_info=panes[subtask.pane],
                     dep_context=dep_context,
                     on_event=on_event,
+                    session_dir=session_dir,
                 )
                 futures[subtask.id] = future
 
@@ -237,8 +239,9 @@ def run_subtask(
     pane_info: PaneInfo,
     dep_context: str,
     on_event=None,
+    session_dir: str = "/tmp/clive",
 ) -> SubtaskResult:
-    """Execute a single subtask. Acquires pane lock, runs mini-loop."""
+    """Execute a single subtask. Dispatches based on observation level (mode)."""
     client = get_client()
     total_pt = 0
     total_ct = 0
@@ -249,6 +252,7 @@ def run_subtask(
         app_type=pane_info.app_type,
         tool_description=pane_info.description,
         dependency_context=dep_context,
+        session_dir=session_dir,
     )
 
     messages = [
