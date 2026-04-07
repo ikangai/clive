@@ -1,0 +1,53 @@
+{
+  "total_tasks": 5,
+  "passed": 4,
+  "completion_rate": 0.8,
+  "avg_turn_efficiency": 0.513,
+  "total_tokens": 22645,
+  "total_elapsed_seconds": 88.5,
+  "estimated_cost_usd": 0.0961,
+  "error_recovery_rate": 0.0,
+  "false_completion_rate": 0.0,
+  "results": [
+    {
+      "task_id": "shell_find_txt_001",
+      "passed": true,
+      "turns": 3,
+      "tokens": 3416,
+      "elapsed": 30.2,
+      "detail": "deterministic check passed"
+    },
+    {
+      "task_id": "shell_count_pattern_002",
+      "passed": true,
+      "turns": 5,
+      "tokens": 6169,
+      "elapsed": 22.4,
+      "detail": "deterministic check passed"
+    },
+    {
+      "task_id": "shell_pipeline_003",
+      "passed": true,
+      "turns": 4,
+      "tokens": 5467,
+      "elapsed": 13.1,
+      "detail": "deterministic check passed"
+    },
+    {
+      "task_id": "shell_disk_usage_004",
+      "passed": false,
+      "turns": 4,
+      "tokens": 3095,
+      "elapsed": 6.7,
+      "detail": "deterministic check failed"
+    },
+    {
+      "task_id": "shell_json_extract_005",
+      "passed": true,
+      "turns": 4,
+      "tokens": 4498,
+      "elapsed": 16.0,
+      "detail": "deterministic check passed"
+    }
+  ]
+}

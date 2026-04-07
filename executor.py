@@ -111,6 +111,7 @@ def run_subtask_script(
     session_dir: str = "/tmp/clive",
 ) -> SubtaskResult:
     """Execute a subtask in script mode: generate → execute → verify → repair loop."""
+    log.info(f"Subtask {subtask.id}: script mode, pane={subtask.pane}")
     from prompts import build_script_prompt
     client = get_client()
     total_pt = 0
@@ -441,6 +442,7 @@ def run_subtask(
 
     # Streaming mode uses interactive loop with intervention detection
     detect_intervention = subtask.mode == "streaming"
+    log.info(f"Subtask {subtask.id}: mode={subtask.mode}, pane={subtask.pane}, max_turns={subtask.max_turns}")
 
     # Interactive/streaming mode: turn-by-turn observation loop
     client = get_client()
@@ -576,11 +578,13 @@ def run_subtask(
             elif cmd["type"] == "read_file":
                 content = read_file(cmd["value"])
                 messages.append({"role": "user", "content": content})
+                no_change_count = 0  # file ops don't change screen but are progress
                 continue
 
             elif cmd["type"] == "write_file":
                 result = write_file(cmd["path"], cmd["value"])
                 messages.append({"role": "user", "content": result})
+                no_change_count = 0  # file ops don't change screen but are progress
                 continue
 
             elif cmd["type"] == "wait":

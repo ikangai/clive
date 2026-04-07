@@ -33,6 +33,8 @@ Environment:
 
 import argparse
 import os
+import signal
+import sys
 import time
 
 from dotenv import load_dotenv
@@ -56,6 +58,25 @@ from prompts import build_summarizer_prompt
 def run(task: str, toolset_spec: str = DEFAULT_TOOLSET, output_format: str = "default"):
     session_id = generate_session_id()
     session_dir = f"/tmp/clive/{session_id}"
+
+    # Graceful shutdown handler
+    def _cleanup(signum=None, frame=None):
+        import shutil
+        progress("\nShutting down...")
+        try:
+            import libtmux
+            server = libtmux.Server()
+            for s in server.sessions.filter(session_name=SESSION_NAME):
+                s.kill()
+        except Exception:
+            pass
+        if os.path.isdir(session_dir):
+            shutil.rmtree(session_dir, ignore_errors=True)
+        if signum:
+            sys.exit(130)  # 128 + SIGINT
+
+    signal.signal(signal.SIGINT, _cleanup)
+    signal.signal(signal.SIGTERM, _cleanup)
 
     # Resolve toolset spec into three surfaces
     resolved = resolve_toolset(toolset_spec)
@@ -220,7 +241,23 @@ if __name__ == "__main__":
         metavar="DRIVER",
         help="Evolve a driver prompt (shell, browser, all)",
     )
+    parser.add_argument(
+        "--debug",
+        action="store_true",
+        help="Enable debug logging to stderr",
+    )
     args = parser.parse_args()
+
+    # Configure logging
+    import logging
+    if args.debug:
+        logging.basicConfig(
+            level=logging.DEBUG,
+            format="%(asctime)s %(name)s %(levelname)s %(message)s",
+            stream=sys.stderr,
+        )
+    else:
+        logging.basicConfig(level=logging.WARNING, stream=sys.stderr)
 
     if args.list_toolsets:
         profiles = list_toolsets()

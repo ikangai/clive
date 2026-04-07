@@ -259,6 +259,52 @@ def run_single_task(
                 del os.environ["CLIVE_EVAL_DRIVER_OVERRIDE"]
 
 
+def run_comparison(args, tasks):
+    """Run the same tasks with two different models and compare."""
+    import os
+    results = {}
+    for model in args.compare:
+        os.environ["AGENT_MODEL"] = model
+        print(f"\n{'=' * 60}", file=sys.stderr)
+        print(f"Running with model: {model}", file=sys.stderr)
+        print(f"{'=' * 60}", file=sys.stderr)
+
+        model_results = []
+        for task_def in tasks:
+            if task_def.get("layer") == 4:
+                result = run_planning_eval(task_def)
+            else:
+                result = run_single_task(task_def)
+            model_results.append(result)
+        results[model] = EvalReport(model_results)
+
+    # Print comparison
+    print(f"\n{'=' * 60}", file=sys.stderr)
+    print(f"MODEL COMPARISON", file=sys.stderr)
+    print(f"{'=' * 60}", file=sys.stderr)
+    print(f"{'':30s} {'Model A':>15s} {'Model B':>15s}", file=sys.stderr)
+    print(f"{'':30s} {args.compare[0]:>15s} {args.compare[1]:>15s}", file=sys.stderr)
+    print(f"{'-' * 60}", file=sys.stderr)
+
+    for name, (a, b) in [
+        ("Pass rate", (results[args.compare[0]].completion_rate, results[args.compare[1]].completion_rate)),
+        ("Turn efficiency", (results[args.compare[0]].avg_turn_efficiency, results[args.compare[1]].avg_turn_efficiency)),
+        ("Total tokens", (results[args.compare[0]].total_tokens, results[args.compare[1]].total_tokens)),
+        ("Total time (s)", (results[args.compare[0]].total_elapsed, results[args.compare[1]].total_elapsed)),
+    ]:
+        print(f"  {name:28s} {a:>15.3f} {b:>15.3f}", file=sys.stderr)
+
+    cost_a = results[args.compare[0]].estimated_cost()
+    cost_b = results[args.compare[1]].estimated_cost()
+    if cost_a > 0 or cost_b > 0:
+        print(f"  {'Est. cost ($)':28s} {cost_a:>15.4f} {cost_b:>15.4f}", file=sys.stderr)
+    print(f"{'=' * 60}\n", file=sys.stderr)
+
+    # Clean up
+    if "AGENT_MODEL" in os.environ:
+        del os.environ["AGENT_MODEL"]
+
+
 def main():
     parser = argparse.ArgumentParser(description="clive eval runner")
     parser.add_argument("--layer", type=int, help="Layer to eval (2, 3, 4, 1)")
@@ -268,6 +314,8 @@ def main():
     parser.add_argument("--output", help="Save JSON report to file")
     parser.add_argument("--ci", action="store_true", help="CI mode: exit 1 on any failure")
     parser.add_argument("--baseline", help="Baseline JSON for regression comparison")
+    parser.add_argument("--compare", nargs=2, metavar="MODEL",
+                        help="Compare two models (e.g., --compare gpt-4o claude-sonnet-4-20250514)")
     args = parser.parse_args()
 
     if not args.layer and not args.all:
@@ -283,6 +331,10 @@ def main():
     if not tasks:
         print("No tasks found.", file=sys.stderr)
         sys.exit(1)
+
+    if args.compare:
+        run_comparison(args, tasks)
+        return
 
     print(f"Running {len(tasks)} eval tasks...", file=sys.stderr)
 

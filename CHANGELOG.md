@@ -1,5 +1,29 @@
 # Changelog
 
+## Performance Optimizations (2026-04-07)
+
+### Read Loop
+
+- **Screen diffing** — Only changed lines sent to LLM after first turn. Uses `difflib.unified_diff` with 60-line cap. Cuts screen tokens by 60-80%.
+
+- **Context compression** — Conversation history capped at 4 most recent turns. Prevents unbounded token growth in long interactive sessions.
+
+- **Batched exit check** — Script execution and exit code capture combined into one tmux round-trip. Saves ~2 seconds per script attempt.
+
+- **Expanded markers** — All shell-like panes (data, docs, media, browser, files) use marker-based completion detection. Eliminates 2-second idle timeout.
+
+- **Scrollback capture** — `capture-pane -J -S-50` joins wrapped lines and includes recent scrollback. Agent sees output that scrolled off screen.
+
+- **`wait` command** — Agent can explicitly pause and re-observe: `<cmd type="wait">3</cmd>`. Useful for long-running commands.
+
+- **No-change early stop** — If screen is unchanged for 3 consecutive turns, subtask fails as stuck. Prevents wasting turns on stuck loops.
+
+### Planning
+
+- **Stronger script-mode push** — Planner prompt strongly prefers script mode (2.5x cheaper, equally reliable). Interactive only when observation is genuinely required.
+
+---
+
 ## Gap Closure: Hardening + Full Layer Coverage (2026-04-07)
 
 ### Added

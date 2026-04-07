@@ -106,6 +106,7 @@ class EvalReport:
             "avg_turn_efficiency": round(self.avg_turn_efficiency, 3),
             "total_tokens": self.total_tokens,
             "total_elapsed_seconds": round(self.total_elapsed, 1),
+            "estimated_cost_usd": round(self.estimated_cost(), 4),
             "error_recovery_rate": round(self.error_recovery_rate, 3),
             "false_completion_rate": round(self.false_completion_rate, 3),
             "results": [
@@ -137,5 +138,8 @@ class EvalReport:
         progress(f"{'~' * 60}")
         progress(f"Turn efficiency: {self.avg_turn_efficiency:.0%}")
         progress(f"Total tokens:    {self.total_tokens:,}")
+        cost = self.estimated_cost()
+        if cost > 0:
+            progress(f"Est. cost:       ${cost:.4f}")
         progress(f"Total time:      {self.total_elapsed:.1f}s")
         progress(f"{'=' * 60}\n")

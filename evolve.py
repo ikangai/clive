@@ -130,11 +130,13 @@ def evolve_driver(
             report, report_dict = run_evals_with_driver(vf, driver_name)
             score = fitness_score(report, baseline_pass_rate=baseline_pass_rate)
 
+            cost = report.estimated_cost()
             status = "+" if score > current_best_score else "-"
+            cost_str = f", ${cost:.4f}" if cost > 0 else ""
             print(f"    [{status}] score={score:.3f} "
                   f"({report.passed_tasks}/{report.total_tasks} passed, "
                   f"{report.avg_turn_efficiency:.0%} turn eff, "
-                  f"{report.total_tokens:,} tokens)", file=sys.stderr)
+                  f"{report.total_tokens:,} tokens{cost_str})", file=sys.stderr)
 
             gen_results.append({
                 "variant": i,
@@ -143,6 +145,7 @@ def evolve_driver(
                 "total": report.total_tasks,
                 "turn_efficiency": round(report.avg_turn_efficiency, 3),
                 "tokens": report.total_tokens,
+                "cost_usd": round(cost, 4),
             })
 
             if score > gen_best_score:
