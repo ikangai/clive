@@ -1,0 +1,67 @@
+[
+  {
+    "id": "l4_parallel_synthesis_001",
+    "layer": 4,
+    "tool": "planning",
+    "task": "Fetch the current weather for London and Paris, then compare them and write a summary.",
+    "expected": {
+      "min_subtasks": 2,
+      "max_subtasks": 4,
+      "has_parallel": true,
+      "has_dependencies": true
+    },
+    "min_turns": 1,
+    "max_turns": 1
+  },
+  {
+    "id": "l4_single_tool_002",
+    "layer": 4,
+    "tool": "planning",
+    "task": "Count the number of lines in /tmp/test.txt",
+    "expected": {
+      "min_subtasks": 1,
+      "max_subtasks": 2
+    },
+    "min_turns": 1,
+    "max_turns": 1
+  },
+  {
+    "id": "l4_dependency_chain_003",
+    "layer": 4,
+    "tool": "planning",
+    "task": "Download a CSV file from https://example.com/data.csv, then filter rows where score > 80, then create a chart of the results.",
+    "expected": {
+      "min_subtasks": 2,
+      "max_subtasks": 4,
+      "has_dependencies": true
+    },
+    "min_turns": 1,
+    "max_turns": 1
+  },
+  {
+    "id": "l4_multi_pane_004",
+    "layer": 4,
+    "tool": "planning",
+    "task": "Browse example.com to find contact info, and simultaneously search the local filesystem for any existing contact records, then merge the results.",
+    "expected": {
+      "min_subtasks": 2,
+      "max_subtasks": 4,
+      "has_parallel": true,
+      "has_dependencies": true
+    },
+    "min_turns": 1,
+    "max_turns": 1
+  },
+  {
+    "id": "l4_minimal_decomp_005",
+    "layer": 4,
+    "tool": "planning",
+    "task": "List all files in /tmp",
+    "expected": {
+      "min_subtasks": 1,
+      "max_subtasks": 1
+    },
+    "min_turns": 1,
+    "max_turns": 1
+  }
+]

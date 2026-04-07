@@ -58,11 +58,111 @@ def load_tasks(layer: int, tool: str | None = None) -> list[dict]:
     return all_tasks
 
 
+def run_planning_eval(task_def: dict) -> EvalResult:
+    """Run a planning-only eval. Tests DAG structure, not execution."""
+    task_id = task_def["id"]
+    layer = task_def.get("layer", 4)
+    start_time = time.time()
+
+    # Create minimal pane setup for planning (no actual tmux needed)
+    # The planner just needs tool info, not real panes
+    tools_summary = task_def.get("tools_summary", """Available tools:
+  - shell [shell]: Bash shell for commands
+  - browser [browser]: Web browsing with lynx/curl""")
+
+    try:
+        from llm import get_client, chat
+        from prompts import build_planner_prompt
+
+        client = get_client()
+        system_prompt = build_planner_prompt(tools_summary)
+        messages = [
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": f"Task: {task_def['task']}"},
+        ]
+        content, pt, ct = chat(client, messages, max_tokens=2048)
+
+        # Parse the plan JSON
+        import re
+        m = re.search(r'```(?:json)?\s*(\{[\s\S]*?\})\s*```', content)
+        if m:
+            plan_json = json.loads(m.group(1))
+        else:
+            m = re.search(r'(\{[\s\S]*\})', content)
+            plan_json = json.loads(m.group(1)) if m else {}
+
+        subtasks = plan_json.get("subtasks", [])
+        elapsed = time.time() - start_time
+
+        # Check expectations
+        expected = task_def.get("expected", {})
+        checks_passed = True
+        details = []
+
+        # Check subtask count range
+        if "min_subtasks" in expected:
+            if len(subtasks) < expected["min_subtasks"]:
+                checks_passed = False
+                details.append(f"Too few subtasks: {len(subtasks)} < {expected['min_subtasks']}")
+        if "max_subtasks" in expected:
+            if len(subtasks) > expected["max_subtasks"]:
+                checks_passed = False
+                details.append(f"Too many subtasks: {len(subtasks)} > {expected['max_subtasks']}")
+
+        # Check mode assignments
+        if "expected_modes" in expected:
+            for mode_check in expected["expected_modes"]:
+                idx = mode_check.get("subtask_index", 0)
+                exp_mode = mode_check["mode"]
+                if idx < len(subtasks):
+                    actual_mode = subtasks[idx].get("mode", "interactive")
+                    if actual_mode != exp_mode:
+                        checks_passed = False
+                        details.append(f"Subtask {idx} mode: expected {exp_mode}, got {actual_mode}")
+
+        # Check has_parallel (multiple subtasks with no deps)
+        if "has_parallel" in expected:
+            no_deps = [s for s in subtasks if not s.get("depends_on", [])]
+            if expected["has_parallel"] and len(no_deps) < 2:
+                checks_passed = False
+                details.append("Expected parallel subtasks but none found")
+
+        # Check has_dependencies
+        if "has_dependencies" in expected:
+            has_deps = any(s.get("depends_on", []) for s in subtasks)
+            if expected["has_dependencies"] and not has_deps:
+                checks_passed = False
+                details.append("Expected dependencies but none found")
+
+        detail = "; ".join(details) if details else "planning checks passed"
+
+        return EvalResult(
+            task_id=task_id, layer=layer, tool="planning",
+            passed=checks_passed,
+            turns_used=1, min_turns=1,
+            prompt_tokens=pt, completion_tokens=ct,
+            elapsed_seconds=elapsed,
+            detail=detail,
+        )
+    except Exception as e:
+        elapsed = time.time() - start_time
+        return EvalResult(
+            task_id=task_id, layer=layer, tool="planning",
+            passed=False, turns_used=0, min_turns=1,
+            prompt_tokens=0, completion_tokens=0,
+            elapsed_seconds=elapsed,
+            detail=f"Exception: {e}",
+        )
+
+
 def run_single_task(
     task_def: dict,
     driver_override: str | None = None,
 ) -> EvalResult:
     """Run a single eval task and return the result."""
+    if task_def.get("layer") == 4:
+        return run_planning_eval(task_def)
+
     task_id = task_def["id"]
     tool = task_def.get("tool", "shell")
     layer = task_def.get("layer", 2)

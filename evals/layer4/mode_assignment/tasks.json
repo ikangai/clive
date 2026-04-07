@@ -1,0 +1,67 @@
+[
+  {
+    "id": "l4_mode_batch_001",
+    "layer": 4,
+    "tool": "planning",
+    "task": "Rename all .txt files in /tmp/data/ to .csv extension.",
+    "expected": {
+      "min_subtasks": 1,
+      "max_subtasks": 2,
+      "expected_modes": [{"subtask_index": 0, "mode": "script"}]
+    },
+    "min_turns": 1,
+    "max_turns": 1
+  },
+  {
+    "id": "l4_mode_interactive_002",
+    "layer": 4,
+    "tool": "planning",
+    "task": "Browse the Wikipedia page for 'tmux' and find who created it and when.",
+    "expected": {
+      "min_subtasks": 1,
+      "max_subtasks": 2,
+      "expected_modes": [{"subtask_index": 0, "mode": "interactive"}]
+    },
+    "min_turns": 1,
+    "max_turns": 1
+  },
+  {
+    "id": "l4_mode_curl_003",
+    "layer": 4,
+    "tool": "planning",
+    "task": "Fetch https://api.github.com/repos/tmux/tmux and extract the star count.",
+    "expected": {
+      "min_subtasks": 1,
+      "max_subtasks": 2,
+      "expected_modes": [{"subtask_index": 0, "mode": "script"}]
+    },
+    "min_turns": 1,
+    "max_turns": 1
+  },
+  {
+    "id": "l4_mode_mixed_004",
+    "layer": 4,
+    "tool": "planning",
+    "task": "Count all .py files in the current directory recursively (save count to a file), and also browse example.com to find what it's about.",
+    "expected": {
+      "min_subtasks": 2,
+      "max_subtasks": 3,
+      "has_parallel": true
+    },
+    "min_turns": 1,
+    "max_turns": 1
+  },
+  {
+    "id": "l4_mode_pipeline_005",
+    "layer": 4,
+    "tool": "planning",
+    "task": "Extract all email addresses from contacts.txt and write them to /tmp/emails.txt sorted alphabetically.",
+    "expected": {
+      "min_subtasks": 1,
+      "max_subtasks": 2,
+      "expected_modes": [{"subtask_index": 0, "mode": "script"}]
+    },
+    "min_turns": 1,
+    "max_turns": 1
+  }
+]

@@ -1,0 +1,47 @@
+[
+  {
+    "id": "l3_fix_syntax_001",
+    "layer": 3,
+    "tool": "shell",
+    "mode": "script",
+    "task": "There is a broken script at broken.sh with a syntax error. Read it, fix the error, and write a corrected version that copies input.txt to /tmp/clive/result.txt. Execute the fixed script.",
+    "initial_state": {"filesystem": "fixtures/syntax_error/"},
+    "success_criteria": {
+      "type": "deterministic",
+      "check": "grep -q 'test data' /tmp/clive/result.txt"
+    },
+    "min_turns": 1,
+    "max_turns": 4,
+    "timeout_seconds": 30
+  },
+  {
+    "id": "l3_fix_output_002",
+    "layer": 3,
+    "tool": "shell",
+    "mode": "script",
+    "task": "Count how many times 'apple' appears in input.txt and write the count to /tmp/clive/result.txt. The expected answer is in expected.txt — verify your result matches.",
+    "initial_state": {"filesystem": "fixtures/wrong_output/"},
+    "success_criteria": {
+      "type": "deterministic",
+      "check": "test \"$(cat /tmp/clive/result.txt | tr -d '[:space:]')\" = \"3\""
+    },
+    "min_turns": 1,
+    "max_turns": 3,
+    "timeout_seconds": 30
+  },
+  {
+    "id": "l3_missing_cmd_003",
+    "layer": 3,
+    "tool": "shell",
+    "mode": "script",
+    "task": "Read input.csv and find the row with the highest 'score' value. Write the name of that person to /tmp/clive/result.txt. You may use any available tool (awk, sort, python3, etc).",
+    "initial_state": {"filesystem": "fixtures/missing_command/"},
+    "success_criteria": {
+      "type": "deterministic",
+      "check": "grep -q 'alice' /tmp/clive/result.txt"
+    },
+    "min_turns": 1,
+    "max_turns": 3,
+    "timeout_seconds": 30
+  }
+]

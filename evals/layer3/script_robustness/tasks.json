@@ -1,0 +1,62 @@
+[
+  {
+    "id": "l3_empty_input_001",
+    "layer": 3,
+    "tool": "shell",
+    "mode": "script",
+    "task": "Count the number of non-empty lines in input.txt and write the count to /tmp/clive/result.txt. If the file is empty, write 0.",
+    "initial_state": {"filesystem": "fixtures/empty_input/"},
+    "success_criteria": {
+      "type": "deterministic",
+      "check": "test \"$(cat /tmp/clive/result.txt | tr -d '[:space:]')\" = \"0\""
+    },
+    "min_turns": 1,
+    "max_turns": 3,
+    "timeout_seconds": 30
+  },
+  {
+    "id": "l3_missing_file_002",
+    "layer": 3,
+    "tool": "shell",
+    "mode": "script",
+    "task": "Read data.csv and write the number of rows (excluding header) to /tmp/clive/result.txt. If data.csv does not exist, write 'ERROR: file not found' to /tmp/clive/result.txt and exit with code 0 (graceful handling).",
+    "initial_state": {"filesystem": "fixtures/empty_input/"},
+    "success_criteria": {
+      "type": "deterministic",
+      "check": "grep -qi 'error' /tmp/clive/result.txt || grep -qi 'not found' /tmp/clive/result.txt"
+    },
+    "min_turns": 1,
+    "max_turns": 3,
+    "timeout_seconds": 30
+  },
+  {
+    "id": "l3_valid_json_003",
+    "layer": 3,
+    "tool": "shell",
+    "mode": "script",
+    "task": "Read data.json and write the names as a JSON array to /tmp/clive/result.txt. The output must be valid JSON.",
+    "initial_state": {"filesystem": "fixtures/json_sum/"},
+    "success_criteria": {
+      "type": "deterministic",
+      "check": "python3 -c \"import json; names=json.load(open('/tmp/clive/result.txt')); assert isinstance(names, list) and len(names)==3\""
+    },
+    "min_turns": 1,
+    "max_turns": 3,
+    "timeout_seconds": 30
+  },
+  {
+    "id": "l3_no_clobber_004",
+    "layer": 3,
+    "tool": "shell",
+    "mode": "script",
+    "task": "Read input.txt and write its contents reversed (last line first) to /tmp/clive/result.txt. Use a temporary file during processing to avoid clobbering if input and output were the same file.",
+    "initial_state": {"filesystem": "fixtures/existing_output/"},
+    "success_criteria": {
+      "type": "deterministic",
+      "check": "test -f /tmp/clive/result.txt && grep -q 'hello' /tmp/clive/result.txt"
+    },
+    "min_turns": 1,
+    "max_turns": 3,
+    "timeout_seconds": 30
+  }
+]

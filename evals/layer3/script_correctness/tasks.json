@@ -1,0 +1,77 @@
+[
+  {
+    "id": "l3_rename_to_bak_001",
+    "layer": 3,
+    "tool": "shell",
+    "mode": "script",
+    "task": "Rename all .txt files in the current directory to .bak extension (e.g. report.txt becomes report.bak). Write the number of files renamed to /tmp/clive/result.txt.",
+    "initial_state": {"filesystem": "fixtures/rename_files/"},
+    "success_criteria": {
+      "type": "deterministic",
+      "check": "test \"$(cat /tmp/clive/result.txt | tr -d '[:space:]')\" = \"3\" && ls *.bak | wc -l | grep -q 3"
+    },
+    "min_turns": 1,
+    "max_turns": 3,
+    "timeout_seconds": 30
+  },
+  {
+    "id": "l3_json_sum_002",
+    "layer": 3,
+    "tool": "shell",
+    "mode": "script",
+    "task": "Read data.json, compute the sum of all 'amount' fields, and write the total as a single number to /tmp/clive/result.txt.",
+    "initial_state": {"filesystem": "fixtures/json_sum/"},
+    "success_criteria": {
+      "type": "deterministic",
+      "check": "test \"$(cat /tmp/clive/result.txt | tr -d '[:space:]')\" = \"500\""
+    },
+    "min_turns": 1,
+    "max_turns": 3,
+    "timeout_seconds": 30
+  },
+  {
+    "id": "l3_curl_pipeline_003",
+    "layer": 3,
+    "tool": "shell",
+    "mode": "script",
+    "task": "Fetch https://jsonplaceholder.typicode.com/users, extract just the 'name' and 'email' fields for each user, and write them as CSV (name,email) to /tmp/clive/result.txt with a header row.",
+    "initial_state": {},
+    "success_criteria": {
+      "type": "deterministic",
+      "check": "head -1 /tmp/clive/result.txt | grep -qi 'name.*email' && test \"$(wc -l < /tmp/clive/result.txt | tr -d ' ')\" = \"11\""
+    },
+    "min_turns": 1,
+    "max_turns": 3,
+    "timeout_seconds": 45
+  },
+  {
+    "id": "l3_python_parse_004",
+    "layer": 3,
+    "tool": "shell",
+    "mode": "script",
+    "task": "Write a Python script that reads data.json, groups entries by the first letter of 'name', and outputs a JSON object mapping each letter to the count. Write the result to /tmp/clive/result.txt.",
+    "initial_state": {"filesystem": "fixtures/json_sum/"},
+    "success_criteria": {
+      "type": "deterministic",
+      "check": "python3 -c \"import json; d=json.load(open('/tmp/clive/result.txt')); assert d.get('a',d.get('A',0))==1 and d.get('b',d.get('B',0))==1 and d.get('c',d.get('C',0))==1\""
+    },
+    "min_turns": 1,
+    "max_turns": 3,
+    "timeout_seconds": 30
+  },
+  {
+    "id": "l3_error_exit_005",
+    "layer": 3,
+    "tool": "shell",
+    "mode": "script",
+    "task": "Write a script that reads 'nonexistent_file.txt'. If the file does not exist, the script should print 'ERROR: file not found' and exit with code 1. If it exists, write its line count to /tmp/clive/result.txt.",
+    "initial_state": {},
+    "success_criteria": {
+      "type": "deterministic",
+      "check": "! test -f /tmp/clive/result.txt"
+    },
+    "min_turns": 1,
+    "max_turns": 3,
+    "timeout_seconds": 30
+  }
+]
