@@ -12,7 +12,7 @@ def test_first_capture_returns_full_screen():
 def test_identical_screens_returns_no_change():
     screen = "$ ls\nfile1.txt\nfile2.txt\n[AGENT_READY] $"
     diff = compute_screen_diff(screen, screen)
-    assert "no change" in diff.lower() or "unchanged" in diff.lower()
+    assert "unchanged" in diff.lower()
 
 
 def test_new_lines_shown():

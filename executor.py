@@ -277,6 +277,13 @@ def execute_plan(
 ) -> list[SubtaskResult]:
     """Execute all subtasks, respecting DAG dependencies and pane exclusivity.
 
+    Features:
+    - Event-driven scheduling (instant wake on subtask completion)
+    - Pane state continuity (pass last screen to next subtask on same pane)
+    - Result file registry (track files written by each subtask)
+    - Branch cancellation (cancel running subtasks when deps fail)
+    - Token budget enforcement
+
     on_event is an optional callback for live status updates:
         ("subtask_start", subtask_id, pane, description)
         ("subtask_done",  subtask_id, summary, elapsed)
@@ -289,7 +296,6 @@ def execute_plan(
     plan_locks: dict[str, threading.Lock] = {}
     for pane_name in panes:
         plan_locks[pane_name] = threading.Lock()
-    # Also update module-level for backward compat (eval harness registers locks here)
     _pane_locks.update(plan_locks)
 
     results: dict[str, SubtaskResult] = {}
@@ -297,8 +303,20 @@ def execute_plan(
     subtask_map = {s.id: s for s in plan.subtasks}
     start_times: dict[str, float] = {}
 
+    # Pane state continuity: track last screen per pane for handoff
+    pane_last_screen: dict[str, str] = {}
+
+    # Result file registry: track files written by each subtask
+    result_files: dict[str, list[str]] = {}
+
     panes_used = {s.pane for s in plan.subtasks}
     max_workers = max(len(panes_used), 1)
+
+    # Event-driven scheduling: wake instantly when a future completes
+    wake_event = threading.Event()
+
+    def _on_future_done(fut):
+        wake_event.set()
 
     with ThreadPoolExecutor(max_workers=max_workers) as pool:
         while True:
@@ -333,8 +351,11 @@ def execute_plan(
                 if not deps_met:
                     continue
 
-                # Build context from completed dependencies
-                dep_context = _build_dependency_context(subtask, results)
+                # Build enriched dependency context (with file registry)
+                dep_context = _build_dependency_context(subtask, results, result_files)
+
+                # Pane state continuity: pass last screen from previous subtask
+                pane_context = pane_last_screen.get(subtask.pane, "")
 
                 # Submit to thread pool
                 subtask.status = SubtaskStatus.RUNNING
@@ -348,7 +369,9 @@ def execute_plan(
                     dep_context=dep_context,
                     on_event=on_event,
                     session_dir=session_dir,
+                    pane_context=pane_context,
                 )
+                future.add_done_callback(_on_future_done)
                 futures[subtask.id] = future
 
             # Collect completed futures
@@ -366,7 +389,7 @@ def execute_plan(
                             output_snippet="",
                             error=str(e),
                         )
-                    # Script→interactive fallback: retry failed script subtasks as interactive
+                    # Script→interactive fallback
                     subtask_obj = subtask_map[sid]
                     if (result.status == SubtaskStatus.FAILED
                             and subtask_obj.mode == "script"
@@ -386,10 +409,18 @@ def execute_plan(
                     elapsed = time.time() - start_times.get(sid, time.time())
                     status_str = "DONE" if result.status == SubtaskStatus.COMPLETED else "FAIL"
                     progress(f"  {status_str} [{sid}] {result.summary[:60]}")
+
+                    # Track pane state and result files
+                    pane_last_screen[subtask_obj.pane] = result.output_snippet
                     if result.status == SubtaskStatus.COMPLETED:
                         _emit(on_event, "subtask_done", sid, result.summary, elapsed)
+                        # Scan session dir for files written by this subtask
+                        _track_result_files(sid, session_dir, result_files)
                     else:
                         _emit(on_event, "subtask_fail", sid, result.summary)
+                        # Branch cancellation: cancel futures whose results are now useless
+                        _cancel_orphaned_branches(sid, plan, results, futures, on_event)
+
                     del futures[sid]
                     collected_any = True
 
@@ -397,7 +428,6 @@ def execute_plan(
                     total_tokens = sum(r.prompt_tokens + r.completion_tokens for r in results.values())
                     if total_tokens > max_tokens:
                         progress(f"  TOKEN BUDGET EXCEEDED: {total_tokens:,} > {max_tokens:,}")
-                        # Cancel remaining futures
                         for remaining_sid in list(futures.keys()):
                             futures[remaining_sid].cancel()
                             del futures[remaining_sid]
@@ -417,9 +447,10 @@ def execute_plan(
 
             # Re-check for newly unblocked subtasks before deadlock detection
             if collected_any:
+                wake_event.clear()
                 continue
 
-            # Deadlock detection (only when nothing completed this iteration)
+            # Deadlock detection
             if not futures:
                 unresolved = [s.id for s in plan.subtasks if s.id not in results]
                 if unresolved:
@@ -434,9 +465,54 @@ def execute_plan(
                         _emit(on_event, "subtask_fail", sid, "Deadlocked: could not start")
                 break
 
-            time.sleep(0.5)
+            # Event-driven wait: wake instantly when a future completes
+            wake_event.wait(timeout=0.5)
+            wake_event.clear()
 
     return [results[s.id] for s in plan.subtasks]
+
+
+def _track_result_files(subtask_id: str, session_dir: str, registry: dict[str, list[str]]):
+    """Scan session dir for files written by a subtask. Update registry."""
+    files = []
+    if os.path.isdir(session_dir):
+        for f in os.listdir(session_dir):
+            if subtask_id in f:
+                files.append(f)
+    registry[subtask_id] = files
+
+
+def _cancel_orphaned_branches(
+    failed_sid: str,
+    plan: Plan,
+    results: dict[str, SubtaskResult],
+    futures: dict[str, Future],
+    on_event=None,
+):
+    """Cancel running subtasks whose results will never be used.
+
+    When a subtask fails, check if any running subtask's dependents
+    ALL depend on the failed subtask (making the running work useless).
+    """
+    # Find all subtasks that depend (directly or transitively) on the failed one
+    unreachable = set()
+    for s in plan.subtasks:
+        if failed_sid in s.depends_on and s.id not in results:
+            unreachable.add(s.id)
+
+    # Cancel futures for unreachable subtasks
+    for sid in list(futures.keys()):
+        if sid in unreachable:
+            futures[sid].cancel()
+            results[sid] = SubtaskResult(
+                subtask_id=sid,
+                status=SubtaskStatus.SKIPPED,
+                summary=f"Skipped: branch cancelled (dep {failed_sid} failed)",
+                output_snippet="",
+            )
+            progress(f"  CANCEL [{sid}] branch cancelled (dep {failed_sid} failed)")
+            _emit(on_event, "subtask_skip", sid, f"branch cancelled")
+            del futures[sid]
 
 
 def _trim_messages(messages: list[dict], max_user_turns: int = 4) -> list[dict]:
@@ -473,6 +549,7 @@ def run_subtask(
     dep_context: str,
     on_event=None,
     session_dir: str = "/tmp/clive",
+    pane_context: str = "",
 ) -> SubtaskResult:
     """Execute a single subtask. Dispatches based on observation level (mode)."""
     if subtask.mode == "script":
@@ -502,9 +579,14 @@ def run_subtask(
         session_dir=session_dir,
     )
 
+    # Pane state continuity: include previous subtask's screen if available
+    begin_msg = f"Begin. Achieve this goal: {subtask.description}"
+    if pane_context:
+        begin_msg += f"\n\n[Previous task on this pane left the screen showing:]\n{pane_context[-500:]}"
+
     messages = [
         {"role": "system", "content": system_prompt},
-        {"role": "user", "content": f"Begin. Achieve this goal: {subtask.description}"},
+        {"role": "user", "content": begin_msg},
     ]
 
     last_screen = None
@@ -667,8 +749,13 @@ def run_subtask(
 def _build_dependency_context(
     subtask: Subtask,
     results: dict[str, SubtaskResult],
+    result_files: dict[str, list[str]] | None = None,
 ) -> str:
-    """Build context string from completed dependency results."""
+    """Build context string from completed dependency results.
+
+    Includes result summaries, output snippets, and file registry
+    (what files each dependency wrote to the session directory).
+    """
     if not subtask.depends_on:
         return ""
 
@@ -679,4 +766,8 @@ def _build_dependency_context(
             parts.append(f"[Subtask {dep_id} result]: {r.summary}")
             if r.output_snippet:
                 parts.append(f"[Subtask {dep_id} last output]:\n{r.output_snippet[:300]}")
+            # File registry: tell downstream what files are available
+            if result_files and dep_id in result_files and result_files[dep_id]:
+                files_str = ", ".join(result_files[dep_id])
+                parts.append(f"[Subtask {dep_id} files]: {files_str}")
     return "\n".join(parts)

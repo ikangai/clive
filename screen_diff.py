@@ -34,7 +34,7 @@ def compute_screen_diff(
 
     # No change
     if prev_screen == curr_screen:
-        return "[Screen unchanged]"
+        return "[Screen unchanged — command may have produced no visible output]"
 
     prev_lines = prev_screen.splitlines()
     curr_lines = curr_screen.splitlines()
@@ -59,8 +59,18 @@ def compute_screen_diff(
             return "\n".join(lines[-MAX_DIFF_LINES:]) + f"\n[...truncated, showing last {MAX_DIFF_LINES} lines]"
         return curr_screen
 
+    # Annotate diff with progress signal
+    if added > 20:
+        hint = " — large output, consider head/tail to inspect"
+    elif added == 0 and removed > 0:
+        hint = " — content cleared"
+    elif added <= 2 and removed == 0:
+        hint = " — minimal change"
+    else:
+        hint = ""
+
     # Build compact diff, capped at MAX_DIFF_LINES
-    parts = [f"[Screen update: +{added} -{removed} lines]"]
+    parts = [f"[Screen update: +{added} -{removed} lines{hint}]"]
     line_count = 1
     for line in diff:
         if line.startswith("@@") or line.startswith("+++") or line.startswith("---"):

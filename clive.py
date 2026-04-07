@@ -120,7 +120,17 @@ def run(task: str, toolset_spec: str = DEFAULT_TOOLSET, output_format: str = "de
 
     # Phase 2: Execution
     progress("Phase 2: Executing...")
-    results = execute_plan(plan, panes, tool_status, session_dir=session_dir, max_tokens=max_tokens)
+
+    def _progress_event(event_type, *args):
+        """Print subtask completions as they happen."""
+        if event_type == "subtask_done":
+            sid, summary, elapsed = args
+            progress(f"  ✓ [{sid}] {summary[:70]} ({elapsed:.1f}s)")
+        elif event_type == "subtask_fail":
+            sid, msg = args
+            progress(f"  ✗ [{sid}] {msg[:70]}")
+
+    results = execute_plan(plan, panes, tool_status, on_event=_progress_event, session_dir=session_dir, max_tokens=max_tokens)
 
     # Phase 3: Summarization (skip for single-subtask plans — result IS the summary)
     if len(results) == 1 and results[0].status == SubtaskStatus.COMPLETED:
