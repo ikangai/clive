@@ -1,0 +1,62 @@
+[
+  {
+    "id": "l1_count_todos_001",
+    "layer": 1,
+    "tool": "shell",
+    "mode": "interactive",
+    "task": "Count how many TODO comments exist across all .py files in the current directory (recursively) and write the total count to /tmp/clive/result.txt as a single number.",
+    "initial_state": {"filesystem": "fixtures/todo_files/"},
+    "success_criteria": {
+      "type": "deterministic",
+      "check": "test \"$(cat /tmp/clive/result.txt | tr -d '[:space:]')\" = \"3\""
+    },
+    "min_turns": 2,
+    "max_turns": 10,
+    "timeout_seconds": 60
+  },
+  {
+    "id": "l1_api_table_002",
+    "layer": 1,
+    "tool": "shell",
+    "mode": "interactive",
+    "task": "Fetch https://jsonplaceholder.typicode.com/posts?_limit=5 and write the results as a simple table with columns 'id' and 'title' to /tmp/clive/result.txt. One row per line, tab-separated.",
+    "initial_state": {},
+    "success_criteria": {
+      "type": "deterministic",
+      "check": "test \"$(wc -l < /tmp/clive/result.txt | tr -d ' ')\" -ge 5 && grep -q '1' /tmp/clive/result.txt"
+    },
+    "min_turns": 2,
+    "max_turns": 10,
+    "timeout_seconds": 60
+  },
+  {
+    "id": "l1_log_errors_003",
+    "layer": 1,
+    "tool": "shell",
+    "mode": "interactive",
+    "task": "Analyze app.log: find all ERROR lines, extract the error messages, and write a summary to /tmp/clive/result.txt listing each error with its timestamp.",
+    "initial_state": {"filesystem": "fixtures/log_analysis/"},
+    "success_criteria": {
+      "type": "deterministic",
+      "check": "grep -q 'Connection timeout' /tmp/clive/result.txt && grep -q 'Disk space' /tmp/clive/result.txt"
+    },
+    "min_turns": 2,
+    "max_turns": 10,
+    "timeout_seconds": 60
+  },
+  {
+    "id": "l1_file_inventory_004",
+    "layer": 1,
+    "tool": "shell",
+    "mode": "interactive",
+    "task": "Create a JSON inventory of all files in the current directory. For each file, include 'name', 'size_bytes', and 'lines' (line count). Write the JSON array to /tmp/clive/result.txt.",
+    "initial_state": {"filesystem": "fixtures/todo_files/"},
+    "success_criteria": {
+      "type": "deterministic",
+      "check": "python3 -c \"import json; d=json.load(open('/tmp/clive/result.txt')); assert isinstance(d, list) and len(d)==3\""
+    },
+    "min_turns": 2,
+    "max_turns": 10,
+    "timeout_seconds": 60
+  }
+]

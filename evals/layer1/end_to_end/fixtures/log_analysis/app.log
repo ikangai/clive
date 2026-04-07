@@ -1,0 +1,8 @@
+2026-04-01 10:00:01 INFO  Application started
+2026-04-01 10:00:05 WARN  High memory usage detected
+2026-04-01 10:00:10 ERROR Connection timeout to database
+2026-04-01 10:00:15 INFO  Retrying connection...
+2026-04-01 10:00:20 INFO  Connection established
+2026-04-01 10:01:00 ERROR Disk space critical: 95% used
+2026-04-01 10:01:30 WARN  Slow query detected (>5s)
+2026-04-01 10:02:00 INFO  Health check passed

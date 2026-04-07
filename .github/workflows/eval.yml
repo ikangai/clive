@@ -1,0 +1,47 @@
+name: Evals
+
+on:
+  push:
+    branches: [main]
+
+jobs:
+  layer2:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y tmux lynx curl jq
+
+      - name: Install Python dependencies
+        run: |
+          pip install -r requirements.txt
+
+      - name: Start tmux server
+        run: |
+          tmux start-server
+
+      - name: Run Layer 2 evals
+        env:
+          LLM_PROVIDER: ${{ vars.LLM_PROVIDER || 'openrouter' }}
+          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+        run: |
+          python evals/harness/run_eval.py --layer 2 --ci \
+            --output evals/baselines/ci-latest.json \
+            2>&1
+
+      - name: Upload eval results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: eval-results
+          path: evals/baselines/ci-latest.json
