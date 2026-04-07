@@ -1,5 +1,6 @@
 """DAG scheduler and per-subtask worker execution."""
 
+import json
 import logging
 import os
 import re
@@ -172,8 +173,21 @@ def run_subtask_script(
                         pass
 
             if exit_code == 0:
+                # Write structured result
+                result_path = os.path.join(session_dir, f"_result_{subtask.id}.json")
                 output_lines = [l for l in screen.splitlines() if l.strip() and marker not in l]
                 summary = output_lines[-1] if output_lines else "Script completed successfully"
+                write_file(result_path, json.dumps({
+                    "status": "success",
+                    "subtask_id": subtask.id,
+                    "summary": summary,
+                    "turns_used": attempt,
+                }, indent=2))
+
+                # Write execution log
+                log_path = os.path.join(session_dir, f"_log_{subtask.id}.txt")
+                write_file(log_path, screen)
+
                 return SubtaskResult(
                     subtask_id=subtask.id,
                     status=SubtaskStatus.COMPLETED,
@@ -192,6 +206,10 @@ def run_subtask_script(
             })
 
     final_screen = capture_pane(pane_info)
+    # Write failure log
+    log_path = os.path.join(session_dir, f"_log_{subtask.id}.txt")
+    write_file(log_path, final_screen)
+
     return SubtaskResult(
         subtask_id=subtask.id,
         status=SubtaskStatus.FAILED,

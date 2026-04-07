@@ -206,8 +206,8 @@ Guidelines:
 - Respond with only the JSON object, nothing else."""
 
 
-def build_summarizer_prompt() -> str:
-    return """You are summarizing the results of a multi-step task execution.
+def build_summarizer_prompt(output_format: str = "default") -> str:
+    base = """You are summarizing the results of a multi-step task execution.
 
 Given the original task and the results from each subtask, provide:
 1. A concise summary of what was accomplished
@@ -215,3 +215,11 @@ Given the original task and the results from each subtask, provide:
 3. Any subtasks that failed or were skipped, and why
 
 Be concise and factual."""
+
+    if output_format == "oneline":
+        return base + "\n\nIMPORTANT: Respond with a SINGLE LINE. No newlines, no formatting, no bullet points. One sentence."
+    elif output_format == "json":
+        return base + '\n\nIMPORTANT: Respond with a JSON object ONLY: {"result": "summary text", "status": "success"|"partial"|"error", "details": [{"subtask": "id", "status": "...", "summary": "..."}]}'
+    elif output_format == "bool":
+        return base + "\n\nIMPORTANT: Respond with exactly YES or NO. Nothing else. YES means the task was fully accomplished. NO means it was not."
+    return base

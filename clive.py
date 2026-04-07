@@ -52,7 +52,7 @@ from llm import get_client, chat
 from prompts import build_summarizer_prompt
 
 
-def run(task: str, toolset_spec: str = DEFAULT_TOOLSET):
+def run(task: str, toolset_spec: str = DEFAULT_TOOLSET, output_format: str = "default"):
     session_id = generate_session_id()
     session_dir = f"/tmp/clive/{session_id}"
 
@@ -102,7 +102,7 @@ def run(task: str, toolset_spec: str = DEFAULT_TOOLSET):
 
     # Phase 3: Summarization
     progress("\nPhase 3: Summarizing...")
-    summary = _summarize(task, results)
+    summary = _summarize(task, results, output_format=output_format)
 
     elapsed = time.time() - start_time
     total_pt = sum(r.prompt_tokens for r in results)
@@ -122,7 +122,7 @@ def run(task: str, toolset_spec: str = DEFAULT_TOOLSET):
     return summary
 
 
-def _summarize(task: str, results: list) -> str:
+def _summarize(task: str, results: list, output_format: str = "default") -> str:
     """Final LLM call to synthesize all subtask results."""
     client = get_client()
 
@@ -132,7 +132,7 @@ def _summarize(task: str, results: list) -> str:
     )
 
     messages = [
-        {"role": "system", "content": build_summarizer_prompt()},
+        {"role": "system", "content": build_summarizer_prompt(output_format)},
         {"role": "user", "content": f"Original task: {task}\n\nSubtask results:\n{result_text}"},
     ]
 
@@ -206,6 +206,9 @@ if __name__ == "__main__":
         action="store_true",
         help="Quiet mode: telemetry to stderr, only result to stdout",
     )
+    parser.add_argument("--oneline", action="store_true", help="Single-line result output")
+    parser.add_argument("--bool", action="store_true", help="Yes/No output, exit 0=yes 1=no")
+    parser.add_argument("--json", action="store_true", help="Structured JSON result output")
     parser.add_argument(
         "--evolve",
         metavar="DRIVER",
@@ -318,8 +321,26 @@ if __name__ == "__main__":
         evolve_driver(args.evolve)
         raise SystemExit(0)
 
+    output_format = "default"
+    if args.oneline:
+        output_format = "oneline"
+        from output import set_quiet
+        set_quiet(True)
+    elif args.bool:
+        output_format = "bool"
+        from output import set_quiet
+        set_quiet(True)
+    elif args.json:
+        output_format = "json"
+        from output import set_quiet
+        set_quiet(True)
+
     if args.quiet:
         from output import set_quiet
         set_quiet(True)
 
-    run(args.task, toolset_spec=args.toolset)
+    summary = run(args.task, toolset_spec=args.toolset, output_format=output_format)
+
+    if args.bool:
+        import sys
+        sys.exit(0 if summary.strip().upper().startswith("YES") else 1)
