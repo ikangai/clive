@@ -399,9 +399,30 @@ if __name__ == "__main__":
     parser.add_argument("--bool", action="store_true", help="Yes/No output, exit 0=yes 1=no")
     parser.add_argument("--json", action="store_true", help="Structured JSON result output")
     parser.add_argument(
+        "--list-skills",
+        action="store_true",
+        help="List available skills",
+    )
+    parser.add_argument(
         "--evolve",
         metavar="DRIVER",
         help="Evolve a driver prompt (shell, browser, all)",
+    )
+    parser.add_argument(
+        "--schedule", metavar="CRON",
+        help="Schedule this task with cron expression (e.g., '0 * * * *')",
+    )
+    parser.add_argument(
+        "--list-schedules", action="store_true",
+        help="List scheduled tasks",
+    )
+    parser.add_argument(
+        "--remove-schedule", metavar="NAME",
+        help="Remove a scheduled task",
+    )
+    parser.add_argument(
+        "--history", metavar="NAME",
+        help="Show run history for a scheduled task",
     )
     parser.add_argument(
         "--debug",
@@ -525,9 +546,52 @@ if __name__ == "__main__":
             raise SystemExit(1)
         raise SystemExit(0)
 
+    if args.list_skills:
+        from skills import list_skills
+        skills = list_skills()
+        if skills:
+            print("\nAvailable skills:\n")
+            for s in skills:
+                print(f"  {s['name']:20s} {s['description']}")
+            print(f"\nUsage: include [skill:name] in your task description")
+        else:
+            print("No skills found in skills/ directory")
+        raise SystemExit(0)
+
     if args.evolve:
         from evolve import evolve_driver
         evolve_driver(args.evolve)
+        raise SystemExit(0)
+
+    if args.list_schedules:
+        from scheduler import list_schedules
+        schedules = list_schedules()
+        if schedules:
+            print("\nScheduled tasks:\n")
+            for s in schedules:
+                status = "active" if s.get("active") else "paused"
+                print(f"  {s['name']:20s} {s['cron']:15s} [{status}] {s['task'][:50]}")
+        else:
+            print("No scheduled tasks. Use --schedule to add one.")
+        raise SystemExit(0)
+
+    if args.remove_schedule:
+        from scheduler import remove_schedule
+        if remove_schedule(args.remove_schedule):
+            print(f"Removed schedule: {args.remove_schedule}")
+        else:
+            print(f"Schedule not found: {args.remove_schedule}")
+        raise SystemExit(0)
+
+    if args.history:
+        from scheduler import get_history
+        history = get_history(args.history)
+        if history:
+            print(f"\nRun history for {args.history}:\n")
+            for h in history:
+                print(f"  {h.get('timestamp', '?'):20s} {h.get('status', '?'):8s} {str(h.get('result', ''))[:50]}")
+        else:
+            print(f"No history for {args.history}")
         raise SystemExit(0)
 
     output_format = "default"
@@ -547,6 +611,15 @@ if __name__ == "__main__":
     if args.quiet:
         from output import set_quiet
         set_quiet(True)
+
+    if args.schedule:
+        from scheduler import add_schedule
+        entry = add_schedule(args.task, args.schedule)
+        print(f"Scheduled: {entry['name']}")
+        print(f"  Task: {entry['task']}")
+        print(f"  Cron: {entry['cron']}")
+        print(f"  Results: ~/.clive/results/{entry['name']}/")
+        raise SystemExit(0)
 
     summary = run(args.task, toolset_spec=args.toolset, output_format=output_format, max_tokens=args.max_tokens)
 

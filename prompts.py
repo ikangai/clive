@@ -118,13 +118,23 @@ Results from prerequisite tasks (use this information):
 
     driver = load_driver(app_type)
 
+    # Load skill if specified in subtask description (skill:name pattern)
+    skill_content = ""
+    import re as _re
+    skill_match = _re.search(r'\[skill:(\w[\w-]*)\]', subtask_description)
+    if skill_match:
+        from skills import load_skill
+        skill = load_skill(skill_match.group(1))
+        if skill:
+            skill_content = f"\n\nSkill procedure:\n{skill}\n"
+
     return f"""You are an autonomous agent worker controlling a single tmux pane.
 
 Your pane: {pane_name} [{app_type}] — {tool_description}
 
 Tool knowledge:
 {driver}
-
+{skill_content}
 Your goal:
 {subtask_description}
 {dep_section}

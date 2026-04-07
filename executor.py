@@ -375,6 +375,12 @@ def execute_plan(
     # Plan-to-script compiler: collapse sequential all-script same-pane plans
     plan = _try_collapse_plan(plan)
 
+    # Create per-pane agents for context continuity
+    from pane_agent import PaneAgent
+    pane_agents: dict[str, PaneAgent] = {}
+    for pane_name, pane_info in panes.items():
+        pane_agents[pane_name] = PaneAgent(pane_info, session_dir=session_dir)
+
     # Per-plan pane locks (scoped to this execution, not module-level)
     plan_locks: dict[str, threading.Lock] = {}
     for pane_name in panes:
@@ -451,19 +457,32 @@ def execute_plan(
                 start_times[subtask.id] = time.time()
                 progress(f"  START [{subtask.id}] [{subtask.pane}] {subtask.description[:60]}...")
                 _emit(on_event, "subtask_start", subtask.id, subtask.pane, subtask.description)
-                future = pool.submit(
-                    run_subtask,
-                    subtask=subtask,
-                    pane_info=panes[subtask.pane],
-                    dep_context=dep_context,
-                    on_event=on_event,
-                    session_dir=session_dir,
-                    pane_context=pane_context,
-                    plan_context=plan_summary,
-                    tokens_used=tokens_used,
-                    max_tokens=max_tokens,
-                    all_panes=panes,
-                )
+                # Use PaneAgent for context continuity across subtasks
+                agent = pane_agents.get(subtask.pane)
+                if agent:
+                    future = pool.submit(
+                        agent.execute,
+                        subtask=subtask,
+                        dep_context=dep_context,
+                        on_event=on_event,
+                        plan_context=plan_summary,
+                        tokens_used=tokens_used,
+                        max_tokens=max_tokens,
+                    )
+                else:
+                    future = pool.submit(
+                        run_subtask,
+                        subtask=subtask,
+                        pane_info=panes[subtask.pane],
+                        dep_context=dep_context,
+                        on_event=on_event,
+                        session_dir=session_dir,
+                        pane_context=pane_context,
+                        plan_context=plan_summary,
+                        tokens_used=tokens_used,
+                        max_tokens=max_tokens,
+                        all_panes=panes,
+                    )
                 future.add_done_callback(_on_future_done)
                 futures[subtask.id] = future
 

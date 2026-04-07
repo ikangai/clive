@@ -131,6 +131,19 @@ PANES = {
         "host": "user@remote.example.com",
         "category": "remote",
     },
+    # ── Agent (clive-to-clive) ─────────────────────────────────────────────
+    "remote_agent": {
+        "name": "agent",
+        "cmd": "ssh -i ~/.ssh/agent_key deploy@agents.example.com 'python3 clive.py --quiet'",
+        "app_type": "agent",
+        "description": (
+            "Remote clive instance. Send tasks as plain text, read results. "
+            "Uses DONE: JSON protocol for structured responses."
+        ),
+        "host": "deploy@agents.example.com",
+        "connect_timeout": 5,
+        "category": "remote",
+    },
 }
 
 
