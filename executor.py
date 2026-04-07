@@ -357,6 +357,12 @@ def execute_plan(
                 # Pane state continuity: pass last screen from previous subtask
                 pane_context = pane_last_screen.get(subtask.pane, "")
 
+                # Build plan context — agent knows its role in the bigger picture
+                plan_summary = _build_plan_context(plan, subtask)
+
+                # Current token usage for budget awareness
+                tokens_used = sum(r.prompt_tokens + r.completion_tokens for r in results.values())
+
                 # Submit to thread pool
                 subtask.status = SubtaskStatus.RUNNING
                 start_times[subtask.id] = time.time()
@@ -370,6 +376,10 @@ def execute_plan(
                     on_event=on_event,
                     session_dir=session_dir,
                     pane_context=pane_context,
+                    plan_context=plan_summary,
+                    tokens_used=tokens_used,
+                    max_tokens=max_tokens,
+                    all_panes=panes,
                 )
                 future.add_done_callback(_on_future_done)
                 futures[subtask.id] = future
@@ -472,6 +482,27 @@ def execute_plan(
     return [results[s.id] for s in plan.subtasks]
 
 
+def _build_plan_context(plan: Plan, current: Subtask) -> str:
+    """Build a brief plan summary so the agent knows its role."""
+    total = len(plan.subtasks)
+    idx = next((i for i, s in enumerate(plan.subtasks) if s.id == current.id), 0) + 1
+    parallel = [s for s in plan.subtasks if not s.depends_on and s.id != current.id]
+    dependents = [s for s in plan.subtasks if current.id in s.depends_on]
+
+    parts = [f"[Plan: \"{plan.task[:60]}\" — subtask {idx} of {total}]"]
+    if parallel:
+        parts.append(f"[Parallel: {', '.join(s.id + ':' + s.pane for s in parallel[:3])}]")
+    if dependents:
+        parts.append(f"[Downstream: {', '.join(s.id + ' needs your output' for s in dependents[:2])}]")
+    return "\n".join(parts)
+
+
+def _capture_pane_env(pane_info: PaneInfo, session_dir: str) -> str:
+    """Capture pane environment state cheaply (no LLM call)."""
+    parts = [f"[Pane: {pane_info.name} [{pane_info.app_type}], session_dir={session_dir}]"]
+    return parts[0]
+
+
 def _track_result_files(subtask_id: str, session_dir: str, registry: dict[str, list[str]],
                         result: SubtaskResult | None = None):
     """Scan session dir for files, inspect them for schema info. Update registry."""
@@ -551,6 +582,10 @@ def run_subtask(
     on_event=None,
     session_dir: str = "/tmp/clive",
     pane_context: str = "",
+    plan_context: str = "",
+    tokens_used: int = 0,
+    max_tokens: int = 50000,
+    all_panes: dict | None = None,
 ) -> SubtaskResult:
     """Execute a single subtask. Dispatches based on observation level (mode)."""
     if subtask.mode == "script":
@@ -571,6 +606,8 @@ def run_subtask(
     total_pt = 0
     total_ct = 0
 
+    # Build enriched system prompt with plan context and pane environment
+    pane_env = _capture_pane_env(pane_info, session_dir)
     system_prompt = build_worker_prompt(
         subtask_description=subtask.description,
         pane_name=subtask.pane,
@@ -579,6 +616,9 @@ def run_subtask(
         dependency_context=dep_context,
         session_dir=session_dir,
     )
+    if plan_context:
+        system_prompt += f"\n\n{plan_context}"
+    system_prompt += f"\n{pane_env}"
 
     # Pane state continuity: include previous subtask's screen if available
     begin_msg = f"Begin. Achieve this goal: {subtask.description}"
@@ -651,10 +691,14 @@ def run_subtask(
                 except OSError:
                     pass
 
+            # Budget awareness: tell agent how many tokens remain
+            budget_remaining = max_tokens - tokens_used - total_pt - total_ct
+            budget_note = f"\n[Budget: {budget_remaining:,} tokens remaining]" if budget_remaining < max_tokens * 0.5 else ""
+
             context = (
                 f"[Subtask {subtask.id} Turn {turn}]\n"
                 f"[Pane: {subtask.pane}] [Meta: {meta}]\n{screen_content}"
-                f"{scratchpad_note}"
+                f"{scratchpad_note}{budget_note}"
             )
             messages.append({"role": "user", "content": context})
 
@@ -733,6 +777,23 @@ def run_subtask(
                 result = write_file(cmd["path"], cmd["value"])
                 messages.append({"role": "user", "content": result})
                 no_change_count = 0  # file ops don't change screen but are progress
+                continue
+
+            elif cmd["type"] == "peek":
+                # Cross-pane peek: read another pane's screen (read-only, no lock)
+                target_pane = cmd.get("pane") or cmd.get("value", "").strip()
+                if all_panes and target_pane in all_panes:
+                    peek_screen = capture_pane(all_panes[target_pane])
+                    messages.append({
+                        "role": "user",
+                        "content": f"[Peek at pane {target_pane}]:\n{peek_screen[-500:]}",
+                    })
+                else:
+                    messages.append({
+                        "role": "user",
+                        "content": f"[Peek failed: pane '{target_pane}' not found. Available: {list(all_panes.keys()) if all_panes else 'none'}]",
+                    })
+                no_change_count = 0
                 continue
 
             elif cmd["type"] == "wait":

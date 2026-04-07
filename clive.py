@@ -138,7 +138,14 @@ def run(task: str, toolset_spec: str = DEFAULT_TOOLSET, output_format: str = "de
         display_plan(plan)
     else:
         progress("Phase 1: Planning...")
-        plan = create_plan(task, panes, tool_status, tools_summary=tools_summary)
+        # Cost-aware planning: tell planner about token budget
+        budget_hint = (
+            f"\n\nToken budget: {max_tokens:,}. Approximate costs:"
+            f"\n  - Script subtask: ~1,000 tokens (preferred)"
+            f"\n  - Interactive subtask: ~5,000 tokens"
+            f"\n  Plan within budget. Prefer script mode to stay within limits."
+        )
+        plan = create_plan(task, panes, tool_status, tools_summary=tools_summary + budget_hint)
         display_plan(plan)
 
     # Phase 2: Execution
@@ -188,7 +195,7 @@ def run(task: str, toolset_spec: str = DEFAULT_TOOLSET, output_format: str = "de
         summary = results[0].summary
     else:
         progress("\nPhase 3: Summarizing...")
-        summary = _summarize(task, results, output_format=output_format)
+        summary = _summarize(task, results, output_format=output_format, session_dir=session_dir)
 
     elapsed = time.time() - start_time
     total_pt = sum(r.prompt_tokens for r in results)
@@ -213,7 +220,7 @@ def run(task: str, toolset_spec: str = DEFAULT_TOOLSET, output_format: str = "de
     return summary
 
 
-def _summarize(task: str, results: list, output_format: str = "default") -> str:
+def _summarize(task: str, results: list, output_format: str = "default", session_dir: str = "") -> str:
     """Final LLM call to synthesize all subtask results."""
     client = get_client()
 
@@ -222,9 +229,27 @@ def _summarize(task: str, results: list, output_format: str = "default") -> str:
         for r in results
     )
 
+    # Read key output files for richer summarization
+    file_context = ""
+    if session_dir:
+        from file_inspect import sniff_session_files
+        import os
+        all_files = []
+        for r in results:
+            all_files.extend(sniff_session_files(session_dir, r.subtask_id))
+        # Include preview of top files (up to 500 chars total)
+        previews = []
+        total_chars = 0
+        for f in all_files:
+            if f.get("preview") and total_chars < 500:
+                previews.append(f"  {f['path']}: {f['preview'][:200]}")
+                total_chars += len(previews[-1])
+        if previews:
+            file_context = "\n\nKey output files:\n" + "\n".join(previews)
+
     messages = [
         {"role": "system", "content": build_summarizer_prompt(output_format)},
-        {"role": "user", "content": f"Original task: {task}\n\nSubtask results:\n{result_text}"},
+        {"role": "user", "content": f"Original task: {task}\n\nSubtask results:\n{result_text}{file_context}"},
     ]
 
     content, _, _ = chat(client, messages)
