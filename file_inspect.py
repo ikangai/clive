@@ -49,7 +49,10 @@ def sniff_file(path: str) -> dict:
 
     # Try JSON
     try:
-        data = json.loads(content if info["size"] <= 4096 else open(path).read())
+        if info["size"] > 4096:
+            with open(path, "r", errors="replace") as full_f:
+                content = full_f.read()
+        data = json.loads(content)
         info["type"] = "json"
         if isinstance(data, list):
             info["type"] = "json_array"

@@ -130,17 +130,20 @@ def evolve_driver(
 
             # Run twice, take minimum score (conservative selection)
             scores = []
-            best_report = None
-            best_dict = None
+            reports = []
+            report_dicts = []
             for run_idx in range(2):
                 report, report_dict = run_evals_with_driver(vf, driver_name)
                 s = fitness_score(report, baseline_pass_rate=baseline_pass_rate)
                 scores.append(s)
-                if best_report is None or s <= (scores[0] if run_idx == 1 else float('inf')):
-                    best_report = report
-                    best_dict = report_dict
+                reports.append(report)
+                report_dicts.append(report_dict)
 
-            score = min(scores)  # conservative: take worst of 2 runs
+            # Conservative: take worst of 2 runs, and its corresponding report
+            score = min(scores)
+            worst_idx = scores.index(score)
+            best_report = reports[worst_idx]
+            best_dict = report_dicts[worst_idx]
 
             cost = best_report.estimated_cost()
             cost_str = f", ${cost:.4f}" if cost > 0 else ""

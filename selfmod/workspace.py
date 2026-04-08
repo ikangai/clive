@@ -70,7 +70,8 @@ def _git(*args: str) -> str:
         timeout=30,
     )
     if result.returncode != 0 and "nothing to commit" not in result.stdout:
-        # Some git commands return non-zero for benign reasons
-        if result.returncode != 0 and result.stderr.strip():
-            pass  # Log but don't fail for warnings
+        import logging
+        log = logging.getLogger(__name__)
+        if result.stderr.strip():
+            log.warning("git %s failed (exit %d): %s", args[0], result.returncode, result.stderr.strip())
     return result.stdout

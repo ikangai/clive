@@ -123,7 +123,11 @@ def run_executable_skill(
         check_passed = True
         if step["check_type"] == "exit_code":
             expected = int(step["check_value"])
-            check_passed = (exit_code == expected)
+            if exit_code is None:
+                progress(f"    [skill step {i+1}] WARNING: exit code not captured")
+                check_passed = False
+            else:
+                check_passed = (exit_code == expected)
         elif step["check_type"] == "file_exists":
             target = step["check_value"]
             for k, v in params.items():
@@ -133,11 +137,12 @@ def run_executable_skill(
             check_passed = step["check_value"] in screen
         elif step["check_type"] == "valid_json":
             try:
-                # Try to parse the last non-marker line as JSON
                 content_lines = [l for l in screen.splitlines() if marker not in l and l.strip()]
-                if content_lines:
+                if not content_lines:
+                    check_passed = False  # no output to validate
+                else:
                     json.loads(content_lines[-1])
-                check_passed = True
+                    check_passed = True
             except (json.JSONDecodeError, IndexError):
                 check_passed = False
 

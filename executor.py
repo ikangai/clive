@@ -15,7 +15,7 @@ from models import Plan, Subtask, SubtaskStatus, SubtaskResult, PaneInfo
 from completion import wait_for_ready, wrap_command
 from llm import get_client, chat, chat_stream
 from prompts import build_worker_prompt
-from session import capture_pane, get_meta
+from session import capture_pane
 from screen_diff import compute_screen_diff
 
 # Per-pane locks: only one subtask can use a pane at a time
@@ -24,12 +24,16 @@ _pane_locks: dict[str, threading.Lock] = {}
 # ─── Command Safety ──────────────────────────────────────────────────────────
 
 BLOCKED_COMMANDS = [
-    re.compile(r'rm\s+(-\w*)*\s*-rf\s+/\s*$'),
+    re.compile(r'rm\s+(-\w*\s+)*-r[f ]\s+/\s*$'),
+    re.compile(r'rm\s+(-\w*\s+)*-rf\s+(~|\$HOME|/home)\b'),
     re.compile(r'\b(shutdown|reboot|halt|poweroff)\b'),
     re.compile(r'\bmkfs\b'),
     re.compile(r'\bdd\s+.*of=/dev/'),
-    re.compile(r':\(\)\s*\{\s*:\s*\|\s*:\s*&\s*\}\s*;\s*:'),
+    re.compile(r':\(\)\s*\{\s*:\s*\|\s*:\s*&\s*\}\s*;\s*:'),  # fork bomb
     re.compile(r'>\s*/dev/sd[a-z]'),
+    re.compile(r'chmod\s+(-\w+\s+)*777\s+/\s*$'),
+    re.compile(r'\bwhile\s+true\s*;\s*do\s*:?\s*;?\s*done'),
+    re.compile(r'\beval\s+"?\$\(.*base64'),
 ]
 
 
@@ -87,7 +91,8 @@ def _auto_verify_command(command: str, session_dir: str) -> str:
         if target.endswith(".json") and size > 0:
             try:
                 import json as _json
-                _json.load(open(target))
+                with open(target) as _f:
+                    _json.load(_f)
                 return f"{os.path.basename(target)} exists, {size} bytes, valid JSON"
             except Exception:
                 return f"{os.path.basename(target)} exists, {size} bytes, invalid JSON"
@@ -224,7 +229,8 @@ def run_subtask_script(
     # Script path determined by language after extraction
     default_script_path = os.path.join(session_dir, f"_script_{subtask.id}.sh")
 
-    with _pane_locks[subtask.pane]:
+    lock = _pane_locks.setdefault(subtask.pane, threading.Lock())
+    with lock:
         for attempt in range(1, subtask.max_turns + 1):
             reply, pt, ct = chat(client, messages)
             total_pt += pt
@@ -390,10 +396,12 @@ def execute_plan(
         agent.load_state(state_path)
         pane_agents[pane_name] = agent
 
-    # Per-plan pane locks (scoped to this execution, not module-level)
+    # Per-plan pane locks (scoped to this execution only)
     plan_locks: dict[str, threading.Lock] = {}
     for pane_name in panes:
         plan_locks[pane_name] = threading.Lock()
+    # Use plan-local locks — don't pollute the module-level dict
+    _pane_locks.clear()
     _pane_locks.update(plan_locks)
 
     results: dict[str, SubtaskResult] = {}
@@ -634,6 +642,7 @@ def _try_collapse_plan(plan: Plan) -> Plan:
         return plan
 
     # Check: linear chain? (each depends only on the previous)
+    collapsible_ids = {s.id for s in subtasks}
     for i, s in enumerate(subtasks):
         if i == 0:
             if s.depends_on:
@@ -642,6 +651,9 @@ def _try_collapse_plan(plan: Plan) -> Plan:
             expected_dep = subtasks[i - 1].id
             if s.depends_on != [expected_dep]:
                 return plan  # not a simple chain
+        # Check no external subtask depends on an internal one (except the last)
+        # This is checked at the Plan level, so collapsing is only safe for
+        # standalone chains. (Plan only has these subtasks, so it's always safe.)
 
     # Collapse: merge descriptions into one subtask
     merged_desc = " Then: ".join(
@@ -706,16 +718,27 @@ def _cancel_orphaned_branches(
     futures: dict[str, Future],
     on_event=None,
 ):
-    """Cancel running subtasks whose results will never be used.
+    """Cancel subtasks that transitively depend on a failed subtask.
 
-    When a subtask fails, check if any running subtask's dependents
-    ALL depend on the failed subtask (making the running work useless).
+    Walks the full dependency graph: if A fails, and B depends on A,
+    and C depends on B, then both B and C are cancelled.
     """
-    # Find all subtasks that depend (directly or transitively) on the failed one
-    unreachable = set()
+    # Build adjacency: parent → children
+    children: dict[str, list[str]] = {s.id: [] for s in plan.subtasks}
     for s in plan.subtasks:
-        if failed_sid in s.depends_on and s.id not in results:
-            unreachable.add(s.id)
+        for dep in s.depends_on:
+            if dep in children:
+                children[dep].append(s.id)
+
+    # BFS from failed_sid to find all transitive dependents
+    unreachable: set[str] = set()
+    queue = [failed_sid]
+    while queue:
+        current = queue.pop(0)
+        for child in children.get(current, []):
+            if child not in unreachable and child not in results:
+                unreachable.add(child)
+                queue.append(child)
 
     # Cancel futures for unreachable subtasks
     for sid in list(futures.keys()):
@@ -848,9 +871,12 @@ def run_subtask(
     last_screen = None
     no_change_count = 0
     NO_CHANGE_LIMIT = 3
+    empty_reply_count = 0
+    EMPTY_REPLY_LIMIT = 2
     skip_capture = False  # skip capture after file ops (screen unchanged)
 
-    with _pane_locks[subtask.pane]:
+    lock = _pane_locks.setdefault(subtask.pane, threading.Lock())
+    with lock:
         for turn in range(1, subtask.max_turns + 1):
             # Capture current pane state (skip if last action was a file op)
             if not skip_capture:
@@ -927,36 +953,45 @@ def run_subtask(
             # Trim context to prevent unbounded growth
             messages = _trim_messages(messages, max_user_turns=4)
 
-            # Progressive prompt thinning: after turn 1, use minimal system prompt
+            # Progressive prompt thinning: after turn 1, trim system prompt but keep essentials
             # (for non-caching providers; Anthropic caches automatically)
             if turn > 1 and len(messages) > 0 and messages[0]["role"] == "system":
-                if len(messages[0]["content"]) > 200:
+                if len(messages[0]["content"]) > 500:
+                    # Preserve: task goal, command format, session dir. Drop: driver, dep context.
                     messages[0] = {"role": "system", "content": (
-                        f"Continue task on pane {subtask.pane}. Pipeline commands OK. "
-                        f"Auto-verify active. Exit codes captured. Session: {session_dir}"
+                        f"Continue on pane {subtask.pane}. Goal: {subtask.description[:200]}\n"
+                        f"Commands: <cmd type=\"shell\" pane=\"{subtask.pane}\">cmd</cmd>, "
+                        f"<cmd type=\"task_complete\">summary</cmd>, "
+                        f"<cmd type=\"write_file\" pane=\"{subtask.pane}\" path=\"/path\">content</cmd>\n"
+                        f"Pipeline commands OK. Auto-verify active. Exit codes captured. "
+                        f"Session: {session_dir}"
                     )}
 
-            # Call LLM with streaming for early command detection
-            cmd_start = time.time()
-            early_cmd = None
-            early_cmd_event = threading.Event()
-
-            def _on_stream_token(partial):
-                nonlocal early_cmd
-                # Detect first </cmd> in stream for early action
-                if early_cmd is None and "</cmd>" in partial:
-                    early_cmd = parse_command(partial)
-                    if early_cmd["type"] != "none":
-                        early_cmd_event.set()
-
+            # Call LLM (try streaming, fall back to sync)
             try:
-                reply, pt, ct = chat_stream(client, messages, on_token=_on_stream_token)
+                reply, pt, ct = chat_stream(client, messages)
             except Exception:
-                # Fallback to synchronous if streaming fails
                 reply, pt, ct = chat(client, messages)
 
             total_pt += pt
             total_ct += ct
+
+            # Detect consecutive empty replies (LLM outage / broken provider)
+            if not reply.strip():
+                empty_reply_count += 1
+                if empty_reply_count >= EMPTY_REPLY_LIMIT:
+                    return SubtaskResult(
+                        subtask_id=subtask.id,
+                        status=SubtaskStatus.FAILED,
+                        summary=f"LLM returned {EMPTY_REPLY_LIMIT} consecutive empty responses",
+                        output_snippet=screen[-500:] if screen else "",
+                        turns_used=turn,
+                        prompt_tokens=total_pt,
+                        completion_tokens=total_ct,
+                    )
+                continue
+            empty_reply_count = 0
+
             messages.append({"role": "assistant", "content": reply})
 
             progress(f"    [{subtask.id}] Turn {turn}: {reply[:80]}...")

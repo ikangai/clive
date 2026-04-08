@@ -95,7 +95,9 @@ class LLMVerifier:
             passed = verdict.get("passed", False)
             reasoning = verdict.get("reasoning", "")
         except json.JSONDecodeError:
-            passed = "passed" in response.lower() and "true" in response.lower()
+            # Strict fallback: look for exact words, not substrings
+            words = set(response.lower().split())
+            passed = "passed" in words and "true" in words
             reasoning = response
 
         result = {"passed": passed, "reasoning": reasoning}

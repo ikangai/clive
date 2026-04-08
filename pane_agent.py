@@ -13,6 +13,7 @@ Architecture:
 import json
 import logging
 import os
+import threading
 import time
 
 from models import Subtask, SubtaskResult, SubtaskStatus, PaneInfo
@@ -30,17 +31,21 @@ class SharedBrain:
     - Post facts (shared knowledge, available to all agents)
     - Send messages to specific agents
     - Read all shared facts and their messages
+
+    Thread-safe: all mutations are protected by a lock.
     """
 
     def __init__(self, session_dir: str):
         self.session_dir = session_dir
+        self._lock = threading.Lock()
         self.facts: list[dict] = []  # shared knowledge
         self.messages: dict[str, list[dict]] = {}  # agent_name → messages
         self.delegation_queue: list[dict] = []  # work requests between agents
 
     def post_fact(self, agent: str, fact: str):
         """Post a fact visible to all agents."""
-        self.facts.append({"agent": agent, "fact": fact, "time": time.time()})
+        with self._lock:
+            self.facts.append({"agent": agent, "fact": fact, "time": time.time()})
         # Also write to scratchpad for backward compatibility
         scratchpad = os.path.join(self.session_dir, "_scratchpad.jsonl")
         try:
@@ -51,28 +56,32 @@ class SharedBrain:
 
     def send_message(self, from_agent: str, to_agent: str, message: str):
         """Send a direct message to another agent."""
-        if to_agent not in self.messages:
-            self.messages[to_agent] = []
-        self.messages[to_agent].append({
-            "from": from_agent, "message": message, "time": time.time()
-        })
+        with self._lock:
+            if to_agent not in self.messages:
+                self.messages[to_agent] = []
+            self.messages[to_agent].append({
+                "from": from_agent, "message": message, "time": time.time()
+            })
 
     def get_messages(self, agent_name: str) -> list[dict]:
         """Get and clear pending messages for an agent."""
-        msgs = self.messages.pop(agent_name, [])
+        with self._lock:
+            msgs = self.messages.pop(agent_name, [])
         return msgs
 
     def request_work(self, from_agent: str, target_pane: str, description: str):
         """Request work from another agent's pane."""
-        self.delegation_queue.append({
-            "from": from_agent, "target_pane": target_pane,
-            "description": description, "time": time.time()
-        })
+        with self._lock:
+            self.delegation_queue.append({
+                "from": from_agent, "target_pane": target_pane,
+                "description": description, "time": time.time()
+            })
 
     def get_delegated_work(self, pane_name: str) -> list[dict]:
         """Get and clear delegated work requests for a pane."""
-        mine = [d for d in self.delegation_queue if d["target_pane"] == pane_name]
-        self.delegation_queue = [d for d in self.delegation_queue if d["target_pane"] != pane_name]
+        with self._lock:
+            mine = [d for d in self.delegation_queue if d["target_pane"] == pane_name]
+            self.delegation_queue = [d for d in self.delegation_queue if d["target_pane"] != pane_name]
         return mine
 
     def get_context_for_agent(self, agent_name: str) -> str:
@@ -80,18 +89,19 @@ class SharedBrain:
         parts = []
 
         # Shared facts (last 5)
-        if self.facts:
-            recent = self.facts[-5:]
-            fact_strs = [f"{f['agent']}: {f['fact']}" for f in recent]
+        with self._lock:
+            recent_facts = list(self.facts[-5:])
+        if recent_facts:
+            fact_strs = [f"{f['agent']}: {f['fact']}" for f in recent_facts]
             parts.append("[Shared knowledge: " + " | ".join(fact_strs) + "]")
 
-        # Direct messages
+        # Direct messages (get_messages acquires lock internally)
         msgs = self.get_messages(agent_name)
         if msgs:
             msg_strs = [f"{m['from']}: {m['message']}" for m in msgs]
             parts.append("[Messages for you: " + " | ".join(msg_strs) + "]")
 
-        # Delegated work
+        # Delegated work (get_delegated_work acquires lock internally)
         work = self.get_delegated_work(agent_name)
         if work:
             work_strs = [f"from {w['from']}: {w['description']}" for w in work]

@@ -48,6 +48,9 @@ class Plan:
     def validate(self, valid_panes: set[str]) -> list[str]:
         """Check DAG validity: no cycles, all deps exist, all panes valid."""
         errors = []
+        if not self.subtasks:
+            errors.append("Plan has no subtasks")
+            return errors
         ids = {s.id for s in self.subtasks}
 
         for s in self.subtasks:

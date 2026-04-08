@@ -259,12 +259,13 @@ def _write_wrapper(entry: dict):
     results_dir = os.path.join(RESULTS_DIR, entry["name"])
     os.makedirs(results_dir, exist_ok=True)
 
+    import shlex
     notify_cmd = ""
     if entry.get("notify", "").startswith("email:"):
-        addr = entry["notify"].split(":", 1)[1]
+        addr = shlex.quote(entry["notify"].split(":", 1)[1])
         notify_cmd = f'  echo "$_result" | mail -s "clive [{entry["name"]}] FAILED" {addr}'
     elif entry.get("notify", "").startswith("file:"):
-        fpath = entry["notify"].split(":", 1)[1]
+        fpath = shlex.quote(entry["notify"].split(":", 1)[1])
         notify_cmd = f'  echo "[$(date -Iseconds)] {entry["name"]} FAILED: $_result" >> {fpath}'
 
     toolset_flag = f'-t {entry.get("toolset", "minimal")}' if entry.get("toolset") else ""
@@ -310,7 +311,7 @@ import json, sys
 result = sys.argv[1]
 try:
     parsed = json.loads(result)
-except:
+except Exception:
     parsed = result
 json.dump({{
     'timestamp': '$_timestamp',

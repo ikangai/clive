@@ -42,6 +42,9 @@ PROVIDERS = {
 }
 
 PROVIDER_NAME = os.getenv("LLM_PROVIDER", "openrouter")
+if PROVIDER_NAME not in PROVIDERS:
+    _valid = ", ".join(sorted(PROVIDERS.keys()))
+    raise SystemExit(f"Unknown LLM_PROVIDER={PROVIDER_NAME!r}. Valid providers: {_valid}")
 _provider = PROVIDERS[PROVIDER_NAME]
 MODEL = os.getenv("AGENT_MODEL", _provider["default_model"])
 
@@ -90,8 +93,8 @@ def chat(
             messages=filtered,
         )
         content = response.content[0].text if response.content else ""
-        pt = response.usage.input_tokens
-        ct = response.usage.output_tokens
+        pt = response.usage.input_tokens if response.usage else 0
+        ct = response.usage.output_tokens if response.usage else 0
         return content, pt, ct
 
     response = client.chat.completions.create(

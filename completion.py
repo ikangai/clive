@@ -114,11 +114,3 @@ def wrap_command(
         wrapped = f'{command}; echo "EXIT:$? {marker}"'
     return wrapped, marker
 
-
-def check_done_file(done_file: str) -> int | None:
-    """Check if a done file exists and return the exit code, or None."""
-    try:
-        with open(done_file, "r") as f:
-            return int(f.read().strip())
-    except (FileNotFoundError, ValueError):
-        return None

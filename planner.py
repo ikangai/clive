@@ -74,9 +74,36 @@ def create_plan(
 
 def _extract_json(text: str) -> str:
     """Extract JSON from LLM response, handling ```json blocks."""
+    # Try fenced code block first (most reliable)
     m = re.search(r'```(?:json)?\s*(\{[\s\S]*?\})\s*```', text)
     if m:
         return m.group(1)
+    # Find the outermost balanced JSON object by tracking braces
+    start = text.find("{")
+    if start == -1:
+        raise ValueError(f"No JSON found in planner response:\n{text}")
+    depth = 0
+    in_string = False
+    escape = False
+    for i, ch in enumerate(text[start:], start):
+        if escape:
+            escape = False
+            continue
+        if ch == "\\":
+            escape = True
+            continue
+        if ch == '"':
+            in_string = not in_string
+            continue
+        if in_string:
+            continue
+        if ch == "{":
+            depth += 1
+        elif ch == "}":
+            depth -= 1
+            if depth == 0:
+                return text[start:i + 1]
+    # Fallback: greedy match (better than nothing)
     m = re.search(r'(\{[\s\S]*\})', text)
     if m:
         return m.group(1)

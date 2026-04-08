@@ -27,6 +27,8 @@ def compute_screen_diff(
     """
     # First capture — send everything (capped)
     if prev_screen is None:
+        if not curr_screen.strip():
+            return "[Screen empty — waiting for output]"
         lines = curr_screen.splitlines()
         if len(lines) > MAX_DIFF_LINES:
             return "\n".join(lines[-MAX_DIFF_LINES:]) + f"\n[...truncated, showing last {MAX_DIFF_LINES} lines]"

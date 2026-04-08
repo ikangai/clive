@@ -655,11 +655,11 @@ class CliveApp(App):
                 from evolve import evolve_driver
                 result = evolve_driver(driver, dry_run=False)
                 if result["improved"]:
-                    out.write(f"[green]✓ {driver} driver improved: {result['baseline_score']:.3f} → {result['final_score']:.3f}[/green]")
+                    self.call_from_thread(out.write, f"[green]✓ {driver} driver improved: {result['baseline_score']:.3f} → {result['final_score']:.3f}[/green]")
                 else:
-                    out.write(f"[yellow]No improvement found for {driver} (baseline: {result['baseline_score']:.3f})[/yellow]")
+                    self.call_from_thread(out.write, f"[yellow]No improvement found for {driver} (baseline: {result['baseline_score']:.3f})[/yellow]")
             except Exception as e:
-                out.write(f"[red]Evolution error: {e}[/red]")
+                self.call_from_thread(out.write, f"[red]Evolution error: {e}[/red]")
         threading.Thread(target=_worker, daemon=True).start()
         out.write(f"[dim]Evolution running in background for {driver}...[/dim]")
 
@@ -826,7 +826,7 @@ class CliveApp(App):
         )
 
         try:
-            session, panes = setup_session(self._resolved["panes"], session_dir=session_dir)
+            session, panes, _session_name = setup_session(self._resolved["panes"], session_dir=session_dir)
             tool_status = check_health(panes)
         except Exception as e:
             self.call_from_thread(

@@ -70,7 +70,8 @@ RULES:
 10. Each subtask has a "mode" — this controls how much the agent observes during execution:
     - "script": One-shot. The agent generates a shell script, executes it, checks the exit code. No observation during execution. Use for: deterministic pipelines, file operations, data extraction, known API calls, text processing. Faster and cheaper.
     - "interactive": Turn-by-turn. The agent reads the screen after each command and decides what to do next. Use for: exploring unknown content, debugging, multi-step workflows where the next step depends on the previous result, interactive applications.
-    STRONGLY prefer "script" — it is 2.5x cheaper and equally reliable. Only use "interactive" when the task explicitly requires reading unknown output, navigating an interactive application, or multi-step exploration where the next step depends on observing the previous result.
+    - "streaming": Like interactive, but with automatic intervention detection. The agent is alerted when the process prompts for input (passwords, confirmations, [y/N] prompts). Use for: package installs that may ask for confirmation, operations requiring passwords, long-running processes that may prompt for input, interactive debuggers.
+    STRONGLY prefer "script" — it is 2.5x cheaper and equally reliable. Only use "interactive" when the task explicitly requires reading unknown output, navigating an interactive application, or multi-step exploration where the next step depends on observing the previous result. Use "streaming" only when the process may prompt for passwords or confirmations.
 11. Each subtask can optionally declare "produces" (filename it will write to the session dir) and "expects" (files it needs from dependencies). This helps downstream subtasks know exactly what data is available.
 
 Respond with a JSON object and nothing else:
@@ -113,6 +114,7 @@ def build_worker_prompt(
     tool_description: str,
     dependency_context: str,
     session_dir: str = "/tmp/clive",
+    skill_name: str = "",
 ) -> str:
     dep_section = ""
     if dependency_context:
@@ -123,15 +125,15 @@ Results from prerequisite tasks (use this information):
 
     driver = load_driver(app_type)
 
-    # Load skill: from [skill:name params] in description or from plan's skill field
+    # Load skill: from [skill:name params] in description, or from planner's skill field
     skill_content = ""
     import re as _re
     skill_match = _re.search(r'\[skill:([\w-]+(?:\s+\w+=\S+)*)\]', subtask_description)
-    if skill_match:
+    skill_ref = skill_match.group(1) if skill_match else skill_name
+    if skill_ref:
         from skills import load_skill, resolve_skill_with_params, inject_params, resolve_composition
-        skill_ref = skill_match.group(1)
-        skill_name, params = resolve_skill_with_params(skill_ref)
-        skill = load_skill(skill_name)
+        _skill_name, params = resolve_skill_with_params(skill_ref)
+        skill = load_skill(_skill_name)
         if skill:
             skill = inject_params(skill, params)
             skill = resolve_composition(skill)
@@ -152,7 +154,7 @@ Commands (XML tags):
   <cmd type="read_file" pane="{pane_name}">/path</cmd>
   <cmd type="write_file" pane="{pane_name}" path="/path">content</cmd>
   <cmd type="wait">seconds</cmd>
-  <cmd type="peek" pane="other_pane">reason</cmd>
+  <cmd type="peek" pane="other_pane">reason</cmd>  (check another pane running in parallel)
   <cmd type="save_skill">name: procedure content</cmd>
   <cmd type="task_complete">summary</cmd>
 

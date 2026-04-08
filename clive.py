@@ -80,31 +80,43 @@ def _find_cached_plan(task: str, panes: dict) -> Plan | None:
         with open(SESSION_LOG, "r") as f:
             entries = [_json.loads(l) for l in f.readlines()[-50:] if l.strip()]
 
-        # Find entries where task words overlap > 60%
-        task_words = set(task.lower().split())
+        # Find entries with high similarity (SequenceMatcher is more robust than word overlap)
+        from difflib import SequenceMatcher
         for entry in reversed(entries):
             if entry.get("failed", 0) > 0:
                 continue  # skip failed plans
             if entry.get("completed", 0) == 0:
                 continue
-            prev_words = set(entry.get("task", "").lower().split())
-            if not prev_words:
+            prev_task = entry.get("task", "")
+            if not prev_task:
                 continue
-            overlap = len(task_words & prev_words) / max(len(task_words), 1)
-            if overlap > 0.6:
-                # Reconstruct plan from cached shape
-                modes = entry.get("modes", ["script"])
+            similarity = SequenceMatcher(None, task.lower(), prev_task.lower()).ratio()
+            if similarity > 0.65:
+                # Reconstruct plan from cached shape (use rich steps if available)
+                steps = entry.get("steps")
                 pane_names = list(panes.keys())
                 subtasks = []
-                for i, mode in enumerate(modes):
-                    pane = pane_names[0] if len(pane_names) == 1 else pane_names[min(i, len(pane_names)-1)]
-                    subtasks.append(Subtask(
-                        id=str(i + 1),
-                        description=task if len(modes) == 1 else f"Step {i+1} of: {task}",
-                        pane=pane,
-                        mode=mode,
-                        depends_on=[str(i)] if i > 0 else [],
-                    ))
+                if steps:
+                    for i, step in enumerate(steps):
+                        pane = step["pane"] if step["pane"] in panes else pane_names[0]
+                        subtasks.append(Subtask(
+                            id=str(i + 1),
+                            description=step["desc"],
+                            pane=pane,
+                            mode=step["mode"],
+                            depends_on=[str(i)] if i > 0 else [],
+                        ))
+                else:
+                    modes = entry.get("modes", ["script"])
+                    for i, mode in enumerate(modes):
+                        pane = pane_names[0] if len(pane_names) == 1 else pane_names[min(i, len(pane_names)-1)]
+                        subtasks.append(Subtask(
+                            id=str(i + 1),
+                            description=task if len(modes) == 1 else f"Step {i+1} of: {task}",
+                            pane=pane,
+                            mode=mode,
+                            depends_on=[str(i)] if i > 0 else [],
+                        ))
                 return Plan(task=task, subtasks=subtasks)
     except Exception:
         pass
@@ -115,6 +127,9 @@ def run(task: str, toolset_spec: str = DEFAULT_TOOLSET, output_format: str = "de
     session_id = generate_session_id()
     session_dir = f"/tmp/clive/{session_id}"
 
+    # Mutable state shared with _cleanup (updated once session is created)
+    _state = {"session_name": SESSION_NAME}
+
     # Graceful shutdown handler
     def _cleanup(signum=None, frame=None):
         import shutil
@@ -122,7 +137,7 @@ def run(task: str, toolset_spec: str = DEFAULT_TOOLSET, output_format: str = "de
         try:
             import libtmux
             server = libtmux.Server()
-            for s in server.sessions.filter(session_name=SESSION_NAME):
+            for s in server.sessions.filter(session_name=_state["session_name"]):
                 s.kill()
         except Exception:
             pass
@@ -134,15 +149,24 @@ def run(task: str, toolset_spec: str = DEFAULT_TOOLSET, output_format: str = "de
     signal.signal(signal.SIGINT, _cleanup)
     signal.signal(signal.SIGTERM, _cleanup)
 
+    try:
+        return _run_inner(task, toolset_spec, output_format, max_tokens, session_dir, _cleanup, _state)
+    except Exception:
+        _cleanup()
+        raise
+
+
+def _run_inner(task, toolset_spec, output_format, max_tokens, session_dir, _cleanup, _state):
     # Resolve toolset spec into three surfaces
     resolved = resolve_toolset(toolset_spec)
 
     progress(f"\n{'=' * 60}")
-    progress(f"Setting up session: {SESSION_NAME}")
+    progress(f"Setting up session...")
     progress(f"{'~' * 60}")
 
     # Create tmux session with pane tools only
-    session, panes = setup_session(resolved["panes"], session_dir=session_dir)
+    session, panes, actual_session_name = setup_session(resolved["panes"], session_dir=session_dir)
+    _state["session_name"] = actual_session_name
 
     progress(f"\nHealth check:")
     tool_status = check_health(panes)
@@ -164,7 +188,7 @@ def run(task: str, toolset_spec: str = DEFAULT_TOOLSET, output_format: str = "de
     progress(f"{'~' * 60}")
     progress(f"Task: {task}")
     progress(f"Session: {session_dir}")
-    progress(f"Watch: tmux attach -t {SESSION_NAME}")
+    progress(f"Watch: tmux attach -t {actual_session_name}")
     progress(f"{'=' * 60}\n")
 
     start_time = time.time()
@@ -231,7 +255,9 @@ def run(task: str, toolset_spec: str = DEFAULT_TOOLSET, output_format: str = "de
             replan = create_plan(replan_task, panes, tool_status, tools_summary=tools_summary)
             if replan.subtasks:
                 progress("Replanned — executing recovery subtasks...")
-                recovery_results = execute_plan(replan, panes, tool_status, on_event=_progress_event, session_dir=session_dir, max_tokens=max_tokens // 2)
+                tokens_used = sum(r.prompt_tokens + r.completion_tokens for r in results)
+                replan_budget = max(max_tokens - tokens_used, 5000)
+                recovery_results = execute_plan(replan, panes, tool_status, on_event=_progress_event, session_dir=session_dir, max_tokens=replan_budget)
                 results.extend(recovery_results)
         except Exception as e:
             progress(f"  Replan failed: {e}")
@@ -249,6 +275,21 @@ def run(task: str, toolset_spec: str = DEFAULT_TOOLSET, output_format: str = "de
     total_ct = sum(r.completion_tokens for r in results)
     completed = sum(1 for r in results if r.status == SubtaskStatus.COMPLETED)
     total = len(results)
+
+    # Wrap --json output with structured metadata
+    if output_format == "json":
+        import json as _json
+        try:
+            parsed = _json.loads(summary)
+        except (ValueError, TypeError):
+            parsed = summary
+        summary = _json.dumps({
+            "result": parsed,
+            "success": completed == total,
+            "subtasks": {"completed": completed, "total": total},
+            "tokens": {"prompt": total_pt, "completion": total_ct, "total": total_pt + total_ct},
+            "elapsed_s": round(elapsed, 1),
+        }, indent=2)
 
     progress(f"\n{'=' * 60}")
     progress(f"TASK COMPLETE ({completed}/{total} subtasks succeeded)")
@@ -281,6 +322,7 @@ def _log_session(task: str, plan, results: list, elapsed: float, total_tokens: i
         "task": task[:200],
         "subtasks": len(plan.subtasks),
         "modes": [s.mode for s in plan.subtasks],
+        "steps": [{"desc": s.description[:100], "pane": s.pane, "mode": s.mode} for s in plan.subtasks],
         "completed": sum(1 for r in results if r.status == SubtaskStatus.COMPLETED),
         "failed": sum(1 for r in results if r.status == SubtaskStatus.FAILED),
         "tokens": total_tokens,
@@ -340,6 +382,13 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(
         description="LLM agent that drives CLI tools via tmux",
         epilog=(
+            "Examples:\n"
+            "  clive \"list files in /tmp and show disk usage\"\n"
+            "  clive -t standard \"browse example.com and summarize it\"\n"
+            "  clive --dry-run \"check docker status\"   # preview plan only\n"
+            "  clive --quiet --json \"count Python files\" # machine-readable\n"
+            "  result=$(clive --quiet \"what is my IP\")   # capture result\n"
+            "\n"
             "Compose toolsets with +: -t standard+media+ai\n"
             "Categories: " + ", ".join(sorted(CATEGORIES.keys()))
         ),
@@ -418,6 +467,16 @@ if __name__ == "__main__":
     parser.add_argument("--history", metavar="NAME", help="Show run history")
     parser.add_argument("--notify", metavar="METHOD", default="", help="Notification: email:addr or file:/path")
     parser.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="Show the execution plan without running it",
+    )
+    parser.add_argument(
+        "--version",
+        action="version",
+        version="clive 0.9.0",
+    )
+    parser.add_argument(
         "--debug",
         action="store_true",
         help="Enable debug logging to stderr",
@@ -427,6 +486,23 @@ if __name__ == "__main__":
         help="Maximum total tokens before aborting (default: 50000)",
     )
     args = parser.parse_args()
+
+    # Pre-flight checks
+    import shutil as _shutil
+    if not _shutil.which("tmux"):
+        print("Error: tmux not found. Install it first:", file=sys.stderr)
+        print("  macOS:  brew install tmux", file=sys.stderr)
+        print("  Ubuntu: sudo apt install tmux", file=sys.stderr)
+        raise SystemExit(1)
+
+    # Check API key early (skip for list/version commands)
+    from llm import _provider, PROVIDER_NAME
+    _api_key_env = _provider.get("api_key_env")
+    if _api_key_env and not os.environ.get(_api_key_env):
+        if not any(getattr(args, f, False) for f in ["list_toolsets", "list_tools", "list_skills", "list_schedules"]):
+            print(f"Error: {_api_key_env} not set (required for {PROVIDER_NAME} provider)", file=sys.stderr)
+            print(f"  Set it in .env or export {_api_key_env}=your-key", file=sys.stderr)
+            raise SystemExit(1)
 
     # Configure logging
     import logging
@@ -663,13 +739,16 @@ if __name__ == "__main__":
             # Try running even without clive check — the command might work
             progress(f"  Warning: could not verify clive on {host}")
 
-        # Build and execute remote command
+        # Build and execute remote command (no shell=True — prevents injection)
         remote_cmd = build_remote_command(args.task, toolset=args.toolset)
-        ssh_cmd = f"ssh -o BatchMode=yes -o ConnectTimeout=10 {host} 'cd ~ && {remote_cmd}'"
-        progress(f"Running: {ssh_cmd[:80]}...")
+        ssh_args = [
+            "ssh", "-o", "BatchMode=yes", "-o", "ConnectTimeout=10",
+            host, f"cd ~ && {remote_cmd}",
+        ]
+        progress(f"Running: {' '.join(ssh_args[:6])}...")
 
         try:
-            proc = _sp.run(ssh_cmd, shell=True, capture_output=True, text=True, timeout=300)
+            proc = _sp.run(ssh_args, capture_output=True, text=True, timeout=300)
             if proc.returncode == 0:
                 result(proc.stdout.strip())
             else:
@@ -695,6 +774,35 @@ if __name__ == "__main__":
         if entry.get("notify"):
             print(f"  Notify: {entry['notify']}")
         print(f"  Results: ~/.clive/results/{entry['name']}/")
+        raise SystemExit(0)
+
+    if args.dry_run:
+        resolved = resolve_toolset(args.toolset)
+        from session import setup_session
+        session, panes, dry_session_name = setup_session(resolved["panes"], session_dir="/tmp/clive/dryrun")
+        available_cmds, _ = check_commands(resolved["commands"])
+        tools_summary = build_tools_summary(
+            check_health(panes), available_cmds, resolved["endpoints"],
+        )
+        if _is_trivial(args.task, len(panes)):
+            first_pane = list(panes.keys())[0]
+            plan = Plan(task=args.task, subtasks=[
+                Subtask(id="1", description=args.task, pane=first_pane, mode="script"),
+            ])
+        else:
+            plan = create_plan(args.task, panes, check_health(panes), tools_summary=tools_summary)
+        display_plan(plan)
+        print(f"\n(dry run — {len(plan.subtasks)} subtask(s), not executed)")
+        # Cleanup
+        try:
+            import libtmux
+            server = libtmux.Server()
+            for s in server.sessions.filter(session_name=dry_session_name):
+                s.kill()
+        except Exception:
+            pass
+        import shutil
+        shutil.rmtree("/tmp/clive/dryrun", ignore_errors=True)
         raise SystemExit(0)
 
     summary = run(args.task, toolset_spec=args.toolset, output_format=output_format, max_tokens=args.max_tokens)

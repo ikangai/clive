@@ -23,6 +23,11 @@ def setup_session(
 ) -> tuple[libtmux.Session, dict[str, PaneInfo]]:
     """Create tmux session with one window+pane per tool."""
     server = libtmux.Server()
+    # Use session_dir suffix to avoid killing concurrent instances
+    if session_dir:
+        import os
+        suffix = os.path.basename(session_dir)
+        session_name = f"{session_name}-{suffix}"
     session = server.new_session(
         session_name=session_name,
         kill_session=True,
@@ -77,7 +82,7 @@ def setup_session(
     list(panes.values())[0].pane.send_keys(f"mkdir -p {workdir}", enter=True)
     time.sleep(1.5)
 
-    return session, panes
+    return session, panes, session_name
 
 
 def check_health(panes: dict[str, PaneInfo]) -> dict[str, dict]:
@@ -114,10 +119,3 @@ def capture_pane(pane_info: PaneInfo, scrollback: int = 50) -> str:
         lines.pop(0)
     return "\n".join(lines).rstrip()
 
-
-def get_meta(pane: libtmux.Pane) -> str:
-    """Read pane title metadata."""
-    try:
-        return pane.cmd("display-message", "-p", "#T").stdout[0]
-    except Exception:
-        return "unknown"
