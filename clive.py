@@ -678,6 +678,11 @@ if __name__ == "__main__":
     parser.add_argument("--bool", action="store_true", help="Yes/No output, exit 0=yes 1=no")
     parser.add_argument("--json", action="store_true", help="Structured JSON result output")
     parser.add_argument(
+        "--conversational",
+        action="store_true",
+        help="Conversational mode for clive-to-clive peer dialogue (auto-detected via isatty)",
+    )
+    parser.add_argument(
         "--list-skills",
         action="store_true",
         help="List available skills",
@@ -988,6 +993,51 @@ if __name__ == "__main__":
         except _sp.TimeoutExpired:
             step("Remote task timed out (300s)")
         raise SystemExit(proc.returncode if 'proc' in dir() else 1)
+
+    # ─── Mode auto-detection ──────────────────────────────────────────
+    # Conversational mode: explicit flag or no TTY (clive-to-clive via SSH)
+    if args.conversational or (
+        not sys.stdin.isatty()
+        and not args.quiet
+        and not args.json
+        and not args.oneline
+        and not args.bool
+        and args.task
+    ):
+        from output import set_conversational, emit_turn, emit_context, emit_question
+        set_conversational(True)
+
+        # Read task from args (SSH command) or stdin
+        task = args.task
+        if not task:
+            try:
+                task = sys.stdin.readline().strip()
+            except EOFError:
+                emit_turn("failed")
+                raise SystemExit(1)
+
+        if not task:
+            emit_context({"error": "No task provided"})
+            emit_turn("failed")
+            raise SystemExit(1)
+
+        emit_turn("thinking")
+
+        try:
+            summary = run(
+                task,
+                toolset_spec=args.toolset,
+                output_format="default",
+                max_tokens=args.max_tokens,
+            )
+            emit_context({"result": summary})
+            emit_turn("done")
+        except Exception as e:
+            emit_context({"error": str(e)})
+            emit_turn("failed")
+            raise SystemExit(1)
+
+        raise SystemExit(0)
 
     if args.schedule:
         from scheduler import add_schedule
