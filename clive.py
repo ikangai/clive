@@ -408,6 +408,7 @@ if __name__ == "__main__":
         metavar="DRIVER",
         help="Evolve a driver prompt (shell, browser, all)",
     )
+    parser.add_argument("--remote", metavar="HOST", help="Run task on remote clive via SSH (user@host)")
     parser.add_argument("--schedule", metavar="CRON", help="Schedule task with cron expression")
     parser.add_argument("--list-schedules", action="store_true", help="List scheduled tasks")
     parser.add_argument("--remove-schedule", metavar="NAME", help="Remove a scheduled task")
@@ -648,6 +649,37 @@ if __name__ == "__main__":
     if args.quiet:
         from output import set_quiet
         set_quiet(True)
+
+    if args.remote:
+        from remote import build_remote_command, check_remote_clive
+        import subprocess as _sp
+
+        host = args.remote
+        progress(f"Connecting to {host}...")
+
+        # Check remote availability
+        check = check_remote_clive(host)
+        if not check["available"]:
+            # Try running even without clive check — the command might work
+            progress(f"  Warning: could not verify clive on {host}")
+
+        # Build and execute remote command
+        remote_cmd = build_remote_command(args.task, toolset=args.toolset)
+        ssh_cmd = f"ssh -o BatchMode=yes -o ConnectTimeout=10 {host} 'cd ~ && {remote_cmd}'"
+        progress(f"Running: {ssh_cmd[:80]}...")
+
+        try:
+            proc = _sp.run(ssh_cmd, shell=True, capture_output=True, text=True, timeout=300)
+            if proc.returncode == 0:
+                result(proc.stdout.strip())
+            else:
+                progress(f"Remote task failed (exit {proc.returncode})")
+                if proc.stderr:
+                    progress(f"  stderr: {proc.stderr[:200]}")
+                result(proc.stdout.strip() if proc.stdout else "Remote task failed")
+        except _sp.TimeoutExpired:
+            progress("Remote task timed out (300s)")
+        raise SystemExit(proc.returncode if 'proc' in dir() else 1)
 
     if args.schedule:
         from scheduler import add_schedule
