@@ -45,11 +45,15 @@ def load_driver(app_type: str, drivers_dir: str | None = None) -> str:
 
 
 def build_planner_prompt(tools_summary: str) -> str:
+    from skills import skills_summary_for_planner
+    skills_info = skills_summary_for_planner()
+
     return f"""You are a task planner for an autonomous terminal agent.
 
 The agent controls CLI tools via tmux panes. Each pane is a terminal conversation: the agent reads the screen, reasons, and types commands. This is the universal interface — every tool interaction flows through a pane.
 
 {tools_summary}
+{skills_info}
 
 Each subtask targets exactly one PANE. COMMANDS and APIS run inside panes — use them freely in subtask descriptions (e.g. "use jq to parse the API response", "curl wttr.in for weather").
 
@@ -74,9 +78,10 @@ Respond with a JSON object and nothing else:
   "subtasks": [
     {{
       "id": "1",
-      "description": "Extract all ERROR lines from syslog and save to result.txt",
+      "description": "Analyze the syslog for errors and patterns",
       "pane": "shell",
       "mode": "script",
+      "skill": "analyze-logs",
       "produces": "errors.txt",
       "depends_on": []
     }},
@@ -118,14 +123,18 @@ Results from prerequisite tasks (use this information):
 
     driver = load_driver(app_type)
 
-    # Load skill if specified in subtask description (skill:name pattern)
+    # Load skill: from [skill:name params] in description or from plan's skill field
     skill_content = ""
     import re as _re
-    skill_match = _re.search(r'\[skill:(\w[\w-]*)\]', subtask_description)
+    skill_match = _re.search(r'\[skill:([\w-]+(?:\s+\w+=\S+)*)\]', subtask_description)
     if skill_match:
-        from skills import load_skill
-        skill = load_skill(skill_match.group(1))
+        from skills import load_skill, resolve_skill_with_params, inject_params, resolve_composition
+        skill_ref = skill_match.group(1)
+        skill_name, params = resolve_skill_with_params(skill_ref)
+        skill = load_skill(skill_name)
         if skill:
+            skill = inject_params(skill, params)
+            skill = resolve_composition(skill)
             skill_content = f"\n\nSkill procedure:\n{skill}\n"
 
     return f"""You are an autonomous agent worker controlling a single tmux pane.
@@ -144,6 +153,7 @@ Commands (XML tags):
   <cmd type="write_file" pane="{pane_name}" path="/path">content</cmd>
   <cmd type="wait">seconds</cmd>
   <cmd type="peek" pane="other_pane">reason</cmd>
+  <cmd type="save_skill">name: procedure content</cmd>
   <cmd type="task_complete">summary</cmd>
 
 Rules:

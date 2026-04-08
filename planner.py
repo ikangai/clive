@@ -53,9 +53,13 @@ def create_plan(
 
     plan = Plan(task=task)
     for s in data["subtasks"]:
+        desc = s["description"]
+        # If planner assigned a skill, inject [skill:name] into description
+        if s.get("skill") and f"[skill:" not in desc:
+            desc = f"{desc} [skill:{s['skill']}]"
         plan.subtasks.append(Subtask(
             id=str(s["id"]),
-            description=s["description"],
+            description=desc,
             pane=s["pane"],
             depends_on=[str(d) for d in s.get("depends_on", [])],
             mode=s.get("mode", "interactive"),

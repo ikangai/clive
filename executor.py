@@ -1063,6 +1063,25 @@ def run_subtask(
                     progress(f"    [{subtask.id}] Waiting {wait_secs}s...")
                     time.sleep(wait_secs)
 
+                elif cmd["type"] == "save_skill":
+                    # Agent creates a new skill for future reuse
+                    try:
+                        from skills import save_skill
+                        # value format: "name: content..." or just content with name from pane
+                        if ":" in cmd["value"][:30]:
+                            skill_name, skill_body = cmd["value"].split(":", 1)
+                            skill_name = skill_name.strip()
+                            skill_body = skill_body.strip()
+                        else:
+                            skill_name = f"learned_{subtask.id}"
+                            skill_body = cmd["value"]
+                        path = save_skill(skill_name, skill_body)
+                        messages.append({"role": "user", "content": f"[Skill saved: {skill_name} → {path}]"})
+                        progress(f"    [{subtask.id}] Saved skill: {skill_name}")
+                    except Exception as e:
+                        messages.append({"role": "user", "content": f"[Skill save failed: {e}]"})
+                    no_change_count = 0
+
                 elif cmd["type"] == "none":
                     pass  # no command, next turn will observe screen
 
