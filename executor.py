@@ -773,6 +773,29 @@ def run_subtask(
     all_panes: dict | None = None,
 ) -> SubtaskResult:
     """Execute a single subtask. Dispatches based on observation level (mode)."""
+    # Check for executable skill: if description contains [skill:name] and the skill
+    # has STEPS, run mechanically (zero LLM calls on happy path)
+    import re as _re
+    _skill_match = _re.search(r'\[skill:([\w-]+(?:\s+\w+=\S+)*)\]', subtask.description)
+    if _skill_match:
+        from skills import load_skill, resolve_skill_with_params, inject_params
+        from skill_runner import parse_executable_steps, run_executable_skill
+        skill_ref = _skill_match.group(1)
+        skill_name, params = resolve_skill_with_params(skill_ref)
+        skill_content = load_skill(skill_name)
+        if skill_content:
+            skill_content = inject_params(skill_content, params)
+            steps = parse_executable_steps(skill_content)
+            if steps:
+                progress(f"    [{subtask.id}] Executable skill: {skill_name} ({len(steps)} steps)")
+                return run_executable_skill(
+                    steps=steps,
+                    pane_info=pane_info,
+                    session_dir=session_dir,
+                    params=params,
+                    subtask_id=subtask.id,
+                )
+
     if subtask.mode == "script":
         return run_subtask_script(
             subtask=subtask,
