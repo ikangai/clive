@@ -375,11 +375,20 @@ def execute_plan(
     # Plan-to-script compiler: collapse sequential all-script same-pane plans
     plan = _try_collapse_plan(plan)
 
-    # Create per-pane agents for context continuity
-    from pane_agent import PaneAgent
+    # Create shared brain + per-pane agents
+    from pane_agent import PaneAgent, SharedBrain
+    shared_brain = SharedBrain(session_dir)
+
+    # Try to load persisted agent state from previous runs
+    agent_state_dir = os.path.expanduser("~/.clive/agents")
+
     pane_agents: dict[str, PaneAgent] = {}
     for pane_name, pane_info in panes.items():
-        pane_agents[pane_name] = PaneAgent(pane_info, session_dir=session_dir)
+        agent = PaneAgent(pane_info, session_dir=session_dir, shared_brain=shared_brain)
+        # Load persisted memory/shortcuts from previous sessions
+        state_path = os.path.join(agent_state_dir, f"{pane_name}.json")
+        agent.load_state(state_path)
+        pane_agents[pane_name] = agent
 
     # Per-plan pane locks (scoped to this execution, not module-level)
     plan_locks: dict[str, threading.Lock] = {}
@@ -580,6 +589,12 @@ def execute_plan(
             # Event-driven wait: wake instantly when a future completes
             wake_event.wait(timeout=0.5)
             wake_event.clear()
+
+    # Persist agent state for cross-run continuity
+    os.makedirs(agent_state_dir, exist_ok=True)
+    for pane_name, agent in pane_agents.items():
+        agent.save(os.path.join(agent_state_dir, f"{pane_name}.json"))
+    shared_brain.save(os.path.join(agent_state_dir, "_shared_brain.json"))
 
     return [results[s.id] for s in plan.subtasks]
 
