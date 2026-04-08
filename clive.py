@@ -408,22 +408,14 @@ if __name__ == "__main__":
         metavar="DRIVER",
         help="Evolve a driver prompt (shell, browser, all)",
     )
-    parser.add_argument(
-        "--schedule", metavar="CRON",
-        help="Schedule this task with cron expression (e.g., '0 * * * *')",
-    )
-    parser.add_argument(
-        "--list-schedules", action="store_true",
-        help="List scheduled tasks",
-    )
-    parser.add_argument(
-        "--remove-schedule", metavar="NAME",
-        help="Remove a scheduled task",
-    )
-    parser.add_argument(
-        "--history", metavar="NAME",
-        help="Show run history for a scheduled task",
-    )
+    parser.add_argument("--schedule", metavar="CRON", help="Schedule task with cron expression")
+    parser.add_argument("--list-schedules", action="store_true", help="List scheduled tasks")
+    parser.add_argument("--remove-schedule", metavar="NAME", help="Remove a scheduled task")
+    parser.add_argument("--pause-schedule", metavar="NAME", help="Pause a scheduled task")
+    parser.add_argument("--resume-schedule", metavar="NAME", help="Resume a paused task")
+    parser.add_argument("--run-now", metavar="NAME", help="Run a scheduled task immediately")
+    parser.add_argument("--history", metavar="NAME", help="Show run history")
+    parser.add_argument("--notify", metavar="METHOD", default="", help="Notification: email:addr or file:/path")
     parser.add_argument(
         "--debug",
         action="store_true",
@@ -583,13 +575,52 @@ if __name__ == "__main__":
             print(f"Schedule not found: {args.remove_schedule}")
         raise SystemExit(0)
 
+    if args.pause_schedule:
+        from scheduler import pause_schedule
+        if pause_schedule(args.pause_schedule):
+            print(f"Paused schedule: {args.pause_schedule}")
+        else:
+            print(f"Schedule not found: {args.pause_schedule}")
+        raise SystemExit(0)
+
+    if args.resume_schedule:
+        from scheduler import resume_schedule
+        if resume_schedule(args.resume_schedule):
+            print(f"Resumed schedule: {args.resume_schedule}")
+        else:
+            print(f"Schedule not found: {args.resume_schedule}")
+        raise SystemExit(0)
+
+    if args.run_now:
+        from scheduler import run_now
+        print(f"Running {args.run_now} now...")
+        try:
+            result = run_now(args.run_now)
+            status = result.get("status", "?")
+            duration = result.get("duration_seconds", "?")
+            print(f"  Status: {status}")
+            print(f"  Duration: {duration}s")
+            res = result.get("result", "")
+            if res:
+                print(f"  Result: {str(res)[:200]}")
+        except FileNotFoundError:
+            print(f"Schedule not found: {args.run_now}")
+        except subprocess.TimeoutExpired:
+            print(f"Timed out (300s limit)")
+        raise SystemExit(0)
+
     if args.history:
         from scheduler import get_history
         history = get_history(args.history)
         if history:
             print(f"\nRun history for {args.history}:\n")
             for h in history:
-                print(f"  {h.get('timestamp', '?'):20s} {h.get('status', '?'):8s} {str(h.get('result', ''))[:50]}")
+                status = h.get("status", "?")
+                ts = h.get("timestamp", "?")
+                dur = h.get("duration_seconds", "?")
+                res = str(h.get("result", ""))[:60]
+                indicator = "✓" if status == "success" else "✗"
+                print(f"  {indicator} {ts:20s} {status:8s} {dur:>4s}s  {res}")
         else:
             print(f"No history for {args.history}")
         raise SystemExit(0)
@@ -614,10 +645,17 @@ if __name__ == "__main__":
 
     if args.schedule:
         from scheduler import add_schedule
-        entry = add_schedule(args.task, args.schedule)
+        entry = add_schedule(
+            args.task, args.schedule,
+            notify=args.notify,
+            toolset=args.toolset,
+        )
         print(f"Scheduled: {entry['name']}")
         print(f"  Task: {entry['task']}")
         print(f"  Cron: {entry['cron']}")
+        print(f"  Toolset: {entry.get('toolset', 'minimal')}")
+        if entry.get("notify"):
+            print(f"  Notify: {entry['notify']}")
         print(f"  Results: ~/.clive/results/{entry['name']}/")
         raise SystemExit(0)
 
