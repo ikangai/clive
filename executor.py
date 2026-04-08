@@ -21,6 +21,24 @@ from screen_diff import compute_screen_diff
 # Per-pane locks: only one subtask can use a pane at a time
 _pane_locks: dict[str, threading.Lock] = {}
 
+# Global cancellation event — set by signal handler to abort all workers
+_cancel_event = threading.Event()
+
+
+def cancel():
+    """Signal all workers to stop."""
+    _cancel_event.set()
+
+
+def is_cancelled() -> bool:
+    """Check if cancellation has been requested."""
+    return _cancel_event.is_set()
+
+
+def reset_cancel():
+    """Reset cancellation state for a new run."""
+    _cancel_event.clear()
+
 # ─── Command Safety ──────────────────────────────────────────────────────────
 
 BLOCKED_COMMANDS = [
@@ -196,6 +214,66 @@ def _extract_script(text: str) -> str:
     raise ValueError(f"No script found in response:\n{text[:200]}")
 
 
+# ─── Direct Mode Worker ──────────────────────────────────────────────────────
+
+def run_subtask_direct(
+    subtask: Subtask,
+    pane_info: PaneInfo,
+    on_event=None,
+    session_dir: str = "/tmp/clive",
+) -> SubtaskResult:
+    """Run a literal shell command directly — zero LLM calls.
+
+    Uses file-based output capture instead of screen scraping to handle
+    commands with large output (e.g. curl) that would scroll the marker
+    off the visible tmux pane.
+    """
+    import uuid as _uuid
+
+    cmd = subtask.description.strip()
+    nonce = _uuid.uuid4().hex[:4]
+    marker = f"___DONE_{subtask.id}_{nonce}___"
+    out_file = os.path.join(session_dir, f"_direct_{subtask.id}.out")
+    ec_file = os.path.join(session_dir, f"_direct_{subtask.id}.ec")
+
+    # Redirect output to file, write exit code to file, then echo marker
+    combined = f'{cmd} > {out_file} 2>&1; echo $? > {ec_file}; echo "{marker}"'
+
+    lock = _pane_locks.setdefault(subtask.pane, threading.Lock())
+    with lock:
+        pane_info.pane.send_keys(combined, enter=True)
+        time.sleep(0.15)  # Let shell start processing before polling
+        wait_for_ready(pane_info, marker=marker, max_wait=30.0)
+
+    # Read exit code from file
+    exit_code = 0
+    try:
+        with open(ec_file) as f:
+            exit_code = int(f.read().strip())
+    except (OSError, ValueError):
+        pass
+
+    # Read output from file
+    output = ""
+    try:
+        with open(out_file, errors="replace") as f:
+            output = f.read()
+    except OSError:
+        pass
+
+    summary = output.strip()[-2000:] if output.strip() else "Done (no output)"
+    status = SubtaskStatus.COMPLETED if exit_code == 0 else SubtaskStatus.FAILED
+
+    return SubtaskResult(
+        subtask_id=subtask.id,
+        status=status,
+        summary=summary,
+        output_snippet=output[-500:] if len(output) > 500 else output,
+        turns_used=1,
+        exit_code=exit_code,
+    )
+
+
 # ─── Script Mode Worker ─────────────────────────────────────────────────────
 
 def run_subtask_script(
@@ -229,10 +307,17 @@ def run_subtask_script(
     # Script path determined by language after extraction
     default_script_path = os.path.join(session_dir, f"_script_{subtask.id}.sh")
 
+    from llm import SCRIPT_MODEL
     lock = _pane_locks.setdefault(subtask.pane, threading.Lock())
     with lock:
         for attempt in range(1, subtask.max_turns + 1):
-            reply, pt, ct = chat(client, messages)
+            if _cancel_event.is_set():
+                return SubtaskResult(
+                    subtask_id=subtask.id, status=SubtaskStatus.FAILED,
+                    summary="Cancelled", output_snippet="",
+                    turns_used=attempt - 1, prompt_tokens=total_pt, completion_tokens=total_ct,
+                )
+            reply, pt, ct = chat(client, messages, model=SCRIPT_MODEL)
             total_pt += pt
             total_ct += ct
             messages.append({"role": "assistant", "content": reply})
@@ -243,7 +328,7 @@ def run_subtask_script(
             try:
                 script = _extract_script(reply)
             except ValueError as e:
-                progress(f"    [{subtask.id}] Script extraction failed: {e}")
+                logging.debug(f"[{subtask.id}] Script extraction failed: {e}")
                 messages.append({"role": "user", "content": "Error: could not extract script. Respond with a bash script inside ```bash ``` markers."})
                 continue
 
@@ -281,7 +366,7 @@ def run_subtask_script(
             pane_info.pane.send_keys(combined, enter=True)
             screen, method = wait_for_ready(pane_info, marker=marker, max_wait=60.0)
 
-            progress(f"    [{subtask.id}] Script attempt {attempt}: {screen[-80:]}")
+            logging.debug(f"[{subtask.id}] Script attempt {attempt}: {screen[-80:]}")
 
             # Parse exit code from the combined marker line
             exit_code = None
@@ -296,8 +381,32 @@ def run_subtask_script(
             if exit_code == 0:
                 # Write structured result
                 result_path = os.path.join(session_dir, f"_result_{subtask.id}.json")
-                output_lines = [l for l in screen.splitlines() if l.strip() and marker not in l]
-                summary = output_lines[-1] if output_lines else "Script completed successfully"
+                # Extract meaningful output: skip marker lines, prompt lines, and the command echo
+                # The combined command can wrap across lines, so filter broadly
+                nonce_frag = nonce + "___"  # e.g. "da3___" — catches wrapped marker fragments
+                output_lines = [
+                    l for l in screen.splitlines()
+                    if l.strip()
+                    and marker not in l
+                    and nonce_frag not in l
+                    and "___DONE_" not in l
+                    and "AGENT_READY" not in l
+                    and "export PS1=" not in l
+                    and not l.strip().startswith("EXIT:")
+                ]
+                # Drop leading lines that echo the command invocation itself
+                # (the command + script path + marker can wrap across multiple lines)
+                cmd_echo = os.path.basename(script_path)
+                while output_lines and (
+                    output_lines[0].strip().startswith(("$ bash ", "$ sh ", "$ python "))
+                    or output_lines[0].strip().startswith("$ /")
+                    or cmd_echo in output_lines[0]
+                    or output_lines[0].strip() == session_dir
+                    or output_lines[0].strip() == os.path.basename(session_dir)
+                ):
+                    output_lines.pop(0)
+                # Use all remaining output as summary (trimmed to reasonable length)
+                summary = "\n".join(output_lines)[-2000:] if output_lines else "Done (no output)"
                 write_file(result_path, json.dumps({
                     "status": "success",
                     "subtask_id": subtask.id,
@@ -320,7 +429,7 @@ def run_subtask_script(
                 )
 
             # Script failed — repair
-            progress(f"    [{subtask.id}] Script failed (exit {exit_code}), repairing...")
+            logging.debug(f"[{subtask.id}] Script failed (exit {exit_code}), repairing...")
             messages.append({
                 "role": "user",
                 "content": f"Script failed with exit code {exit_code}. Terminal output:\n\n{screen[-1000:]}\n\nFix the script and provide the corrected version.",
@@ -426,6 +535,18 @@ def execute_plan(
 
     with ThreadPoolExecutor(max_workers=max_workers) as pool:
         while True:
+            # Check for cancellation
+            if _cancel_event.is_set():
+                for sid in list(futures.keys()):
+                    futures[sid].cancel()
+                for s in plan.subtasks:
+                    if s.id not in results:
+                        results[s.id] = SubtaskResult(
+                            subtask_id=s.id, status=SubtaskStatus.FAILED,
+                            summary="Cancelled", output_snippet="",
+                        )
+                break
+
             # Find subtasks ready to run
             for subtask in plan.subtasks:
                 if subtask.id in futures or subtask.id in results:
@@ -445,7 +566,7 @@ def execute_plan(
                         output_snippet="",
                     )
                     subtask.status = SubtaskStatus.SKIPPED
-                    progress(f"  SKIP [{subtask.id}] {subtask.description[:50]}... (dependency failed)")
+                    logging.debug(f"SKIP [{subtask.id}] dependency failed")
                     _emit(on_event, "subtask_skip", subtask.id, "dependency failed")
                     continue
 
@@ -472,7 +593,7 @@ def execute_plan(
                 # Submit to thread pool
                 subtask.status = SubtaskStatus.RUNNING
                 start_times[subtask.id] = time.time()
-                progress(f"  START [{subtask.id}] [{subtask.pane}] {subtask.description[:60]}...")
+                logging.debug(f"START [{subtask.id}] [{subtask.pane}] {subtask.description[:60]}")
                 _emit(on_event, "subtask_start", subtask.id, subtask.pane, subtask.description)
                 # Use PaneAgent for context continuity across subtasks
                 agent = pane_agents.get(subtask.pane)
@@ -523,7 +644,7 @@ def execute_plan(
                     if (result.status == SubtaskStatus.FAILED
                             and subtask_obj.mode == "script"
                             and not subtask_obj._retried):
-                        progress(f"  RETRY [{sid}] script failed, retrying as interactive")
+                        logging.debug(f"RETRY [{sid}] script failed, retrying as interactive")
                         _emit(on_event, "subtask_fail", sid, f"script failed, retrying interactive")
                         subtask_obj.mode = "interactive"
                         subtask_obj.max_turns = max(subtask_obj.max_turns, 10)
@@ -536,8 +657,7 @@ def execute_plan(
                     results[sid] = result
                     subtask_map[sid].status = result.status
                     elapsed = time.time() - start_times.get(sid, time.time())
-                    status_str = "DONE" if result.status == SubtaskStatus.COMPLETED else "FAIL"
-                    progress(f"  {status_str} [{sid}] {result.summary[:60]}")
+                    logging.debug(f"{'DONE' if result.status == SubtaskStatus.COMPLETED else 'FAIL'} [{sid}] {result.summary[:60]}")
 
                     # Track pane state and result files
                     pane_last_screen[subtask_obj.pane] = result.output_snippet
@@ -659,7 +779,7 @@ def _try_collapse_plan(plan: Plan) -> Plan:
     merged_desc = " Then: ".join(
         f"Step {i+1}: {s.description}" for i, s in enumerate(subtasks)
     )
-    progress(f"  COMPILE: collapsed {len(subtasks)} script subtasks into 1")
+    logging.debug(f"COMPILE: collapsed {len(subtasks)} script subtasks into 1")
 
     collapsed = Plan(task=plan.task, subtasks=[
         Subtask(
@@ -750,7 +870,7 @@ def _cancel_orphaned_branches(
                 summary=f"Skipped: branch cancelled (dep {failed_sid} failed)",
                 output_snippet="",
             )
-            progress(f"  CANCEL [{sid}] branch cancelled (dep {failed_sid} failed)")
+            logging.debug(f"CANCEL [{sid}] branch cancelled (dep {failed_sid} failed)")
             _emit(on_event, "subtask_skip", sid, f"branch cancelled")
             del futures[sid]
 
@@ -810,7 +930,7 @@ def run_subtask(
             skill_content = inject_params(skill_content, params)
             steps = parse_executable_steps(skill_content)
             if steps:
-                progress(f"    [{subtask.id}] Executable skill: {skill_name} ({len(steps)} steps)")
+                logging.debug(f"[{subtask.id}] Executable skill: {skill_name} ({len(steps)} steps)")
                 return run_executable_skill(
                     steps=steps,
                     pane_info=pane_info,
@@ -818,6 +938,14 @@ def run_subtask(
                     params=params,
                     subtask_id=subtask.id,
                 )
+
+    if subtask.mode == "direct":
+        return run_subtask_direct(
+            subtask=subtask,
+            pane_info=pane_info,
+            on_event=on_event,
+            session_dir=session_dir,
+        )
 
     if subtask.mode == "script":
         return run_subtask_script(
@@ -878,6 +1006,12 @@ def run_subtask(
     lock = _pane_locks.setdefault(subtask.pane, threading.Lock())
     with lock:
         for turn in range(1, subtask.max_turns + 1):
+            if _cancel_event.is_set():
+                return SubtaskResult(
+                    subtask_id=subtask.id, status=SubtaskStatus.FAILED,
+                    summary="Cancelled", output_snippet=last_screen or "",
+                    turns_used=turn - 1, prompt_tokens=total_pt, completion_tokens=total_ct,
+                )
             # Capture current pane state (skip if last action was a file op)
             if not skip_capture:
                 screen = capture_pane(pane_info)
@@ -887,7 +1021,7 @@ def run_subtask(
             if last_screen is not None and screen == last_screen:
                 no_change_count += 1
                 if no_change_count >= NO_CHANGE_LIMIT:
-                    progress(f"    [{subtask.id}] Screen unchanged for {NO_CHANGE_LIMIT} turns, stopping")
+                    logging.debug(f"[{subtask.id}] Screen unchanged for {NO_CHANGE_LIMIT} turns, stopping")
                     return SubtaskResult(
                         subtask_id=subtask.id,
                         status=SubtaskStatus.FAILED,
@@ -900,20 +1034,24 @@ def run_subtask(
             else:
                 no_change_count = 0
 
-            # Check for DONE: protocol (clive-to-clive, agent panes only)
+            # Check for TURN:/DONE: protocol (clive-to-clive, agent panes only)
             if pane_info.app_type == "agent":
-                from remote import parse_remote_result, parse_remote_files, parse_remote_progress
-                done = parse_remote_result(screen)
-                if done:
-                    summary = done.get("result", done.get("reason", str(done)))
-                    status = SubtaskStatus.COMPLETED if done.get("status") == "success" else SubtaskStatus.FAILED
+                from remote import (
+                    parse_turn_state, parse_context,
+                    parse_remote_result, parse_remote_files, parse_remote_progress,
+                )
+                turn_state = parse_turn_state(screen)
 
-                    # Log progress lines if any
+                # New conversational protocol (TURN:)
+                if turn_state in ("done", "failed"):
+                    ctx = parse_context(screen) or {}
+                    summary = ctx.get("result", ctx.get("error", ctx.get("raw", str(ctx))))
+                    status = SubtaskStatus.COMPLETED if turn_state == "done" else SubtaskStatus.FAILED
+
                     for prog in parse_remote_progress(screen):
-                        progress(f"    [{subtask.id}] Remote: {prog}")
+                        logging.debug(f"[{subtask.id}] Remote: {prog}")
 
-                    # Track declared files for downstream transfer
-                    remote_files = done.get("files", []) + parse_remote_files(screen)
+                    remote_files = ctx.get("files", []) + parse_remote_files(screen)
                     output_files = [{"path": f, "type": "remote", "size": 0} for f in remote_files]
 
                     return SubtaskResult(
@@ -922,6 +1060,37 @@ def run_subtask(
                         prompt_tokens=total_pt, completion_tokens=total_ct,
                         output_files=output_files,
                     )
+
+                if turn_state == "thinking":
+                    # Inner clive is working — skip LLM call, save tokens
+                    logging.debug(f"[{subtask.id}] Agent thinking, skipping LLM call")
+                    last_screen = screen
+                    time.sleep(2)
+                    continue
+
+                # turn_state == "waiting" or None → fall through to LLM loop
+                # "waiting" = inner clive wants input, LLM will read and respond
+                # None = legacy DONE: protocol or still starting up
+
+                # Backward compat: check legacy DONE: protocol
+                if turn_state is None:
+                    done = parse_remote_result(screen)
+                    if done:
+                        summary = done.get("result", done.get("reason", str(done)))
+                        status = SubtaskStatus.COMPLETED if done.get("status") == "success" else SubtaskStatus.FAILED
+
+                        for prog in parse_remote_progress(screen):
+                            logging.debug(f"[{subtask.id}] Remote: {prog}")
+
+                        remote_files = done.get("files", []) + parse_remote_files(screen)
+                        output_files = [{"path": f, "type": "remote", "size": 0} for f in remote_files]
+
+                        return SubtaskResult(
+                            subtask_id=subtask.id, status=status, summary=summary,
+                            output_snippet=screen[-500:], turns_used=turn,
+                            prompt_tokens=total_pt, completion_tokens=total_ct,
+                            output_files=output_files,
+                        )
 
             screen_content = compute_screen_diff(last_screen, screen)
             last_screen = screen
@@ -994,7 +1163,7 @@ def run_subtask(
 
             messages.append({"role": "assistant", "content": reply})
 
-            progress(f"    [{subtask.id}] Turn {turn}: {reply[:80]}...")
+            logging.debug(f"[{subtask.id}] Turn {turn}: {reply[:80]}")
 
             # Parse commands — support pipelining (multiple commands per LLM call)
             cmds = parse_commands(reply)
@@ -1123,7 +1292,7 @@ def run_subtask(
                         wait_secs = max(1, min(int(cmd["value"]), 10))
                     except (ValueError, TypeError):
                         pass
-                    progress(f"    [{subtask.id}] Waiting {wait_secs}s...")
+                    logging.debug(f"[{subtask.id}] Waiting {wait_secs}s")
                     time.sleep(wait_secs)
 
                 elif cmd["type"] == "save_skill":
@@ -1140,7 +1309,7 @@ def run_subtask(
                             skill_body = cmd["value"]
                         path = save_skill(skill_name, skill_body)
                         messages.append({"role": "user", "content": f"[Skill saved: {skill_name} → {path}]"})
-                        progress(f"    [{subtask.id}] Saved skill: {skill_name}")
+                        logging.debug(f"[{subtask.id}] Saved skill: {skill_name}")
                     except Exception as e:
                         messages.append({"role": "user", "content": f"[Skill save failed: {e}]"})
                     no_change_count = 0
