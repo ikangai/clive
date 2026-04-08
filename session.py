@@ -5,6 +5,8 @@ import uuid
 
 import libtmux
 
+import logging
+
 from output import progress
 from models import PaneInfo
 
@@ -77,9 +79,12 @@ def setup_session(
             idle_timeout=tool.get("idle_timeout", 2.0),
         )
 
-    # session-scoped working directory
+    # Set working directory to where clive was launched, create session dir for outputs
+    import os
+    cwd = os.getcwd()
     workdir = session_dir or "/tmp/clive"
-    list(panes.values())[0].pane.send_keys(f"mkdir -p {workdir}", enter=True)
+    for pane_info in panes.values():
+        pane_info.pane.send_keys(f"cd {cwd} && mkdir -p {workdir}", enter=True)
     time.sleep(1.5)
 
     return session, panes, session_name
@@ -97,8 +102,7 @@ def check_health(panes: dict[str, PaneInfo]) -> dict[str, dict]:
             "app_type": info.app_type,
             "description": info.description,
         }
-        indicator = "✓" if ready else "✗"
-        progress(f"  {indicator} {name:16} [{info.app_type}]")
+        logging.debug(f"Health: {name} [{info.app_type}] {'ready' if ready else 'unavailable'}")
     return status
 
 
@@ -118,4 +122,40 @@ def capture_pane(pane_info: PaneInfo, scrollback: int = 50) -> str:
     while lines and not lines[0].strip():
         lines.pop(0)
     return "\n".join(lines).rstrip()
+
+
+def ensure_agent_pane(
+    session: libtmux.Session,
+    panes: dict[str, PaneInfo],
+    host: str,
+    config: dict,
+) -> PaneInfo:
+    """Lazily create an agent pane for clive@host if it doesn't exist.
+
+    If agent-{host} already exists in panes, returns it.
+    Otherwise creates a new tmux window, opens SSH, and adds to panes.
+    """
+    pane_name = f"agent-{host}"
+
+    if pane_name in panes:
+        return panes[pane_name]
+
+    window = session.new_window(window_name=pane_name, attach=False)
+    pane = window.active_pane
+
+    cmd = config.get("cmd", f"ssh {host}")
+    pane.send_keys(cmd, enter=True)
+    time.sleep(config.get("connect_timeout", 3))
+
+    pane_info = PaneInfo(
+        pane=pane,
+        app_type=config.get("app_type", "agent"),
+        description=config.get("description", f"Remote clive at {host}"),
+        name=pane_name,
+        idle_timeout=config.get("idle_timeout", 5.0),
+    )
+    panes[pane_name] = pane_info
+
+    progress(f"  ✓ {pane_name} [agent] connected")
+    return pane_info
 
