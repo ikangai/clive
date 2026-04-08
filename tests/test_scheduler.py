@@ -1,9 +1,11 @@
 """Tests for cron scheduling system."""
 import os
 import json
+import pytest
 from scheduler import (
     add_schedule, list_schedules, remove_schedule, get_history,
     pause_schedule, resume_schedule, cleanup_history, _auto_name,
+    validate_cron, get_health,
 )
 
 
@@ -130,6 +132,71 @@ def test_auto_name():
     assert _auto_name("check disk usage /tmp") == "check_disk_usage__tmp"
     assert "/" not in _auto_name("path/to/thing")
     assert len(_auto_name("a" * 100)) <= 30
+
+
+# ─── Cron validation ─────────────────────────────────────────────────────────
+
+def test_valid_cron():
+    assert validate_cron("0 * * * *") is True
+    assert validate_cron("*/5 * * * *") is True
+    assert validate_cron("0 9 * * 1-5") is True
+    assert validate_cron("30 2 1 */3 *") is True
+
+
+def test_invalid_cron():
+    assert validate_cron("banana") is False
+    assert validate_cron("* * *") is False  # only 3 fields
+    assert validate_cron("") is False
+
+
+def test_add_rejects_invalid_cron(tmp_path, monkeypatch):
+    _setup(tmp_path, monkeypatch)
+    with pytest.raises(ValueError, match="Invalid cron"):
+        add_schedule("task", "not_a_cron", name="bad")
+
+
+# ─── Health stats ─────────────────────────────────────────────────────────────
+
+def test_health_all_success(tmp_path, monkeypatch):
+    _setup(tmp_path, monkeypatch)
+    results = tmp_path / "results" / "healthy"
+    results.mkdir(parents=True)
+    for i in range(5):
+        (results / f"2026040{i}_120000.json").write_text(json.dumps({
+            "status": "success", "duration_seconds": 3,
+        }))
+    health = get_health("healthy")
+    assert health["success_rate"] == 1.0
+    assert health["failure_streak"] == 0
+    assert health["avg_duration"] == 3.0
+
+
+def test_health_failure_streak(tmp_path, monkeypatch):
+    _setup(tmp_path, monkeypatch)
+    results = tmp_path / "results" / "failing"
+    results.mkdir(parents=True)
+    (results / "20260401_120000.json").write_text(json.dumps({"status": "success"}))
+    (results / "20260402_120000.json").write_text(json.dumps({"status": "failed"}))
+    (results / "20260403_120000.json").write_text(json.dumps({"status": "failed"}))
+    (results / "20260404_120000.json").write_text(json.dumps({"status": "failed"}))
+    health = get_health("failing")
+    assert health["failure_streak"] == 3  # 3 most recent are failures
+    assert health["success_rate"] == 0.25
+
+
+def test_health_empty(tmp_path, monkeypatch):
+    _setup(tmp_path, monkeypatch)
+    health = get_health("nonexistent")
+    assert health["runs"] == 0
+
+
+# ─── Update detection ────────────────────────────────────────────────────────
+
+def test_update_detection(tmp_path, monkeypatch):
+    _setup(tmp_path, monkeypatch)
+    add_schedule("task", "0 * * * *", name="t1")
+    entry = add_schedule("task", "*/5 * * * *", name="t1")
+    assert entry.get("_updated_from") == "0 * * * *"
 
 
 # ─── List with last run ──────────────────────────────────────────────────────

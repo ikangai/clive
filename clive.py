@@ -562,7 +562,13 @@ if __name__ == "__main__":
             print("\nScheduled tasks:\n")
             for s in schedules:
                 status = "active" if s.get("active") else "paused"
-                print(f"  {s['name']:20s} {s['cron']:15s} [{status}] {s['task'][:50]}")
+                health = s.get("health", {})
+                rate = health.get("success_rate", 0)
+                streak = health.get("failure_streak", 0)
+                health_str = f"{rate:.0%} ok" if health.get("runs") else "no runs"
+                if streak >= 3:
+                    health_str += f" ⚠ {streak} failures in a row"
+                print(f"  {s['name']:20s} {s['cron']:15s} [{status:6s}] [{health_str:15s}] {s['task'][:40]}")
         else:
             print("No scheduled tasks. Use --schedule to add one.")
         raise SystemExit(0)
