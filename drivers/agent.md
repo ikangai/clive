@@ -1,32 +1,44 @@
 # Agent Driver (clive-to-clive)
 
 ENVIRONMENT: connected to a remote clive instance via SSH.
-The remote clive runs in --quiet mode: telemetry on stderr, result on stdout.
+The remote clive runs in --quiet --json mode.
 
-PROTOCOL:
-  Send task as plain text, press Enter, wait for output.
-  Remote clive plans, executes, and prints the result.
-  DONE: {"status": "success", "result": "..."} — structured completion
-  DONE: {"status": "error", "reason": "..."} — structured failure
-  Plain text output — unstructured result (still valid)
+PROTOCOL (text-based, read from screen):
+  You type → remote executes → screen shows result
+
+  PROGRESS: step N of M — description   ← optional progress updates
+  FILE: filename                          ← file available for transfer
+  DONE: {"status": "success", "result": "...", "files": [...]}  ← completion
+  DONE: {"status": "error", "reason": "..."}                    ← failure
 
 USAGE:
-- Type task description and press Enter
-- Wait for output to appear (may take 30-120 seconds)
-- Read the result from the screen
-- For structured output, look for DONE: JSON line
-- For plain text, the last substantial block is the result
+- Type the task description as a single line, press Enter
+- WAIT. Remote tasks may take 30-120 seconds. Use <cmd type="wait">30</cmd>
+- Look for DONE: line — that's the result
+- If DONE has "files", they can be transferred via scp
 
-PATTERNS:
-- Simple task: type description, wait for result
-- Chained tasks: send first, read result, send second referencing result
-- Check status: if output stops mid-task, the remote agent may be waiting for input
+SENDING A TASK:
+  <cmd type="shell" pane="agent">check disk usage on this server</cmd>
+  <cmd type="wait">30</cmd>
+
+READING THE RESULT:
+  After DONE: appears, the executor parses it automatically.
+  You can also read the screen for additional context.
+
+CHAINING TASKS:
+  Send first task → wait for DONE → send second task referencing result
+  The remote shell maintains state between tasks (same session).
+
+FILE TRANSFER:
+  If remote writes files, they appear in FILE: lines.
+  Use scp from a LOCAL shell pane to fetch them:
+  <cmd type="shell" pane="shell">scp remote:/tmp/clive/result.csv /tmp/clive/</cmd>
 
 PITFALLS:
-- Long tasks: remote clive may take minutes — don't send another command too soon
-- SSH timeout: if connection drops, the remote tmux session persists — reconnect
-- Buffering: output may arrive in chunks, wait for DONE: or screen stability
-- Quiet mode: remote stderr goes to the SSH terminal — you'll see telemetry mixed in
+- DONT send a new task before DONE: appears — remote is still working
+- SSH timeout: remote tmux persists — reconnect if dropped
+- Long output: use head/tail on remote, or transfer the file
+- The remote agent has its OWN tools — you dont know what's installed
 
 COMPLETION: Use <cmd type="task_complete">summary</cmd> when done.
-Include key results from the remote agent's output.
+Include key results from the remote agent's DONE: output.

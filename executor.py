@@ -876,21 +876,26 @@ def run_subtask(
 
             # Check for DONE: protocol (clive-to-clive, agent panes only)
             if pane_info.app_type == "agent":
-                for line in screen.splitlines():
-                    if line.strip().startswith("DONE:"):
-                        done_payload = line.strip()[5:].strip()
-                        try:
-                            done_data = json.loads(done_payload)
-                            summary = done_data.get("result", done_data.get("reason", str(done_data)))
-                            status = SubtaskStatus.COMPLETED if done_data.get("status") == "success" else SubtaskStatus.FAILED
-                        except (json.JSONDecodeError, AttributeError):
-                            summary = done_payload
-                            status = SubtaskStatus.COMPLETED
-                        return SubtaskResult(
-                            subtask_id=subtask.id, status=status, summary=summary,
-                            output_snippet=screen[-500:], turns_used=turn,
-                            prompt_tokens=total_pt, completion_tokens=total_ct,
-                        )
+                from remote import parse_remote_result, parse_remote_files, parse_remote_progress
+                done = parse_remote_result(screen)
+                if done:
+                    summary = done.get("result", done.get("reason", str(done)))
+                    status = SubtaskStatus.COMPLETED if done.get("status") == "success" else SubtaskStatus.FAILED
+
+                    # Log progress lines if any
+                    for prog in parse_remote_progress(screen):
+                        progress(f"    [{subtask.id}] Remote: {prog}")
+
+                    # Track declared files for downstream transfer
+                    remote_files = done.get("files", []) + parse_remote_files(screen)
+                    output_files = [{"path": f, "type": "remote", "size": 0} for f in remote_files]
+
+                    return SubtaskResult(
+                        subtask_id=subtask.id, status=status, summary=summary,
+                        output_snippet=screen[-500:], turns_used=turn,
+                        prompt_tokens=total_pt, completion_tokens=total_ct,
+                        output_files=output_files,
+                    )
 
             screen_content = compute_screen_diff(last_screen, screen)
             last_screen = screen
