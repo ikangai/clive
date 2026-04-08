@@ -42,7 +42,7 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-from output import progress, result
+from output import progress, step, detail, activity, finish, result
 from session import setup_session, check_health, generate_session_id, SESSION_NAME
 from toolsets import (
     resolve_toolset, check_commands, build_tools_summary,
@@ -53,21 +53,87 @@ from planner import create_plan, display_plan
 from executor import execute_plan
 from models import SubtaskStatus, Plan, Subtask
 from llm import get_client, chat
-from prompts import build_summarizer_prompt
+from prompts import build_summarizer_prompt, build_classifier_prompt
+from models import ClassifierResult
 
 
-TRIVIAL_PATTERNS = [
-    _re.compile(r'^(list|count|find|show|cat|head|tail|wc|grep|ls|du|df)\b', _re.IGNORECASE),
-    _re.compile(r'^(curl|wget|fetch)\s+\S+$', _re.IGNORECASE),
-]
+# ─── Tier 0: Regex-based direct command detection ────────────────────────────
 
-def _is_trivial(task: str, num_panes: int) -> bool:
-    """Detect tasks that don't need planning."""
+_DIRECT_CMD_PATTERN = _re.compile(
+    r'^(curl|wget|ls|cat|head|tail|wc|grep|find|du|df|stat|file|uname|date|whoami|hostname|pwd|id|echo|ping|dig|nslookup|traceroute|uptime|free|top|ps|env|printenv|sw_vers|system_profiler|sysctl|diskutil|ifconfig|ip|netstat|ss|lsof|mount|which|where|type|realpath|readlink|basename|dirname|sort|uniq|cut|tr|awk|sed|jq|python3?|ruby|node|perl|rg)\b',
+    _re.IGNORECASE,
+)
+
+def _is_direct(task: str, num_panes: int) -> bool:
+    """Tier 0: Detect tasks that are literal shell commands — no LLM needed."""
     if num_panes > 1:
         return False
-    if len(task.split()) > 20:
+    t = task.strip()
+    if any(t.lower().startswith(w) for w in ("what ", "how ", "why ", "show me ", "list all ", "find the ", "check ")):
         return False
-    return any(p.search(task.strip()) for p in TRIVIAL_PATTERNS)
+    return bool(_DIRECT_CMD_PATTERN.match(t))
+
+
+# ─── Tier 1: Fast LLM classifier ─────────────────────────────────────────────
+
+def _classify(task: str, session_ctx: dict) -> ClassifierResult | None:
+    """Tier 1: Use a fast/cheap model to classify intent and route."""
+    from llm import CLASSIFIER_MODEL
+    if CLASSIFIER_MODEL == "none":
+        return None
+
+    import json as _json
+
+    panes = session_ctx["panes"]
+    available_cmds = session_ctx.get("available_cmds", [])
+    missing_cmds = session_ctx.get("missing_cmds", [])
+    endpoints = session_ctx.get("endpoints", [])
+
+    available_panes = list(panes.keys())
+    installed = [cmd["name"] for cmd in available_cmds]
+    missing = [cmd["name"] for cmd in missing_cmds]
+    endpoint_names = [ep["name"] for ep in endpoints]
+
+    system_prompt = build_classifier_prompt(
+        available_panes=available_panes,
+        installed_commands=installed,
+        missing_commands=missing,
+        available_endpoints=endpoint_names,
+    )
+
+    client = get_client()
+    try:
+        reply, pt, ct = chat(client, [
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": task},
+        ], max_tokens=256, model=CLASSIFIER_MODEL)
+
+        # Parse JSON from reply
+        # Strip markdown fences if present
+        text = reply.strip()
+        if text.startswith("```"):
+            text = text.split("\n", 1)[1] if "\n" in text else text[3:]
+            if text.endswith("```"):
+                text = text[:-3]
+            text = text.strip()
+        if text.startswith("json"):
+            text = text[4:].strip()
+
+        data = _json.loads(text)
+        detail(f"Classifier: {pt + ct} tokens, mode={data.get('mode')}")
+        return ClassifierResult(
+            mode=data.get("mode", "script"),
+            tool=data.get("tool"),
+            pane=data.get("pane"),
+            driver=data.get("driver"),
+            cmd=data.get("cmd"),
+            fallback_mode=data.get("fallback_mode"),
+            stateful=data.get("stateful", False),
+            message=data.get("message"),
+        )
+    except Exception as e:
+        detail(f"Classifier failed ({e}), falling back to planner")
+        return None
 
 
 def _find_cached_plan(task: str, panes: dict) -> Plan | None:
@@ -123,9 +189,14 @@ def _find_cached_plan(task: str, panes: dict) -> Plan | None:
     return None
 
 
-def run(task: str, toolset_spec: str = DEFAULT_TOOLSET, output_format: str = "default", max_tokens: int = 50000):
-    session_id = generate_session_id()
-    session_dir = f"/tmp/clive/{session_id}"
+def run(task: str, toolset_spec: str = DEFAULT_TOOLSET, output_format: str = "default", max_tokens: int = 50000, session_ctx=None, session_dir=None):
+    from executor import cancel as cancel_executor, reset_cancel
+    reset_cancel()
+
+    owns_session = session_ctx is None
+    if session_dir is None:
+        session_id = generate_session_id()
+        session_dir = f"/tmp/clive/{session_id}"
 
     # Mutable state shared with _cleanup (updated once session is created)
     _state = {"session_name": SESSION_NAME}
@@ -133,83 +204,211 @@ def run(task: str, toolset_spec: str = DEFAULT_TOOLSET, output_format: str = "de
     # Graceful shutdown handler
     def _cleanup(signum=None, frame=None):
         import shutil
-        progress("\nShutting down...")
-        try:
-            import libtmux
-            server = libtmux.Server()
-            for s in server.sessions.filter(session_name=_state["session_name"]):
-                s.kill()
-        except Exception:
-            pass
-        if os.path.isdir(session_dir):
-            shutil.rmtree(session_dir, ignore_errors=True)
         if signum:
-            sys.exit(130)  # 128 + SIGINT
+            # Signal workers to stop first, then clean up
+            cancel_executor()
+            progress("\nCancelling...")
+        else:
+            progress("\nShutting down...")
+        if owns_session:
+            try:
+                import libtmux
+                server = libtmux.Server()
+                for s in server.sessions.filter(session_name=_state["session_name"]):
+                    s.kill()
+            except Exception:
+                pass
+            if os.path.isdir(session_dir):
+                shutil.rmtree(session_dir, ignore_errors=True)
 
-    signal.signal(signal.SIGINT, _cleanup)
-    signal.signal(signal.SIGTERM, _cleanup)
+    _got_signal = [False]
+
+    def _signal_handler(signum, frame):
+        if _got_signal[0]:
+            # Second signal — force exit immediately
+            progress("\nForce quit.")
+            _cleanup()
+            os._exit(130)
+        _got_signal[0] = True
+        cancel_executor()
+        progress("\nCancelling...")
+
+    signal.signal(signal.SIGINT, _signal_handler)
+    signal.signal(signal.SIGTERM, _signal_handler)
 
     try:
-        return _run_inner(task, toolset_spec, output_format, max_tokens, session_dir, _cleanup, _state)
+        result = _run_inner(task, toolset_spec, output_format, max_tokens, session_dir, _cleanup, _state, session_ctx=session_ctx)
+        if _got_signal[0]:
+            _cleanup()
+            sys.exit(130)
+        return result
+    except SystemExit:
+        _cleanup()
+        raise
     except Exception:
         _cleanup()
         raise
 
 
-def _run_inner(task, toolset_spec, output_format, max_tokens, session_dir, _cleanup, _state):
-    # Resolve toolset spec into three surfaces
+def _setup_session(toolset_spec, session_dir, _state):
+    """Set up tmux session and return reusable session context."""
     resolved = resolve_toolset(toolset_spec)
 
-    progress(f"\n{'=' * 60}")
-    progress(f"Setting up session...")
-    progress(f"{'~' * 60}")
+    from llm import PROVIDER_NAME, MODEL
+    step(f"Setting up session ({MODEL} · {PROVIDER_NAME})")
 
-    # Create tmux session with pane tools only
     session, panes, actual_session_name = setup_session(resolved["panes"], session_dir=session_dir)
     _state["session_name"] = actual_session_name
 
-    progress(f"\nHealth check:")
     tool_status = check_health(panes)
-
-    # Auto-detect which commands are installed
     available_cmds, missing_cmds = check_commands(resolved["commands"])
 
-    progress("")
-    print_availability(
-        tool_status, available_cmds, missing_cmds,
-        resolved["endpoints"], resolved["categories"],
-    )
+    # Compact health line: ✓ pane [type] · ✓ pane [type] · Categories: ...
+    health_parts = []
+    for name, ok in tool_status.items():
+        icon = "✓" if ok else "✗"
+        pane_type = ""
+        for p in resolved["panes"]:
+            if p["name"] == name:
+                pane_type = f" [{p['app_type']}]"
+                break
+        health_parts.append(f"{icon} {name}{pane_type}")
+    cats = ", ".join(resolved["categories"]) if resolved.get("categories") else ""
+    health_line = " · ".join(health_parts)
+    if cats:
+        health_line += f" · Categories: {cats}"
+    detail(health_line)
+    detail(f"Session: {session_dir}")
 
-    # Build enriched tools summary for the LLM (all three surfaces)
     tools_summary = build_tools_summary(
         tool_status, available_cmds, resolved["endpoints"],
     )
 
-    progress(f"{'~' * 60}")
-    progress(f"Task: {task}")
-    progress(f"Session: {session_dir}")
-    progress(f"Watch: tmux attach -t {actual_session_name}")
-    progress(f"{'=' * 60}\n")
+    return {
+        "panes": panes,
+        "tool_status": tool_status,
+        "tools_summary": tools_summary,
+        "actual_session_name": actual_session_name,
+        "available_cmds": available_cmds,
+        "missing_cmds": missing_cmds,
+        "endpoints": resolved.get("endpoints", []),
+    }
+
+
+def _run_inner(task, toolset_spec, output_format, max_tokens, session_dir, _cleanup, _state, session_ctx=None):
+    # Set up session if not provided (single-run mode)
+    owns_session = session_ctx is None
+    if owns_session:
+        session_ctx = _setup_session(toolset_spec, session_dir, _state)
+
+    panes = session_ctx["panes"]
+    tool_status = session_ctx["tool_status"]
+    tools_summary = session_ctx["tools_summary"]
+
+    step(f"Task: {task}")
 
     start_time = time.time()
 
-    # Fast path: skip planner for trivial single-pane tasks
-    if _is_trivial(task, len(panes)):
-        progress("Phase 1: Trivial task — skipping planner")
+    # ─── Three-Tier Intent Resolution ──────────────────────────────────
+    plan = None
+    classifier_result = None
+
+    # ─── Agent Address Resolution ──────────────────────────────────────
+    from agents import parse_agent_addresses
+    agent_addresses = parse_agent_addresses(task)
+
+    if agent_addresses:
+        # Extract the first agent address (multi-agent handled by planner)
+        agent_host, inner_task = agent_addresses[0]
+        from agents import resolve_agent
+        from session import ensure_agent_pane
+
+        agent_config = resolve_agent(agent_host)
+        # Get session from the first pane's session
+        first_pane = list(panes.values())[0]
+        tmux_session = first_pane.pane.window.session
+
+        ensure_agent_pane(tmux_session, panes, agent_host, agent_config)
+
+        # Route directly to agent pane — skip classifier/planner
+        pane_name = f"agent-{agent_host}"
+        plan = Plan(task=task, subtasks=[
+            Subtask(
+                id="1",
+                description=inner_task,
+                pane=pane_name,
+                mode="interactive",
+            ),
+        ])
+        step("Routing")
+        detail(f"Agent: clive@{agent_host}")
+        display_plan(plan)
+
+        # Update tool_status for the new pane
+        tool_status[pane_name] = {
+            "status": "ready",
+            "app_type": "agent",
+            "description": agent_config["description"],
+        }
+
+    # Tier 0: Regex — literal shell commands, zero LLM calls
+    if plan is None and _is_direct(task, len(panes)):
         first_pane = list(panes.keys())[0]
         plan = Plan(task=task, subtasks=[
-            Subtask(id="1", description=task, pane=first_pane, mode="script"),
+            Subtask(id="1", description=task, pane=first_pane, mode="direct"),
         ])
+        step("Routing")
+        detail("Tier 0: direct command (regex)")
         display_plan(plan)
-    else:
-        # Check cached plan templates from session log
+
+    # Tier 1: Fast classifier — route to tool-specific executor
+    if plan is None:
+        step("Classifying")
+        classifier_result = _classify(task, session_ctx)
+
+    if plan is None and classifier_result is not None:
+        cr = classifier_result
+        first_pane = list(panes.keys())[0]
+        target_pane = cr.pane if cr.pane and cr.pane in panes else first_pane
+
+        if cr.mode == "unavailable":
+            step(f"Unavailable: {cr.tool}")
+            detail(cr.message or f"{cr.tool} is not installed")
+            return cr.message or f"{cr.tool} is not available"
+
+        if cr.mode == "answer":
+            step("Answer")
+            result(f"  {cr.message}" if cr.message else "  (no answer)")
+            return cr.message or ""
+
+        if cr.mode == "clarify":
+            step("Clarification needed")
+            detail(cr.message or "Could you be more specific?")
+            return cr.message or "Could you be more specific?"
+
+        if cr.mode == "direct" and cr.cmd:
+            plan = Plan(task=task, subtasks=[
+                Subtask(id="1", description=cr.cmd, pane=target_pane, mode="direct"),
+            ])
+            detail(f"Tier 1: direct → {cr.tool}")
+            display_plan(plan)
+        elif cr.mode in ("script", "interactive", "streaming"):
+            plan = Plan(task=task, subtasks=[
+                Subtask(id="1", description=task, pane=target_pane, mode=cr.mode),
+            ])
+            detail(f"Tier 1: {cr.mode} → {cr.tool or 'shell'}")
+            display_plan(plan)
+        # mode == "plan" falls through to Tier 2
+
+    # Tier 2: Full planner — complex multi-step tasks
+    if plan is None:
+        step("Planning")
         cached = _find_cached_plan(task, panes)
         if cached:
-            progress("Phase 1: Reusing cached plan template")
             plan = cached
+            detail("Tier 2: cached plan")
             display_plan(plan)
         else:
-            progress("Phase 1: Planning...")
             budget_hint = (
                 f"\n\nToken budget: {max_tokens:,}. Approximate costs:"
                 f"\n  - Script subtask: ~1,000 tokens (preferred)"
@@ -217,27 +416,38 @@ def _run_inner(task, toolset_spec, output_format, max_tokens, session_dir, _clea
                 f"\n  Plan within budget. Prefer script mode to stay within limits."
             )
             plan = create_plan(task, panes, tool_status, tools_summary=tools_summary + budget_hint)
+            detail("Tier 2: full planner")
             display_plan(plan)
 
     # Phase 2: Execution
-    progress("Phase 2: Executing...")
+    step("Executing")
 
     def _progress_event(event_type, *args):
-        """Print subtask completions as they happen."""
-        if event_type == "subtask_done":
+        """Print subtask progress as it happens."""
+        if event_type == "subtask_start":
+            sid, _pane, description = args
+            activity(f"[{sid}] {description[:60]}")
+        elif event_type == "subtask_done":
             sid, summary, elapsed = args
-            progress(f"  ✓ [{sid}] {summary[:70]} ({elapsed:.1f}s)")
+            detail(f"✓ [{sid}] {summary[:70]} ({elapsed:.1f}s)")
         elif event_type == "subtask_fail":
             sid, msg = args
-            progress(f"  ✗ [{sid}] {msg[:70]}")
+            detail(f"✗ [{sid}] {msg[:70]}")
 
     results = execute_plan(plan, panes, tool_status, on_event=_progress_event, session_dir=session_dir, max_tokens=max_tokens)
+
+    # Early exit if cancelled
+    from executor import is_cancelled
+    if is_cancelled():
+        step("Cancelled")
+        return "Cancelled"
 
     # Check for failures with skipped dependents → attempt replan
     failed = [r for r in results if r.status == SubtaskStatus.FAILED]
     skipped = [r for r in results if r.status == SubtaskStatus.SKIPPED]
     if failed and skipped and len(failed) <= 2:
-        progress("\nReplanning: some subtasks failed, attempting recovery...")
+        step("Replanning")
+        detail("Some subtasks failed, attempting recovery...")
         failure_context = "\n".join(
             f"  Subtask {r.subtask_id} FAILED: {r.summary}" for r in failed
         )
@@ -254,20 +464,20 @@ def _run_inner(task, toolset_spec, output_format, max_tokens, session_dir, _clea
         try:
             replan = create_plan(replan_task, panes, tool_status, tools_summary=tools_summary)
             if replan.subtasks:
-                progress("Replanned — executing recovery subtasks...")
+                detail("Replanned — executing recovery subtasks...")
                 tokens_used = sum(r.prompt_tokens + r.completion_tokens for r in results)
                 replan_budget = max(max_tokens - tokens_used, 5000)
                 recovery_results = execute_plan(replan, panes, tool_status, on_event=_progress_event, session_dir=session_dir, max_tokens=replan_budget)
                 results.extend(recovery_results)
         except Exception as e:
-            progress(f"  Replan failed: {e}")
+            detail(f"Replan failed: {e}")
 
-    # Phase 3: Summarization (skip for single-subtask plans — result IS the summary)
+    # Summarization (skip for single-subtask plans — result IS the summary)
     if len(results) == 1 and results[0].status == SubtaskStatus.COMPLETED:
-        progress("\nPhase 3: Single subtask — using result directly")
-        summary = results[0].summary
+        # Prefer user-created output files over raw terminal output
+        summary = _read_output_files(session_dir, results[0]) or results[0].summary
     else:
-        progress("\nPhase 3: Summarizing...")
+        step("Summarizing")
         summary = _summarize(task, results, output_format=output_format, session_dir=session_dir)
 
     elapsed = time.time() - start_time
@@ -291,21 +501,19 @@ def _run_inner(task, toolset_spec, output_format, max_tokens, session_dir, _clea
             "elapsed_s": round(elapsed, 1),
         }, indent=2)
 
-    progress(f"\n{'=' * 60}")
-    progress(f"TASK COMPLETE ({completed}/{total} subtasks succeeded)")
-    progress(f"{'=' * 60}")
-    result(summary)
-    progress(f"{'~' * 60}")
-    progress(f"Time:   {elapsed:.1f}s")
-    progress(f"Tokens: {total_pt} prompt + {total_ct} completion = {total_pt + total_ct} total")
-    progress(f"{'=' * 60}\n")
+    # Result display
+    status_icon = "✓" if completed == total else "✗"
+    step(f"Result ({completed}/{total} {status_icon}, {elapsed:.1f}s, {total_pt + total_ct:,} tokens)")
+    # Indent all lines of the summary
+    indented = "\n".join(f"  {line}" for line in summary.splitlines())
+    result(indented)
 
     # Cross-run session log — record task, plan shape, tokens, time
     _log_session(task, plan, results, elapsed, total_pt + total_ct)
 
-    # Cleanup session directory (unless --keep-session)
+    # Cleanup session directory (unless --keep-session or REPL mode)
     import shutil
-    if os.path.isdir(session_dir) and not os.environ.get("CLIVE_KEEP_SESSION"):
+    if owns_session and os.path.isdir(session_dir) and not os.environ.get("CLIVE_KEEP_SESSION"):
         shutil.rmtree(session_dir, ignore_errors=True)
 
     return summary
@@ -333,6 +541,28 @@ def _log_session(task: str, plan, results: list, elapsed: float, total_tokens: i
             f.write(_json.dumps(entry) + "\n")
     except OSError:
         pass
+
+
+def _read_output_files(session_dir: str, result) -> str:
+    """Read user-created output files tracked by the subtask result."""
+    if not session_dir:
+        return ""
+    import os
+    content_parts = []
+    for f in result.output_files or []:
+        path = f.get("path", "")
+        if not path or not os.path.isfile(path):
+            continue
+        if os.path.basename(path).startswith("_"):
+            continue
+        try:
+            with open(path, "r", errors="replace") as fh:
+                text = fh.read(4000)
+            if text.strip():
+                content_parts.append(text.strip())
+        except OSError:
+            continue
+    return "\n".join(content_parts) if content_parts else ""
 
 
 def _summarize(task: str, results: list, output_format: str = "default", session_dir: str = "") -> str:
@@ -397,8 +627,8 @@ if __name__ == "__main__":
     parser.add_argument(
         "task",
         nargs="?",
-        default=EXAMPLE_TASK,
-        help="Task for the agent to perform (default: built-in example)",
+        default=None,
+        help="Task for the agent to perform",
     )
     parser.add_argument(
         "-t", "--toolset",
@@ -731,13 +961,12 @@ if __name__ == "__main__":
         import subprocess as _sp
 
         host = args.remote
-        progress(f"Connecting to {host}...")
+        step(f"Connecting to {host}")
 
         # Check remote availability
         check = check_remote_clive(host)
         if not check["available"]:
-            # Try running even without clive check — the command might work
-            progress(f"  Warning: could not verify clive on {host}")
+            detail(f"Warning: could not verify clive on {host}")
 
         # Build and execute remote command (no shell=True — prevents injection)
         remote_cmd = build_remote_command(args.task, toolset=args.toolset)
@@ -745,19 +974,19 @@ if __name__ == "__main__":
             "ssh", "-o", "BatchMode=yes", "-o", "ConnectTimeout=10",
             host, f"cd ~ && {remote_cmd}",
         ]
-        progress(f"Running: {' '.join(ssh_args[:6])}...")
+        step(f"Running remote task")
 
         try:
             proc = _sp.run(ssh_args, capture_output=True, text=True, timeout=300)
             if proc.returncode == 0:
                 result(proc.stdout.strip())
             else:
-                progress(f"Remote task failed (exit {proc.returncode})")
+                step(f"Remote task failed (exit {proc.returncode})")
                 if proc.stderr:
-                    progress(f"  stderr: {proc.stderr[:200]}")
+                    detail(f"stderr: {proc.stderr[:200]}")
                 result(proc.stdout.strip() if proc.stdout else "Remote task failed")
         except _sp.TimeoutExpired:
-            progress("Remote task timed out (300s)")
+            step("Remote task timed out (300s)")
         raise SystemExit(proc.returncode if 'proc' in dir() else 1)
 
     if args.schedule:
@@ -776,7 +1005,63 @@ if __name__ == "__main__":
         print(f"  Results: ~/.clive/results/{entry['name']}/")
         raise SystemExit(0)
 
+    # Interactive REPL mode: no task arg → show banner, set up session once, loop
+    if not args.task and not args.dry_run:
+        from llm import PROVIDER_NAME, MODEL
+        print(f"""
+ ██████╗██╗     ██╗██╗   ██╗███████╗
+██╔════╝██║     ██║██║   ██║██╔════╝
+██║     ██║     ██║██║   ██║█████╗
+██║     ██║     ██║╚██╗ ██╔╝██╔══╝
+╚██████╗███████╗██║ ╚████╔╝ ███████╗
+ ╚═════╝╚══════╝╚═╝  ╚═══╝  ╚══════╝
+  {MODEL} · {PROVIDER_NAME}
+  toolset: {args.toolset}
+""")
+
+        # Set up session once for the REPL
+        session_id = generate_session_id()
+        session_dir = f"/tmp/clive/{session_id}"
+        _repl_state = {"session_name": SESSION_NAME}
+        session_ctx = _setup_session(args.toolset, session_dir, _repl_state)
+
+        def _repl_cleanup():
+            import shutil
+            try:
+                import libtmux
+                server = libtmux.Server()
+                for s in server.sessions.filter(session_name=_repl_state["session_name"]):
+                    s.kill()
+            except Exception:
+                pass
+            if os.path.isdir(session_dir):
+                shutil.rmtree(session_dir, ignore_errors=True)
+
+        try:
+            while True:
+                try:
+                    task = input("\nEnter task: ").strip()
+                except (EOFError, KeyboardInterrupt):
+                    print()
+                    break
+                if not task or task.lower() in ("exit", "quit", "q"):
+                    break
+                try:
+                    run(task, toolset_spec=args.toolset, output_format=output_format,
+                        max_tokens=args.max_tokens, session_ctx=session_ctx, session_dir=session_dir)
+                except (SystemExit, KeyboardInterrupt):
+                    pass  # don't exit the REPL on Ctrl-C during a task
+                except Exception as e:
+                    progress(f"Error: {e}")
+        finally:
+            _repl_cleanup()
+
+        raise SystemExit(0)
+
     if args.dry_run:
+        if not args.task:
+            print("Error: --dry-run requires a task argument.", file=sys.stderr)
+            raise SystemExit(1)
         resolved = resolve_toolset(args.toolset)
         from session import setup_session
         session, panes, dry_session_name = setup_session(resolved["panes"], session_dir="/tmp/clive/dryrun")
