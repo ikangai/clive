@@ -1,7 +1,7 @@
 """Tests for remote agent communication."""
 from remote import (
     parse_remote_result, parse_remote_progress, parse_remote_files,
-    build_remote_command,
+    build_remote_command, parse_turn_state, parse_context,
 )
 
 
@@ -80,3 +80,57 @@ def test_build_command_escapes_quotes():
     assert "TODO" in cmd
     # Should be properly escaped for shell
     assert "'" in cmd
+
+
+# ─── Turn state parsing ──────────────────────────────────────────────────────
+
+def test_parse_turn_thinking():
+    screen = "PROGRESS: step 1\nTURN: thinking"
+    assert parse_turn_state(screen) == "thinking"
+
+
+def test_parse_turn_waiting():
+    screen = 'QUESTION: "which one?"\nTURN: waiting'
+    assert parse_turn_state(screen) == "waiting"
+
+
+def test_parse_turn_done():
+    screen = 'CONTEXT: {"result": "found it"}\nTURN: done'
+    assert parse_turn_state(screen) == "done"
+
+
+def test_parse_turn_failed():
+    screen = 'CONTEXT: {"error": "timeout"}\nTURN: failed'
+    assert parse_turn_state(screen) == "failed"
+
+
+def test_parse_turn_none():
+    """No TURN: line → None (still working or not conversational)."""
+    screen = "some output\nstill running..."
+    assert parse_turn_state(screen) is None
+
+
+def test_parse_turn_latest_wins():
+    """Multiple TURN: lines → last one wins."""
+    screen = "TURN: thinking\nPROGRESS: step 2\nTURN: waiting"
+    assert parse_turn_state(screen) == "waiting"
+
+
+# ─── Context parsing ─────────────────────────────────────────────────────────
+
+def test_parse_context_json():
+    screen = 'CONTEXT: {"result": "hello", "files": ["a.txt"]}\nTURN: done'
+    ctx = parse_context(screen)
+    assert ctx["result"] == "hello"
+    assert ctx["files"] == ["a.txt"]
+
+
+def test_parse_context_last_wins():
+    screen = 'CONTEXT: {"step": 1}\nCONTEXT: {"step": 2, "result": "final"}\nTURN: done'
+    ctx = parse_context(screen)
+    assert ctx["step"] == 2
+
+
+def test_parse_context_none():
+    screen = "no context here\nTURN: done"
+    assert parse_context(screen) is None

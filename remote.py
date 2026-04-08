@@ -57,6 +57,38 @@ def parse_remote_files(screen: str) -> list[str]:
     return files
 
 
+def parse_turn_state(screen: str) -> str | None:
+    """Parse the latest TURN: state from screen content.
+
+    Returns "thinking", "waiting", "done", "failed", or None.
+    When multiple TURN: lines exist, the last one wins.
+    """
+    state = None
+    for line in screen.splitlines():
+        stripped = line.strip()
+        if stripped.startswith("TURN:"):
+            state = stripped[5:].strip().lower()
+    return state
+
+
+def parse_context(screen: str) -> dict | None:
+    """Parse the latest CONTEXT: JSON from screen content.
+
+    When multiple CONTEXT: lines exist, the last one wins.
+    Returns parsed dict or None.
+    """
+    ctx = None
+    for line in screen.splitlines():
+        stripped = line.strip()
+        if stripped.startswith("CONTEXT:"):
+            payload = stripped[8:].strip()
+            try:
+                ctx = json.loads(payload)
+            except json.JSONDecodeError:
+                ctx = {"raw": payload}
+    return ctx
+
+
 def scp_file(host: str, remote_path: str, local_dir: str, key: str | None = None) -> str | None:
     """SCP a file from remote to local. Returns local path or None on failure."""
     local_path = os.path.join(local_dir, os.path.basename(remote_path))
