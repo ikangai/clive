@@ -317,6 +317,13 @@ python clive.py --tui
 python clive.py --quiet "your task"
 result=$(python clive.py -q "count files in /tmp")  # use as shell primitive
 
+# Agent-to-agent — delegate to remote Clive instances
+python clive.py "clive@devbox check disk usage"
+python clive.py "clive@gpu render video then clive@web upload it"
+
+# Conversational mode — for clive-to-clive peer dialogue (auto-detected)
+python clive.py --conversational "your task"
+
 # Self-modification (experimental)
 python clive.py --selfmod "your modification goal"
 python clive.py --undo
@@ -407,19 +414,35 @@ local machine
 
 Each pane is a room. SSH is the door between buildings. The agent navigates between them by targeting the right pane name in its command.
 
-### Agent-to-agent
+### Agent-to-agent (`clive@host`)
 
-The most interesting topology: one agent driving a pane that contains another agent. The outer agent sends natural language, the inner agent executes in its own habitat and reports back through stdout.
+The most interesting topology: one agent driving another. Use `clive@host` addressing — no pane config needed:
 
-```python
-{
-    "name": "remote_agent",
-    "cmd": "ssh deploy@agents.example.com 'python clive.py'",
-    "app_type": "agent",
-    "description": "Remote agent. Send tasks as plain text, read results from screen.",
-    "host": "deploy@agents.example.com",
-    "connect_timeout": 5,
-}
+```bash
+# Ask a remote Clive to do something
+clive "clive@devbox check disk usage and report"
+
+# Chain multiple agents
+clive "clive@gpu render the video then clive@web upload it to S3"
+
+# Loopback (local agent-to-agent)
+clive "clive@localhost read HN and summarize"
+```
+
+Clive auto-resolves the address via SSH, creates an agent pane on-demand, and routes the task. The remote Clive runs in conversational mode, emitting structured turn state (`TURN: thinking|waiting|done|failed`) so the outer Clive knows when to act.
+
+**BYOLLM:** Your API keys are forwarded via SSH `SendEnv` — no keys stored on remote hosts.
+
+**Agent registry** (optional): Create `~/.clive/agents.yaml` to customize hosts, SSH keys, toolsets:
+
+```yaml
+devbox:
+  host: devbox.local
+  toolset: web
+  key: ~/.ssh/agent_key
+gpu:
+  host: gpu.internal
+  path: /opt/clive/clive.py
 ```
 
 ### Long-running disconnected tasks
@@ -572,13 +595,16 @@ toolsets.py       — tool registry with named profiles (minimal, standard, full
 models.py         — dataclasses: Subtask (with mode field), Plan, SubtaskResult, PaneInfo
 llm.py            — multi-provider LLM client (OpenAI, Anthropic, Gemini, OpenRouter, LMStudio, Ollama)
 prompts.py        — prompt templates (planner, worker, script generator, summarizer, triage)
-output.py         — output routing: telemetry to stderr in --quiet mode, results to stdout
+output.py         — output routing: telemetry to stderr in --quiet mode, results to stdout, conversational protocol
+agents.py         — clive@host address parsing, YAML registry resolution, SSH command building
+remote.py         — remote agent protocol: DONE:/TURN:/CONTEXT: parsing, SCP file transfer
 tui.py            — Textual-based terminal UI with slash commands
 completion.py     — three-strategy completion detection (marker/prompt/idle)
 install.sh        — cross-platform installer
 drivers/          — auto-discovered driver prompts (per app_type)
   shell.md        — bash shell reference card
   browser.md      — lynx/curl/wget reference card
+  agent.md        — clive-to-clive peer conversation protocol
   default.md      — generic fallback driver
 tools/            — helper scripts
   youtube.sh      — YouTube: list/get/captions/transcribe

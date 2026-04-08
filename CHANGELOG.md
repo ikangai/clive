@@ -1,5 +1,31 @@
 # Changelog
 
+## Agent Addressing & Peer Conversation (2026-04-08)
+
+### Added
+
+- **`clive@host` addressing** — Type `clive@devbox check disk usage` and Clive automatically resolves the address, opens an SSH pane, and routes the task. No profile or pane config needed. Multiple addresses supported: `clive@gpu render then clive@web upload`.
+
+- **Agent registry** (`~/.clive/agents.yaml`) — Optional YAML registry for named agents with custom hosts, SSH keys, toolsets, and paths. Auto-resolve fallback when no registry entry exists.
+
+- **TURN:/CONTEXT: conversation protocol** — Structured peer conversation between Clive instances. Inner Clive emits `TURN: thinking|waiting|done|failed`, `CONTEXT: {...}`, `QUESTION: "..."`, and `PROGRESS: ...` lines. Outer Clive reads turn state to decide when to act.
+
+- **`--conversational` flag** — Enables conversational output mode for inner Clive instances. Auto-detected via `isatty()` when running over SSH (no TTY = conversational mode).
+
+- **Turn-state-aware executor** — Agent panes now skip LLM calls during `TURN: thinking` (saving tokens), respond during `TURN: waiting`, and complete on `TURN: done/failed`. Backward compatible with legacy `DONE:` protocol.
+
+- **Lazy pane injection** — Agent panes created on-demand when `clive@host` addresses are encountered. No need to pre-declare agent panes in toolset profiles.
+
+- **BYOLLM via SSH** — API keys (`ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, `OPENROUTER_API_KEY`) forwarded to remote Clive via SSH `SendEnv`. Remote instance uses your keys — no keys stored on remote hosts.
+
+- **Agent driver rewrite** (`drivers/agent.md`) — Updated for peer conversation protocol with TURN/CONTEXT/QUESTION handling rules.
+
+### Removed
+
+- **Loopback profile** — The `loopback` toolset profile and `localhost_agent` pane definition removed from `toolsets.py`. Replaced by `clive@localhost` addressing.
+
+---
+
 ## Performance Optimizations (2026-04-07)
 
 ### Read Loop
