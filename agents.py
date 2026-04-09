@@ -10,6 +10,9 @@ SSH: no -t flag (no TTY) → inner clive auto-detects conversational mode
 """
 import os
 import re
+from pathlib import Path
+
+from registry import get_instance
 
 DEFAULT_REGISTRY = os.path.expanduser("~/.clive/agents.yaml")
 DEFAULT_CLIVE_PATH = "python3 clive.py"
@@ -60,12 +63,43 @@ def _load_registry(path: str | None = None) -> dict:
         return {}
 
 
-def resolve_agent(host: str, registry_path: str | None = None) -> dict:
+def _check_local_registry(name: str, instance_registry_dir: Path | None = None) -> dict | None:
+    """Check local instance registry for a live, conversational instance.
+
+    Returns a pane definition dict if found, None otherwise.
+    """
+    inst = get_instance(name, registry_dir=instance_registry_dir)
+    if inst is None or not inst.get("conversational"):
+        return None
+    tmux_session = inst["tmux_session"]
+    tmux_socket = inst["tmux_socket"]
+    return {
+        "name": f"agent-{name}",
+        "cmd": f"tmux -L {tmux_socket} attach -t {tmux_session}:conversational",
+        "app_type": "agent",
+        "description": f"Local clive instance '{name}'",
+        "host": None,
+        "category": "agent",
+    }
+
+
+def resolve_agent(host: str, registry_path: str | None = None,
+                   instance_registry_dir: Path | None = None) -> dict:
     """Resolve a clive@host address to a pane definition dict.
 
-    Checks registry first, falls back to auto-resolve.
+    Resolution order:
+    1. Local instance registry (~/.clive/instances/) — live, conversational instances
+    2. Remote agents.yaml registry — SSH-based resolution
+    3. Auto-resolve fallback — direct SSH to host
+
     Returns dict compatible with PANES entries in toolsets.py.
     """
+    # Step 1: Check local instance registry
+    local = _check_local_registry(host, instance_registry_dir)
+    if local is not None:
+        return local
+
+    # Step 2+3: Remote registry / auto-resolve
     registry = _load_registry(registry_path)
     config = registry.get(host, {})
 
