@@ -1,0 +1,257 @@
+[
+  {
+    "id": "data_csv_pivot_001",
+    "layer": 2,
+    "tool": "shell",
+    "mode": "script",
+    "task": "Pivot /tmp/clive/sales.csv from long to wide format. Rows are products, columns are months, values are revenue. Write the pivoted table to /tmp/clive/result.csv.",
+    "initial_state": {
+      "setup": "echo 'product,month,revenue' > /tmp/clive/sales.csv && echo 'Widget A,Jan,5000' >> /tmp/clive/sales.csv && echo 'Widget A,Feb,6000' >> /tmp/clive/sales.csv && echo 'Widget A,Mar,5500' >> /tmp/clive/sales.csv && echo 'Widget B,Jan,3000' >> /tmp/clive/sales.csv && echo 'Widget B,Feb,3500' >> /tmp/clive/sales.csv && echo 'Widget B,Mar,4000' >> /tmp/clive/sales.csv && echo 'Widget C,Jan,8000' >> /tmp/clive/sales.csv && echo 'Widget C,Feb,7500' >> /tmp/clive/sales.csv && echo 'Widget C,Mar,9000' >> /tmp/clive/sales.csv"
+    },
+    "success_criteria": {
+      "type": "deterministic",
+      "check": "test -f /tmp/clive/result.csv && head -1 /tmp/clive/result.csv | grep -qi 'Jan' && head -1 /tmp/clive/result.csv | grep -qi 'Mar' && test $(wc -l < /tmp/clive/result.csv | tr -d ' ') -eq 4"
+    },
+    "min_turns": 1,
+    "max_turns": 5,
+    "timeout_seconds": 30
+  },
+  {
+    "id": "data_json_flatten_002",
+    "layer": 2,
+    "tool": "shell",
+    "mode": "script",
+    "task": "Flatten a nested JSON structure at /tmp/clive/nested.json into a flat CSV. Nested keys should become dot-separated column names (e.g., 'address.city'). Write to /tmp/clive/result.csv.",
+    "initial_state": {
+      "setup": "echo '[{\"name\":\"Kiu\",\"address\":{\"city\":\"München\",\"country\":\"DE\"},\"contacts\":{\"email\":\"kiu@ikangai.com\",\"phone\":\"+49 176\"}},{\"name\":\"Sarah\",\"address\":{\"city\":\"Berlin\",\"country\":\"DE\"},\"contacts\":{\"email\":\"sarah@techstart.de\",\"phone\":\"+49 170\"}}]' > /tmp/clive/nested.json"
+    },
+    "success_criteria": {
+      "type": "deterministic",
+      "check": "test -f /tmp/clive/result.csv && head -1 /tmp/clive/result.csv | grep -q 'address' && grep -q 'München' /tmp/clive/result.csv"
+    },
+    "min_turns": 1,
+    "max_turns": 5,
+    "timeout_seconds": 30
+  },
+  {
+    "id": "data_sqlite_query_003",
+    "layer": 2,
+    "tool": "shell",
+    "mode": "script",
+    "task": "Create a SQLite database from /tmp/clive/employees.csv, then query: 'SELECT department, COUNT(*) as count, AVG(salary) as avg_salary FROM employees GROUP BY department ORDER BY avg_salary DESC'. Write results to /tmp/clive/result.txt.",
+    "initial_state": {
+      "setup": "echo 'id,name,department,salary' > /tmp/clive/employees.csv && echo '1,Martin,Engineering,85000' >> /tmp/clive/employees.csv && echo '2,Kiu,Engineering,92000' >> /tmp/clive/employees.csv && echo '3,Sarah,Product,78000' >> /tmp/clive/employees.csv && echo '4,Tom,Sales,65000' >> /tmp/clive/employees.csv && echo '5,Lisa,Engineering,88000' >> /tmp/clive/employees.csv && echo '6,Alex,Sales,70000' >> /tmp/clive/employees.csv && echo '7,Nina,Product,82000' >> /tmp/clive/employees.csv"
+    },
+    "success_criteria": {
+      "type": "deterministic",
+      "check": "grep -qi 'engineering' /tmp/clive/result.txt && grep -qE '[0-9]{4,}' /tmp/clive/result.txt"
+    },
+    "min_turns": 1,
+    "max_turns": 5,
+    "timeout_seconds": 30
+  },
+  {
+    "id": "data_xml_to_json_004",
+    "layer": 2,
+    "tool": "shell",
+    "mode": "script",
+    "task": "Convert the XML file at /tmp/clive/data.xml to JSON format. Write the result to /tmp/clive/result.json.",
+    "initial_state": {
+      "setup": "cat > /tmp/clive/data.xml << 'XML'\n<?xml version=\"1.0\"?>\n<employees>\n  <employee id=\"1\">\n    <name>Martin Treiber</name>\n    <email>martin@ikangai.com</email>\n    <role>CEO</role>\n  </employee>\n  <employee id=\"2\">\n    <name>Kiu Chen</name>\n    <email>kiu@ikangai.com</email>\n    <role>CTO</role>\n  </employee>\n</employees>\nXML"
+    },
+    "success_criteria": {
+      "type": "deterministic",
+      "check": "python3 -c \"import json; d=json.load(open('/tmp/clive/result.json')); assert 'Martin' in str(d) and 'Kiu' in str(d)\""
+    },
+    "min_turns": 1,
+    "max_turns": 5,
+    "timeout_seconds": 30
+  },
+  {
+    "id": "data_dedup_records_005",
+    "layer": 2,
+    "tool": "shell",
+    "mode": "script",
+    "task": "Deduplicate records in /tmp/clive/records.csv by email address, keeping the most recent entry (by date column). Write deduplicated records to /tmp/clive/result.csv.",
+    "initial_state": {
+      "setup": "echo 'date,name,email,company' > /tmp/clive/records.csv && echo '2026-01-15,Kiu Chen,kiu@ikangai.com,ikangai' >> /tmp/clive/records.csv && echo '2026-03-20,Kiu C.,kiu@ikangai.com,ikangai UG' >> /tmp/clive/records.csv && echo '2026-02-10,Sarah M,sarah@techstart.de,TechStart' >> /tmp/clive/records.csv && echo '2026-04-01,Sarah Mueller,sarah@techstart.de,TechStart GmbH' >> /tmp/clive/records.csv && echo '2026-03-15,Tom Baker,tom@globalfin.com,GlobalFin' >> /tmp/clive/records.csv"
+    },
+    "success_criteria": {
+      "type": "deterministic",
+      "check": "test -f /tmp/clive/result.csv && test $(wc -l < /tmp/clive/result.csv | tr -d ' ') -eq 4"
+    },
+    "min_turns": 1,
+    "max_turns": 5,
+    "timeout_seconds": 30
+  },
+  {
+    "id": "data_log_analysis_006",
+    "layer": 2,
+    "tool": "shell",
+    "mode": "script",
+    "task": "Analyze the Apache-style access log at /tmp/clive/access.log. Report: total requests, unique IPs, top 5 requested paths, requests per HTTP status code, and peak hour. Write to /tmp/clive/result.txt.",
+    "initial_state": {
+      "setup": "echo '192.168.1.1 - - [09/Apr/2026:10:15:30 +0000] \"GET /index.html HTTP/1.1\" 200 1234' > /tmp/clive/access.log && echo '10.0.0.5 - - [09/Apr/2026:10:16:45 +0000] \"GET /api/users HTTP/1.1\" 200 567' >> /tmp/clive/access.log && echo '192.168.1.1 - - [09/Apr/2026:10:17:00 +0000] \"POST /api/login HTTP/1.1\" 401 89' >> /tmp/clive/access.log && echo '172.16.0.3 - - [09/Apr/2026:11:20:10 +0000] \"GET /index.html HTTP/1.1\" 200 1234' >> /tmp/clive/access.log && echo '10.0.0.5 - - [09/Apr/2026:11:25:00 +0000] \"GET /api/users HTTP/1.1\" 200 567' >> /tmp/clive/access.log && echo '192.168.1.1 - - [09/Apr/2026:12:30:00 +0000] \"GET /favicon.ico HTTP/1.1\" 404 0' >> /tmp/clive/access.log && echo '172.16.0.3 - - [09/Apr/2026:12:35:00 +0000] \"GET /api/users HTTP/1.1\" 500 45' >> /tmp/clive/access.log && echo '10.0.0.5 - - [09/Apr/2026:13:00:00 +0000] \"GET /index.html HTTP/1.1\" 200 1234' >> /tmp/clive/access.log"
+    },
+    "success_criteria": {
+      "type": "deterministic",
+      "check": "grep -qE '(8|total)' /tmp/clive/result.txt && grep -qE '(3|unique|IP)' /tmp/clive/result.txt && grep -qE '(200|404|500)' /tmp/clive/result.txt"
+    },
+    "min_turns": 1,
+    "max_turns": 5,
+    "timeout_seconds": 30
+  },
+  {
+    "id": "data_csv_join_007",
+    "layer": 2,
+    "tool": "shell",
+    "mode": "script",
+    "task": "Join two CSV files on a common key. /tmp/clive/orders.csv (order_id, customer_id, amount) and /tmp/clive/customers.csv (customer_id, name, email). Write the joined result to /tmp/clive/result.csv with columns: order_id, customer_name, email, amount.",
+    "initial_state": {
+      "setup": "echo 'order_id,customer_id,amount' > /tmp/clive/orders.csv && echo '1,C001,250' >> /tmp/clive/orders.csv && echo '2,C002,180' >> /tmp/clive/orders.csv && echo '3,C001,320' >> /tmp/clive/orders.csv && echo '4,C003,450' >> /tmp/clive/orders.csv && echo 'customer_id,name,email' > /tmp/clive/customers.csv && echo 'C001,Kiu Chen,kiu@ikangai.com' >> /tmp/clive/customers.csv && echo 'C002,Sarah Mueller,sarah@techstart.de' >> /tmp/clive/customers.csv && echo 'C003,Tom Baker,tom@globalfin.com' >> /tmp/clive/customers.csv"
+    },
+    "success_criteria": {
+      "type": "deterministic",
+      "check": "test -f /tmp/clive/result.csv && grep -q 'Kiu' /tmp/clive/result.csv && grep -q 'kiu@ikangai.com' /tmp/clive/result.csv && test $(wc -l < /tmp/clive/result.csv | tr -d ' ') -eq 5"
+    },
+    "min_turns": 1,
+    "max_turns": 5,
+    "timeout_seconds": 30
+  },
+  {
+    "id": "data_stats_summary_008",
+    "layer": 2,
+    "tool": "shell",
+    "mode": "script",
+    "task": "Compute descriptive statistics for /tmp/clive/measurements.csv: mean, median, standard deviation, min, max, and quartiles (Q1, Q3) for the 'value' column. Write to /tmp/clive/result.txt.",
+    "initial_state": {
+      "setup": "echo 'timestamp,value' > /tmp/clive/measurements.csv && for v in 23.5 25.1 22.8 26.3 24.7 28.0 21.9 25.5 23.2 27.1 24.0 26.8 22.5 25.9 24.3; do echo \"2026-04-09T$(printf '%02d' $((RANDOM % 24))):00:00,$v\"; done >> /tmp/clive/measurements.csv"
+    },
+    "success_criteria": {
+      "type": "deterministic",
+      "check": "grep -qEi 'mean|average' /tmp/clive/result.txt && grep -qEi 'median|std|deviation' /tmp/clive/result.txt"
+    },
+    "min_turns": 1,
+    "max_turns": 5,
+    "timeout_seconds": 30
+  },
+  {
+    "id": "data_json_diff_009",
+    "layer": 2,
+    "tool": "shell",
+    "mode": "script",
+    "task": "Compare two JSON config files (/tmp/clive/config_old.json and /tmp/clive/config_new.json) and report: added keys, removed keys, and changed values. Write the diff report to /tmp/clive/result.txt.",
+    "initial_state": {
+      "setup": "echo '{\"host\":\"localhost\",\"port\":8080,\"debug\":true,\"db_name\":\"clive\",\"max_connections\":10}' > /tmp/clive/config_old.json && echo '{\"host\":\"0.0.0.0\",\"port\":8080,\"db_name\":\"clive_prod\",\"max_connections\":50,\"ssl\":true}' > /tmp/clive/config_new.json"
+    },
+    "success_criteria": {
+      "type": "deterministic",
+      "check": "grep -qEi 'added|removed|changed' /tmp/clive/result.txt && grep -qi 'debug' /tmp/clive/result.txt && grep -qi 'ssl' /tmp/clive/result.txt"
+    },
+    "min_turns": 1,
+    "max_turns": 5,
+    "timeout_seconds": 30
+  },
+  {
+    "id": "data_markdown_table_010",
+    "layer": 2,
+    "tool": "shell",
+    "mode": "script",
+    "task": "Convert /tmp/clive/data.csv to a properly formatted markdown table. Handle alignment (numbers right-aligned, text left-aligned). Write to /tmp/clive/result.md.",
+    "initial_state": {
+      "setup": "echo 'name,role,salary,start_date' > /tmp/clive/data.csv && echo 'Martin Treiber,CEO,95000,2024-01-15' >> /tmp/clive/data.csv && echo 'Kiu Chen,CTO,92000,2024-03-01' >> /tmp/clive/data.csv && echo 'Sarah Mueller,PM,78000,2024-06-15' >> /tmp/clive/data.csv"
+    },
+    "success_criteria": {
+      "type": "deterministic",
+      "check": "test -f /tmp/clive/result.md && grep -q '|' /tmp/clive/result.md && grep -q 'Martin' /tmp/clive/result.md && grep -q '---' /tmp/clive/result.md"
+    },
+    "min_turns": 1,
+    "max_turns": 5,
+    "timeout_seconds": 30
+  },
+  {
+    "id": "data_yaml_to_json_011",
+    "layer": 2,
+    "tool": "shell",
+    "mode": "script",
+    "task": "Convert a YAML config file to JSON. Read /tmp/clive/config.yaml and write equivalent JSON to /tmp/clive/result.json.",
+    "initial_state": {
+      "setup": "cat > /tmp/clive/config.yaml << 'YML'\nserver:\n  host: 0.0.0.0\n  port: 8080\n  workers: 4\ndatabase:\n  host: db.ikangai.com\n  port: 5432\n  name: clive_prod\nlogging:\n  level: info\n  format: json\nYML"
+    },
+    "success_criteria": {
+      "type": "deterministic",
+      "check": "python3 -c \"import json; d=json.load(open('/tmp/clive/result.json')); assert d['server']['port']==8080; assert d['database']['host']=='db.ikangai.com'\""
+    },
+    "min_turns": 1,
+    "max_turns": 5,
+    "timeout_seconds": 30
+  },
+  {
+    "id": "data_regex_extract_012",
+    "layer": 2,
+    "tool": "shell",
+    "mode": "script",
+    "task": "Extract all email addresses and phone numbers from /tmp/clive/document.txt using regex. Write unique emails and phone numbers (separately labeled) to /tmp/clive/result.txt.",
+    "initial_state": {
+      "setup": "cat > /tmp/clive/document.txt << 'DOC'\nPlease contact Kiu Chen at kiu@ikangai.com or call +49 176 1234567.\nFor billing questions, email billing@ikangai.com or accounting@ikangai.com.\nSarah can be reached at sarah@techstart.de, phone: +49-170-9876543.\nOur main office: +49 (89) 12345678, info@ikangai.com\nDOC"
+    },
+    "success_criteria": {
+      "type": "deterministic",
+      "check": "grep -q 'kiu@ikangai.com' /tmp/clive/result.txt && grep -q 'sarah@techstart.de' /tmp/clive/result.txt && grep -qE '\\+49|176|170' /tmp/clive/result.txt"
+    },
+    "min_turns": 1,
+    "max_turns": 5,
+    "timeout_seconds": 30
+  },
+  {
+    "id": "data_time_series_013",
+    "layer": 2,
+    "tool": "shell",
+    "mode": "script",
+    "task": "Analyze time series data from /tmp/clive/metrics.csv. Detect: trend direction (up/down/flat), calculate 7-day moving average, find the peak and trough dates. Write analysis to /tmp/clive/result.txt.",
+    "initial_state": {
+      "setup": "echo 'date,value' > /tmp/clive/metrics.csv && echo '2026-04-01,100' >> /tmp/clive/metrics.csv && echo '2026-04-02,105' >> /tmp/clive/metrics.csv && echo '2026-04-03,98' >> /tmp/clive/metrics.csv && echo '2026-04-04,112' >> /tmp/clive/metrics.csv && echo '2026-04-05,108' >> /tmp/clive/metrics.csv && echo '2026-04-06,115' >> /tmp/clive/metrics.csv && echo '2026-04-07,120' >> /tmp/clive/metrics.csv && echo '2026-04-08,118' >> /tmp/clive/metrics.csv && echo '2026-04-09,125' >> /tmp/clive/metrics.csv"
+    },
+    "success_criteria": {
+      "type": "deterministic",
+      "check": "grep -qEi 'trend|up|peak|moving' /tmp/clive/result.txt && grep -qE '12[05]' /tmp/clive/result.txt"
+    },
+    "min_turns": 1,
+    "max_turns": 5,
+    "timeout_seconds": 30
+  },
+  {
+    "id": "data_csv_validate_014",
+    "layer": 2,
+    "tool": "shell",
+    "mode": "script",
+    "task": "Validate /tmp/clive/import.csv: check for missing required fields (name, email), invalid email formats, duplicate emails, and inconsistent date formats. Write a validation report with error counts to /tmp/clive/result.txt.",
+    "initial_state": {
+      "setup": "echo 'name,email,date,amount' > /tmp/clive/import.csv && echo 'Kiu Chen,kiu@ikangai.com,2026-04-01,500' >> /tmp/clive/import.csv && echo ',missing@email.com,2026-04-02,300' >> /tmp/clive/import.csv && echo 'Bad Email,not-an-email,04/03/2026,200' >> /tmp/clive/import.csv && echo 'Kiu Chen,kiu@ikangai.com,2026-04-04,400' >> /tmp/clive/import.csv && echo 'Good Record,good@test.com,2026-04-05,' >> /tmp/clive/import.csv"
+    },
+    "success_criteria": {
+      "type": "deterministic",
+      "check": "grep -qEi 'missing|invalid|duplicate|error' /tmp/clive/result.txt"
+    },
+    "min_turns": 1,
+    "max_turns": 5,
+    "timeout_seconds": 30
+  },
+  {
+    "id": "data_jq_transform_015",
+    "layer": 2,
+    "tool": "shell",
+    "mode": "script",
+    "task": "Use jq to transform /tmp/clive/api_response.json: extract only users with active status, rename 'full_name' to 'name', add a computed field 'domain' extracted from email. Write to /tmp/clive/result.json.",
+    "initial_state": {
+      "setup": "echo '[{\"id\":1,\"full_name\":\"Kiu Chen\",\"email\":\"kiu@ikangai.com\",\"status\":\"active\"},{\"id\":2,\"full_name\":\"Sarah Mueller\",\"email\":\"sarah@techstart.de\",\"status\":\"inactive\"},{\"id\":3,\"full_name\":\"Tom Baker\",\"email\":\"tom@globalfin.com\",\"status\":\"active\"}]' > /tmp/clive/api_response.json"
+    },
+    "success_criteria": {
+      "type": "deterministic",
+      "check": "python3 -c \"import json; d=json.load(open('/tmp/clive/result.json')); assert len(d)==2; assert all('name' in r and 'domain' in r for r in d); assert d[0]['domain']=='ikangai.com'\""
+    },
+    "min_turns": 1,
+    "max_turns": 5,
+    "timeout_seconds": 30
+  }
+]

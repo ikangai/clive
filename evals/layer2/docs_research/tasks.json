@@ -1,0 +1,160 @@
+[
+  {
+    "id": "docs_man_page_001",
+    "layer": 2,
+    "tool": "shell",
+    "mode": "script",
+    "task": "Extract the SYNOPSIS section from the man page for 'curl' (man curl). Write it to /tmp/clive/result.txt.",
+    "initial_state": {},
+    "success_criteria": {
+      "type": "deterministic",
+      "check": "test -f /tmp/clive/result.txt && grep -qi 'curl' /tmp/clive/result.txt"
+    },
+    "min_turns": 1,
+    "max_turns": 5,
+    "timeout_seconds": 30
+  },
+  {
+    "id": "docs_tldr_create_002",
+    "layer": 2,
+    "tool": "shell",
+    "mode": "script",
+    "task": "Create a TLDR-style cheat sheet for the 'jq' command. Include 5 common usage examples with descriptions. Write to /tmp/clive/result.txt.",
+    "initial_state": {},
+    "success_criteria": {
+      "type": "deterministic",
+      "check": "test -f /tmp/clive/result.txt && grep -q 'jq' /tmp/clive/result.txt && test $(grep -c 'jq' /tmp/clive/result.txt) -ge 5"
+    },
+    "min_turns": 1,
+    "max_turns": 5,
+    "timeout_seconds": 30
+  },
+  {
+    "id": "docs_wiki_research_003",
+    "layer": 2,
+    "tool": "browser",
+    "mode": "interactive",
+    "task": "Research 'Large Language Model' on Wikipedia (https://en.wikipedia.org/wiki/Large_language_model). Extract the first paragraph and the list of notable LLMs. Write a 200-word summary to /tmp/clive/result.txt.",
+    "initial_state": {},
+    "success_criteria": {
+      "type": "deterministic",
+      "check": "test -f /tmp/clive/result.txt && test $(wc -w < /tmp/clive/result.txt) -ge 100 && grep -qEi 'language model|LLM|GPT|Claude' /tmp/clive/result.txt"
+    },
+    "min_turns": 2,
+    "max_turns": 10,
+    "timeout_seconds": 60
+  },
+  {
+    "id": "docs_api_docs_parse_004",
+    "layer": 2,
+    "tool": "browser",
+    "mode": "interactive",
+    "task": "Fetch the GitHub REST API documentation at https://docs.github.com/en/rest using lynx -dump. Find the endpoint for listing repository issues and write the URL pattern, HTTP method, and required parameters to /tmp/clive/result.txt.",
+    "initial_state": {},
+    "success_criteria": {
+      "type": "deterministic",
+      "check": "test -f /tmp/clive/result.txt && grep -qEi 'issues|GET|repos' /tmp/clive/result.txt"
+    },
+    "min_turns": 2,
+    "max_turns": 10,
+    "timeout_seconds": 60
+  },
+  {
+    "id": "docs_readme_generate_005",
+    "layer": 2,
+    "tool": "shell",
+    "mode": "script",
+    "task": "Generate a README.md for a Python project. Analyze the files in the current directory to determine: project name, main entry point, dependencies, and purpose. Write a professional README with sections: Title, Description, Installation, Usage, License. Save to /tmp/clive/result.md.",
+    "initial_state": {
+      "setup": "mkdir -p /tmp/clive/project && echo 'import requests\\nimport click\\n\\n@click.command()\\ndef main():\\n    print(\"Hello from myapp\")' > /tmp/clive/project/main.py && echo 'requests>=2.28\\nclick>=8.0' > /tmp/clive/project/requirements.txt && echo '[project]\\nname = \"myapp\"\\nversion = \"0.1.0\"' > /tmp/clive/project/pyproject.toml"
+    },
+    "success_criteria": {
+      "type": "deterministic",
+      "check": "test -f /tmp/clive/result.md && grep -q '# ' /tmp/clive/result.md && grep -qi 'install' /tmp/clive/result.md && grep -qi 'usage' /tmp/clive/result.md"
+    },
+    "min_turns": 1,
+    "max_turns": 5,
+    "timeout_seconds": 30
+  },
+  {
+    "id": "docs_changelog_from_git_006",
+    "layer": 2,
+    "tool": "shell",
+    "mode": "script",
+    "task": "Generate a CHANGELOG.md from the git history of the current repository. Group commits by type (feat, fix, refactor, etc.) from the last 20 commits. Write to /tmp/clive/result.md.",
+    "initial_state": {},
+    "success_criteria": {
+      "type": "deterministic",
+      "check": "test -f /tmp/clive/result.md && grep -qEi 'feat|fix|refactor|change' /tmp/clive/result.md"
+    },
+    "min_turns": 1,
+    "max_turns": 5,
+    "timeout_seconds": 30
+  },
+  {
+    "id": "docs_pdf_text_extract_007",
+    "layer": 2,
+    "tool": "shell",
+    "mode": "script",
+    "task": "If pdftotext is available, extract text from /tmp/clive/document.pdf and write it to /tmp/clive/result.txt. If pdftotext is not available, write 'TOOL_NOT_AVAILABLE' and suggest installation.",
+    "initial_state": {
+      "setup": "echo 'This is a test document for PDF extraction.' > /tmp/clive/test_content.txt"
+    },
+    "success_criteria": {
+      "type": "deterministic",
+      "check": "test -f /tmp/clive/result.txt && test -s /tmp/clive/result.txt"
+    },
+    "min_turns": 1,
+    "max_turns": 5,
+    "timeout_seconds": 30
+  },
+  {
+    "id": "docs_compare_versions_008",
+    "layer": 2,
+    "tool": "shell",
+    "mode": "script",
+    "task": "Compare two versions of a document (/tmp/clive/v1.txt and /tmp/clive/v2.txt) and create a diff report showing additions, deletions, and changes. Write the report to /tmp/clive/result.txt.",
+    "initial_state": {
+      "setup": "cat > /tmp/clive/v1.txt << 'V1'\n# Project Plan\n\n## Timeline\n- Phase 1: Research (2 weeks)\n- Phase 2: Development (4 weeks)\n- Phase 3: Testing (2 weeks)\n\n## Budget\nTotal: €50,000\nV1\ncat > /tmp/clive/v2.txt << 'V2'\n# Project Plan v2\n\n## Timeline\n- Phase 1: Research (1 week)\n- Phase 2: Development (6 weeks)\n- Phase 3: Testing (2 weeks)\n- Phase 4: Deployment (1 week)\n\n## Budget\nTotal: €65,000\n\n## Risks\n- Timeline pressure\nV2"
+    },
+    "success_criteria": {
+      "type": "deterministic",
+      "check": "test -f /tmp/clive/result.txt && grep -qEi 'added|removed|changed|\\+|\\-' /tmp/clive/result.txt"
+    },
+    "min_turns": 1,
+    "max_turns": 5,
+    "timeout_seconds": 30
+  },
+  {
+    "id": "docs_api_reference_009",
+    "layer": 2,
+    "tool": "shell",
+    "mode": "script",
+    "task": "Generate API reference documentation from Python source code at /tmp/clive/api.py. Extract all function signatures, docstrings, and parameter types. Write formatted docs to /tmp/clive/result.md.",
+    "initial_state": {
+      "setup": "cat > /tmp/clive/api.py << 'PY'\ndef create_user(name: str, email: str, role: str = 'user') -> dict:\n    \"\"\"Create a new user account.\n    \n    Args:\n        name: Full name of the user\n        email: Email address (must be unique)\n        role: User role (default: 'user')\n    \n    Returns:\n        Dict with user_id and creation timestamp\n    \"\"\"\n    pass\n\ndef list_users(limit: int = 50, offset: int = 0) -> list:\n    \"\"\"List all users with pagination.\n    \n    Args:\n        limit: Maximum number of results\n        offset: Number of results to skip\n    \n    Returns:\n        List of user dicts\n    \"\"\"\n    pass\n\ndef delete_user(user_id: int) -> bool:\n    \"\"\"Delete a user by ID. Returns True if successful.\"\"\"\n    pass\nPY"
+    },
+    "success_criteria": {
+      "type": "deterministic",
+      "check": "test -f /tmp/clive/result.md && grep -q 'create_user' /tmp/clive/result.md && grep -q 'list_users' /tmp/clive/result.md && grep -q 'delete_user' /tmp/clive/result.md"
+    },
+    "min_turns": 1,
+    "max_turns": 5,
+    "timeout_seconds": 30
+  },
+  {
+    "id": "docs_tech_comparison_010",
+    "layer": 2,
+    "tool": "browser",
+    "mode": "interactive",
+    "task": "Research and compare tmux vs screen. Fetch the Wikipedia pages for both using lynx -dump. Create a comparison table with categories: license, active development, features, customization. Write to /tmp/clive/result.txt.",
+    "initial_state": {},
+    "success_criteria": {
+      "type": "deterministic",
+      "check": "test -f /tmp/clive/result.txt && grep -qi 'tmux' /tmp/clive/result.txt && grep -qi 'screen' /tmp/clive/result.txt"
+    },
+    "min_turns": 3,
+    "max_turns": 12,
+    "timeout_seconds": 90
+  }
+]
