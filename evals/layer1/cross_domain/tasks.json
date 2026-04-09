@@ -1,0 +1,130 @@
+[
+  {
+    "id": "l1_cross_web_to_email_001",
+    "layer": 1,
+    "tool": "shell",
+    "mode": "interactive",
+    "task": "Fetch the current weather for Munich from the Open-Meteo API, format it as a brief morning weather update, and compose an email to kiu@ikangai.com with the weather report. Save the email draft to /tmp/clive/result.txt.",
+    "initial_state": {},
+    "success_criteria": {
+      "type": "deterministic",
+      "check": "test -f /tmp/clive/result.txt && grep -qEi 'temperature|weather|temp|°' /tmp/clive/result.txt && grep -q 'kiu@ikangai.com' /tmp/clive/result.txt"
+    },
+    "min_turns": 3,
+    "max_turns": 15,
+    "timeout_seconds": 120
+  },
+  {
+    "id": "l1_cross_api_to_report_002",
+    "layer": 1,
+    "tool": "shell",
+    "mode": "interactive",
+    "task": "Fetch the latest 5 GitHub issues from tmux/tmux using the API, categorize them by label (bug, feature, question), and generate a project health report. Save to /tmp/clive/result.txt.",
+    "initial_state": {},
+    "success_criteria": {
+      "type": "deterministic",
+      "check": "test -f /tmp/clive/result.txt && grep -qEi 'issue|bug|feature' /tmp/clive/result.txt"
+    },
+    "min_turns": 3,
+    "max_turns": 15,
+    "timeout_seconds": 120
+  },
+  {
+    "id": "l1_cross_data_to_viz_003",
+    "layer": 1,
+    "tool": "shell",
+    "mode": "interactive",
+    "task": "Read the sales data from /tmp/clive/sales.csv, compute monthly totals, and create both a CSV summary and an ASCII bar chart visualization. Save the chart to /tmp/clive/result.txt.",
+    "initial_state": {
+      "setup": "echo 'date,product,amount' > /tmp/clive/sales.csv && echo '2026-01-05,Widget,1200' >> /tmp/clive/sales.csv && echo '2026-01-15,Gadget,800' >> /tmp/clive/sales.csv && echo '2026-02-10,Widget,1500' >> /tmp/clive/sales.csv && echo '2026-02-20,Gadget,900' >> /tmp/clive/sales.csv && echo '2026-03-05,Widget,1800' >> /tmp/clive/sales.csv && echo '2026-03-25,Gadget,1100' >> /tmp/clive/sales.csv"
+    },
+    "success_criteria": {
+      "type": "deterministic",
+      "check": "test -f /tmp/clive/result.txt && grep -qE '[#=|█▓░]{2,}' /tmp/clive/result.txt"
+    },
+    "min_turns": 3,
+    "max_turns": 15,
+    "timeout_seconds": 120
+  },
+  {
+    "id": "l1_cross_crm_to_email_004",
+    "layer": 1,
+    "tool": "shell",
+    "mode": "interactive",
+    "task": "Read the CRM contacts from /tmp/clive/contacts.json, find contacts tagged as 'follow-up', draft a personalized follow-up email for each, and save all drafts to /tmp/clive/result.txt.",
+    "initial_state": {
+      "setup": "echo '[{\"name\":\"Kiu Chen\",\"email\":\"kiu@ikangai.com\",\"tags\":[\"follow-up\",\"DACH\"],\"last_topic\":\"Platform pricing\"},{\"name\":\"Sarah Mueller\",\"email\":\"sarah@techstart.de\",\"tags\":[\"client\"],\"last_topic\":\"Demo\"},{\"name\":\"Tom Baker\",\"email\":\"tom@globalfin.com\",\"tags\":[\"follow-up\"],\"last_topic\":\"Integration timeline\"}]' > /tmp/clive/contacts.json"
+    },
+    "success_criteria": {
+      "type": "deterministic",
+      "check": "grep -q 'Kiu' /tmp/clive/result.txt && grep -q 'Tom' /tmp/clive/result.txt && ! grep -q 'Sarah' /tmp/clive/result.txt"
+    },
+    "min_turns": 3,
+    "max_turns": 15,
+    "timeout_seconds": 120
+  },
+  {
+    "id": "l1_cross_finance_to_email_005",
+    "layer": 1,
+    "tool": "shell",
+    "mode": "interactive",
+    "task": "Process the monthly expenses from /tmp/clive/expenses.csv, generate a summary report with category totals, check which categories are over budget (from /tmp/clive/budgets.json), and compose an alert email to kiu@ikangai.com listing over-budget items. Save to /tmp/clive/result.txt.",
+    "initial_state": {
+      "setup": "echo 'date,category,amount' > /tmp/clive/expenses.csv && echo '2026-04-01,Software,2500' >> /tmp/clive/expenses.csv && echo '2026-04-03,Travel,3200' >> /tmp/clive/expenses.csv && echo '2026-04-05,Software,1800' >> /tmp/clive/expenses.csv && echo '2026-04-07,Office,500' >> /tmp/clive/expenses.csv && echo '2026-04-08,Travel,1500' >> /tmp/clive/expenses.csv && echo '{\"Software\":3000,\"Travel\":2000,\"Office\":1000}' > /tmp/clive/budgets.json"
+    },
+    "success_criteria": {
+      "type": "deterministic",
+      "check": "grep -qi 'over budget\\|exceeded\\|travel\\|software' /tmp/clive/result.txt && grep -q 'kiu@ikangai.com' /tmp/clive/result.txt"
+    },
+    "min_turns": 3,
+    "max_turns": 15,
+    "timeout_seconds": 120
+  },
+  {
+    "id": "l1_cross_git_to_newsletter_006",
+    "layer": 1,
+    "tool": "shell",
+    "mode": "interactive",
+    "task": "Analyze this week's git activity in the current repo (commits, files changed, contributors). Fetch the latest HN story about AI agents. Compile both into a team newsletter. Write to /tmp/clive/result.md.",
+    "initial_state": {},
+    "success_criteria": {
+      "type": "deterministic",
+      "check": "test -f /tmp/clive/result.md && grep -qEi 'commit|git' /tmp/clive/result.md && test $(wc -w < /tmp/clive/result.md) -gt 50"
+    },
+    "min_turns": 3,
+    "max_turns": 15,
+    "timeout_seconds": 120
+  },
+  {
+    "id": "l1_cross_script_to_deploy_007",
+    "layer": 1,
+    "tool": "shell",
+    "mode": "interactive",
+    "task": "Write a deployment script that: creates a tarball of the project, computes its checksum, writes deployment notes from the latest 5 commits, and saves everything to /tmp/clive/release/. Write the release summary to /tmp/clive/result.txt.",
+    "initial_state": {
+      "setup": "mkdir -p /tmp/clive/release"
+    },
+    "success_criteria": {
+      "type": "deterministic",
+      "check": "test -d /tmp/clive/release && ls /tmp/clive/release/*.tar.gz 2>/dev/null | head -1 | grep -q 'tar.gz' && test -f /tmp/clive/result.txt"
+    },
+    "min_turns": 3,
+    "max_turns": 15,
+    "timeout_seconds": 120
+  },
+  {
+    "id": "l1_cross_monitor_alert_008",
+    "layer": 1,
+    "tool": "shell",
+    "mode": "interactive",
+    "task": "Build a monitoring check: test 3 API endpoints (httpbin.org, jsonplaceholder, api.github.com) for response time and status code. If any is slow (>2s) or down, draft an alert email to kiu@ikangai.com. Write the monitoring report to /tmp/clive/result.txt.",
+    "initial_state": {},
+    "success_criteria": {
+      "type": "deterministic",
+      "check": "test -f /tmp/clive/result.txt && grep -qEi 'httpbin|github|jsonplaceholder' /tmp/clive/result.txt && grep -qE '[0-9]+' /tmp/clive/result.txt"
+    },
+    "min_turns": 3,
+    "max_turns": 15,
+    "timeout_seconds": 120
+  }
+]

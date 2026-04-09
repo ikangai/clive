@@ -1,0 +1,314 @@
+[
+  {
+    "id": "ai_claude_oneshot_001",
+    "layer": 2,
+    "tool": "shell",
+    "mode": "interactive",
+    "task": "Use the Claude CLI (tools/claude.sh or claude) to answer: 'What are the 3 key differences between tmux and screen?' Write the response to /tmp/clive/result.txt.",
+    "initial_state": {},
+    "success_criteria": {
+      "type": "deterministic",
+      "check": "test -f /tmp/clive/result.txt && grep -qi 'tmux' /tmp/clive/result.txt && test $(wc -w < /tmp/clive/result.txt) -gt 20"
+    },
+    "min_turns": 2,
+    "max_turns": 8,
+    "timeout_seconds": 60
+  },
+  {
+    "id": "ai_claude_code_gen_002",
+    "layer": 2,
+    "tool": "shell",
+    "mode": "interactive",
+    "task": "Use Claude CLI to generate a Python function that validates email addresses using regex. Save the function to /tmp/clive/validate_email.py. Test it with kiu@ikangai.com (valid) and 'not-an-email' (invalid). Write test results to /tmp/clive/result.txt.",
+    "initial_state": {},
+    "success_criteria": {
+      "type": "deterministic",
+      "check": "test -f /tmp/clive/validate_email.py && grep -q 'def' /tmp/clive/validate_email.py && test -f /tmp/clive/result.txt"
+    },
+    "min_turns": 2,
+    "max_turns": 10,
+    "timeout_seconds": 60
+  },
+  {
+    "id": "ai_claude_summarize_003",
+    "layer": 2,
+    "tool": "shell",
+    "mode": "interactive",
+    "task": "Pipe the contents of /tmp/clive/article.txt into Claude CLI with prompt 'Summarize in exactly 3 bullet points'. Write the summary to /tmp/clive/result.txt.",
+    "initial_state": {
+      "setup": "cat > /tmp/clive/article.txt << 'TXT'\nArtificial intelligence is transforming how software is developed. Modern AI coding assistants can generate code, review pull requests, and debug complex issues. Companies like Anthropic, OpenAI, and Google are competing to build the most capable AI models for software development. The key challenge remains reliability — AI-generated code must be thoroughly tested before deployment. Many developers report productivity gains of 30-50% when using AI assistants, but also note that understanding the generated code is essential for maintaining software quality. The trend is moving toward autonomous agents that can handle multi-step tasks, from reading documentation to implementing features and running tests.\nTXT"
+    },
+    "success_criteria": {
+      "type": "deterministic",
+      "check": "test -f /tmp/clive/result.txt && test $(wc -w < /tmp/clive/result.txt) -gt 10"
+    },
+    "min_turns": 2,
+    "max_turns": 8,
+    "timeout_seconds": 60
+  },
+  {
+    "id": "ai_claude_debug_004",
+    "layer": 2,
+    "tool": "shell",
+    "mode": "interactive",
+    "task": "Use Claude CLI to debug a broken Python script. Pass the script content and the error message. Ask Claude to explain the bug and suggest a fix. Write Claude's response to /tmp/clive/result.txt.",
+    "initial_state": {
+      "setup": "echo 'def add_numbers(a, b):\\n    return a + b\\n\\nresult = add_numbers(\"5\", 3)\\nprint(result)' > /tmp/clive/broken.py"
+    },
+    "success_criteria": {
+      "type": "deterministic",
+      "check": "test -f /tmp/clive/result.txt && grep -qEi 'type|string|int|convert' /tmp/clive/result.txt"
+    },
+    "min_turns": 2,
+    "max_turns": 8,
+    "timeout_seconds": 60
+  },
+  {
+    "id": "ai_claude_translate_005",
+    "layer": 2,
+    "tool": "shell",
+    "mode": "interactive",
+    "task": "Use Claude CLI to translate an email from English to German. The email discusses a project deadline extension. Write the German translation to /tmp/clive/result.txt.",
+    "initial_state": {
+      "setup": "echo 'Dear Kiu,\\n\\nI am writing to request an extension of the project deadline from April 15 to April 22. The team needs additional time for testing and quality assurance. The core features are complete, but integration testing revealed several edge cases that require attention.\\n\\nBest regards,\\nMartin' > /tmp/clive/email.txt"
+    },
+    "success_criteria": {
+      "type": "deterministic",
+      "check": "test -f /tmp/clive/result.txt && grep -qEi 'Lieber|Sehr|Projekt|Frist|Verlängerung|Deadline' /tmp/clive/result.txt"
+    },
+    "min_turns": 2,
+    "max_turns": 8,
+    "timeout_seconds": 60
+  },
+  {
+    "id": "ai_claude_data_analysis_006",
+    "layer": 2,
+    "tool": "shell",
+    "mode": "interactive",
+    "task": "Use Claude CLI to analyze sales data from /tmp/clive/sales.csv. Ask it to: identify trends, find the best-selling product, and suggest 3 business recommendations. Write the analysis to /tmp/clive/result.txt.",
+    "initial_state": {
+      "setup": "echo 'month,product,revenue,units' > /tmp/clive/sales.csv && echo 'Jan,Widget A,5000,100' >> /tmp/clive/sales.csv && echo 'Feb,Widget A,6200,124' >> /tmp/clive/sales.csv && echo 'Mar,Widget A,7100,142' >> /tmp/clive/sales.csv && echo 'Jan,Widget B,3000,60' >> /tmp/clive/sales.csv && echo 'Feb,Widget B,2800,56' >> /tmp/clive/sales.csv && echo 'Mar,Widget B,2500,50' >> /tmp/clive/sales.csv"
+    },
+    "success_criteria": {
+      "type": "deterministic",
+      "check": "test -f /tmp/clive/result.txt && grep -qi 'widget' /tmp/clive/result.txt && test $(wc -w < /tmp/clive/result.txt) -gt 30"
+    },
+    "min_turns": 2,
+    "max_turns": 10,
+    "timeout_seconds": 60
+  },
+  {
+    "id": "ai_claude_bash_script_007",
+    "layer": 2,
+    "tool": "shell",
+    "mode": "interactive",
+    "task": "Use Claude CLI to generate a bash script that monitors a directory for new CSV files and automatically imports them into a SQLite database. Save the script to /tmp/clive/auto_import.sh, make executable. Write the script path to /tmp/clive/result.txt.",
+    "initial_state": {},
+    "success_criteria": {
+      "type": "deterministic",
+      "check": "test -x /tmp/clive/auto_import.sh && grep -qi 'sqlite\\|csv\\|inotify\\|watch' /tmp/clive/auto_import.sh"
+    },
+    "min_turns": 2,
+    "max_turns": 10,
+    "timeout_seconds": 60
+  },
+  {
+    "id": "ai_claude_regex_help_008",
+    "layer": 2,
+    "tool": "shell",
+    "mode": "interactive",
+    "task": "Use Claude CLI to create a regex pattern that matches German phone numbers in formats: +49 176 1234567, 0176-1234567, (0176) 1234567. Test the pattern against sample data. Write the regex and test results to /tmp/clive/result.txt.",
+    "initial_state": {},
+    "success_criteria": {
+      "type": "deterministic",
+      "check": "test -f /tmp/clive/result.txt && grep -qE '\\+49|0176|regex|pattern' /tmp/clive/result.txt"
+    },
+    "min_turns": 2,
+    "max_turns": 10,
+    "timeout_seconds": 60
+  },
+  {
+    "id": "ai_claude_explain_code_009",
+    "layer": 2,
+    "tool": "shell",
+    "mode": "interactive",
+    "task": "Pipe the contents of executor.py (first 50 lines) to Claude CLI and ask for an explanation of the architecture. Write the explanation to /tmp/clive/result.txt.",
+    "initial_state": {},
+    "success_criteria": {
+      "type": "deterministic",
+      "check": "test -f /tmp/clive/result.txt && test $(wc -w < /tmp/clive/result.txt) -gt 30"
+    },
+    "min_turns": 2,
+    "max_turns": 10,
+    "timeout_seconds": 60
+  },
+  {
+    "id": "ai_claude_commit_msg_010",
+    "layer": 2,
+    "tool": "shell",
+    "mode": "interactive",
+    "task": "Use Claude CLI to generate a commit message from a git diff. Run 'git diff HEAD~1' and pipe it to Claude with prompt 'Write a conventional commit message for this diff'. Write the commit message to /tmp/clive/result.txt.",
+    "initial_state": {},
+    "success_criteria": {
+      "type": "deterministic",
+      "check": "test -f /tmp/clive/result.txt && grep -qE '^(feat|fix|refactor|chore|docs|style|test):' /tmp/clive/result.txt"
+    },
+    "min_turns": 2,
+    "max_turns": 8,
+    "timeout_seconds": 60
+  },
+  {
+    "id": "ai_claude_test_gen_011",
+    "layer": 2,
+    "tool": "shell",
+    "mode": "interactive",
+    "task": "Use Claude CLI to generate unit tests for /tmp/clive/calculator.py. Ask for pytest-style tests covering edge cases. Save tests to /tmp/clive/test_calculator.py and run them. Write test results to /tmp/clive/result.txt.",
+    "initial_state": {
+      "setup": "cat > /tmp/clive/calculator.py << 'PY'\ndef add(a, b):\n    return a + b\n\ndef divide(a, b):\n    if b == 0:\n        raise ValueError('Division by zero')\n    return a / b\n\ndef factorial(n):\n    if n < 0:\n        raise ValueError('Negative number')\n    if n <= 1:\n        return 1\n    return n * factorial(n - 1)\nPY"
+    },
+    "success_criteria": {
+      "type": "deterministic",
+      "check": "test -f /tmp/clive/test_calculator.py && grep -q 'def test_' /tmp/clive/test_calculator.py && test -f /tmp/clive/result.txt"
+    },
+    "min_turns": 3,
+    "max_turns": 12,
+    "timeout_seconds": 90
+  },
+  {
+    "id": "ai_claude_sql_gen_012",
+    "layer": 2,
+    "tool": "shell",
+    "mode": "interactive",
+    "task": "Use Claude CLI to generate SQL queries from natural language. Ask: 'Given tables users(id, name, email, created_at) and orders(id, user_id, amount, status), write SQL to find the top 5 customers by total spending who joined in 2026.' Write the SQL to /tmp/clive/result.txt.",
+    "initial_state": {},
+    "success_criteria": {
+      "type": "deterministic",
+      "check": "test -f /tmp/clive/result.txt && grep -qi 'SELECT' /tmp/clive/result.txt && grep -qi 'JOIN\\|join' /tmp/clive/result.txt"
+    },
+    "min_turns": 2,
+    "max_turns": 8,
+    "timeout_seconds": 60
+  },
+  {
+    "id": "ai_claude_api_docs_013",
+    "layer": 2,
+    "tool": "shell",
+    "mode": "interactive",
+    "task": "Use Claude CLI to generate OpenAPI/Swagger documentation for a REST API with endpoints: GET /users, POST /users, GET /users/{id}, PUT /users/{id}, DELETE /users/{id}. Write the YAML to /tmp/clive/result.yaml.",
+    "initial_state": {},
+    "success_criteria": {
+      "type": "deterministic",
+      "check": "test -f /tmp/clive/result.yaml && grep -qi 'openapi\\|swagger' /tmp/clive/result.yaml && grep -q '/users' /tmp/clive/result.yaml"
+    },
+    "min_turns": 2,
+    "max_turns": 10,
+    "timeout_seconds": 60
+  },
+  {
+    "id": "ai_claude_refactor_014",
+    "layer": 2,
+    "tool": "shell",
+    "mode": "interactive",
+    "task": "Use Claude CLI to refactor /tmp/clive/messy_code.py: improve naming, extract functions, add type hints, and handle errors. Save refactored code to /tmp/clive/clean_code.py. Write the diff to /tmp/clive/result.txt.",
+    "initial_state": {
+      "setup": "cat > /tmp/clive/messy_code.py << 'PY'\ndef f(x):\n    r = []\n    for i in x:\n        if i['s'] == 'a':\n            t = i['v'] * 1.19\n            r.append({'n': i['n'], 'p': t})\n    return r\n\ndef g(p):\n    d = open(p).read()\n    l = d.split('\\n')\n    return [x for x in l if x != '']\nPY"
+    },
+    "success_criteria": {
+      "type": "deterministic",
+      "check": "test -f /tmp/clive/clean_code.py && test -f /tmp/clive/result.txt"
+    },
+    "min_turns": 2,
+    "max_turns": 10,
+    "timeout_seconds": 60
+  },
+  {
+    "id": "ai_claude_cron_explain_015",
+    "layer": 2,
+    "tool": "shell",
+    "mode": "interactive",
+    "task": "Use Claude CLI to explain 5 cron expressions in plain English: '0 2 * * *', '*/5 * * * *', '0 0 * * 0', '0 6 1 * *', '30 9 * * 1-5'. Write the explanations to /tmp/clive/result.txt.",
+    "initial_state": {},
+    "success_criteria": {
+      "type": "deterministic",
+      "check": "test -f /tmp/clive/result.txt && test $(wc -l < /tmp/clive/result.txt | tr -d ' ') -ge 5"
+    },
+    "min_turns": 2,
+    "max_turns": 8,
+    "timeout_seconds": 60
+  },
+  {
+    "id": "ai_claude_interview_prep_016",
+    "layer": 2,
+    "tool": "shell",
+    "mode": "interactive",
+    "task": "Use Claude CLI to generate 10 technical interview questions for a DevOps engineer role at ikangai. Include questions about: Docker, CI/CD, monitoring, incident response, and infrastructure as code. Write to /tmp/clive/result.txt.",
+    "initial_state": {},
+    "success_criteria": {
+      "type": "deterministic",
+      "check": "test -f /tmp/clive/result.txt && test $(wc -l < /tmp/clive/result.txt | tr -d ' ') -ge 10 && grep -qEi 'docker|CI|CD|monitor' /tmp/clive/result.txt"
+    },
+    "min_turns": 2,
+    "max_turns": 8,
+    "timeout_seconds": 60
+  },
+  {
+    "id": "ai_claude_email_draft_017",
+    "layer": 2,
+    "tool": "shell",
+    "mode": "interactive",
+    "task": "Use Claude CLI to draft a professional email to a client explaining a project delay. Context: the database migration is taking longer due to data integrity issues. Suggest new timeline. Write to /tmp/clive/result.txt.",
+    "initial_state": {},
+    "success_criteria": {
+      "type": "deterministic",
+      "check": "test -f /tmp/clive/result.txt && grep -qEi 'delay|timeline|migration|apologize' /tmp/clive/result.txt && test $(wc -w < /tmp/clive/result.txt) -gt 50"
+    },
+    "min_turns": 2,
+    "max_turns": 8,
+    "timeout_seconds": 60
+  },
+  {
+    "id": "ai_claude_architecture_018",
+    "layer": 2,
+    "tool": "shell",
+    "mode": "interactive",
+    "task": "Use Claude CLI to design a microservices architecture for an e-commerce platform. Ask for: service decomposition, API contracts, data flow, and technology choices. Write the architecture document to /tmp/clive/result.md.",
+    "initial_state": {},
+    "success_criteria": {
+      "type": "deterministic",
+      "check": "test -f /tmp/clive/result.md && grep -qEi 'service|API|microservice' /tmp/clive/result.md && test $(wc -w < /tmp/clive/result.md) -gt 100"
+    },
+    "min_turns": 2,
+    "max_turns": 10,
+    "timeout_seconds": 60
+  },
+  {
+    "id": "ai_claude_git_workflow_019",
+    "layer": 2,
+    "tool": "shell",
+    "mode": "interactive",
+    "task": "Use Claude CLI to create a git branching strategy document for a small team (3 developers). Include: branch naming, PR process, release workflow, and hotfix procedure. Write to /tmp/clive/result.md.",
+    "initial_state": {},
+    "success_criteria": {
+      "type": "deterministic",
+      "check": "test -f /tmp/clive/result.md && grep -qEi 'branch|PR|pull request|release' /tmp/clive/result.md"
+    },
+    "min_turns": 2,
+    "max_turns": 8,
+    "timeout_seconds": 60
+  },
+  {
+    "id": "ai_claude_troubleshoot_020",
+    "layer": 2,
+    "tool": "shell",
+    "mode": "interactive",
+    "task": "Use Claude CLI to troubleshoot a connectivity issue. Provide it with: 'Connection to db.ikangai.com:5432 refused. Local network is fine. SSH to the server works. PostgreSQL was recently updated.' Ask for a diagnostic plan. Write to /tmp/clive/result.txt.",
+    "initial_state": {},
+    "success_criteria": {
+      "type": "deterministic",
+      "check": "test -f /tmp/clive/result.txt && grep -qEi 'PostgreSQL|port|firewall|pg_hba|listen' /tmp/clive/result.txt"
+    },
+    "min_turns": 2,
+    "max_turns": 8,
+    "timeout_seconds": 60
+  }
+]

@@ -1,0 +1,172 @@
+[
+  {
+    "id": "l3_repair_syntax_001",
+    "layer": 3,
+    "tool": "shell",
+    "mode": "interactive",
+    "task": "The bash script at /tmp/clive/broken.sh has a syntax error. Find and fix it, then run it successfully. Write the corrected output to /tmp/clive/result.txt.",
+    "initial_state": {
+      "setup": "echo '#!/bin/bash\\nfor f in *.txt; do\\n  if [ -f \"$f\" ]; then\\n    echo \"Processing $f\"\\n    wc -l $f\\n  fi\\n# missing done' > /tmp/clive/broken.sh && chmod +x /tmp/clive/broken.sh && echo 'test' > /tmp/clive/test.txt"
+    },
+    "success_criteria": {
+      "type": "deterministic",
+      "check": "test -f /tmp/clive/result.txt && grep -qi 'processing' /tmp/clive/result.txt"
+    },
+    "min_turns": 2,
+    "max_turns": 10,
+    "timeout_seconds": 60
+  },
+  {
+    "id": "l3_repair_logic_002",
+    "layer": 3,
+    "tool": "shell",
+    "mode": "interactive",
+    "task": "The Python script at /tmp/clive/calc.py should calculate the average of numbers in a CSV but always returns 0. Debug it and fix. Write the correct average to /tmp/clive/result.txt.",
+    "initial_state": {
+      "setup": "cat > /tmp/clive/calc.py << 'PY'\nimport csv\n\ndef average(filename):\n    total = 0\n    count = 0\n    with open(filename) as f:\n        reader = csv.reader(f)\n        next(reader)  # skip header\n        for row in reader:\n            total + int(row[1])  # bug: should be total += \n            count += 1\n    return total / count if count > 0 else 0\n\nresult = average('/tmp/clive/data.csv')\nwith open('/tmp/clive/result.txt', 'w') as f:\n    f.write(str(result))\nPY\necho 'name,value' > /tmp/clive/data.csv && echo 'a,10' >> /tmp/clive/data.csv && echo 'b,20' >> /tmp/clive/data.csv && echo 'c,30' >> /tmp/clive/data.csv"
+    },
+    "success_criteria": {
+      "type": "deterministic",
+      "check": "grep -q '20' /tmp/clive/result.txt"
+    },
+    "min_turns": 2,
+    "max_turns": 10,
+    "timeout_seconds": 60
+  },
+  {
+    "id": "l3_repair_permission_003",
+    "layer": 3,
+    "tool": "shell",
+    "mode": "interactive",
+    "task": "The script at /tmp/clive/deploy.sh fails with 'Permission denied'. Diagnose whether it's a file permission, directory permission, or execution permission issue. Fix it and run successfully. Write the output to /tmp/clive/result.txt.",
+    "initial_state": {
+      "setup": "echo '#!/bin/bash\\necho \"Deploying...\" > /tmp/clive/deploy_output/status.txt\\necho \"Done\"' > /tmp/clive/deploy.sh"
+    },
+    "success_criteria": {
+      "type": "deterministic",
+      "check": "test -f /tmp/clive/result.txt && grep -qi 'done\\|deploying' /tmp/clive/result.txt"
+    },
+    "min_turns": 2,
+    "max_turns": 10,
+    "timeout_seconds": 60
+  },
+  {
+    "id": "l3_repair_encoding_004",
+    "layer": 3,
+    "tool": "shell",
+    "mode": "interactive",
+    "task": "The script at /tmp/clive/process.py fails with a UnicodeDecodeError when reading /tmp/clive/german.txt. Fix the encoding issue and write the processed text to /tmp/clive/result.txt.",
+    "initial_state": {
+      "setup": "python3 -c \"open('/tmp/clive/german.txt','w',encoding='latin-1').write('Münchner Straße: Übung macht den Meister\\nGrüße aus München')\" && echo 'with open(\"/tmp/clive/german.txt\") as f:\\n    text = f.read()\\nwith open(\"/tmp/clive/result.txt\", \"w\") as f:\\n    f.write(text.upper())' > /tmp/clive/process.py"
+    },
+    "success_criteria": {
+      "type": "deterministic",
+      "check": "test -f /tmp/clive/result.txt && grep -qi 'MÜNCHEN\\|MÜNCHNER' /tmp/clive/result.txt"
+    },
+    "min_turns": 2,
+    "max_turns": 10,
+    "timeout_seconds": 60
+  },
+  {
+    "id": "l3_repair_race_condition_005",
+    "layer": 3,
+    "tool": "shell",
+    "mode": "interactive",
+    "task": "The script at /tmp/clive/parallel.sh runs 3 background jobs that all write to the same file, corrupting it. Fix it to properly handle parallel writes (use temp files + merge, or sequential writes). Write the clean combined output to /tmp/clive/result.txt.",
+    "initial_state": {
+      "setup": "echo '#!/bin/bash\\necho \"Job 1 output\" > /tmp/clive/result.txt &\\necho \"Job 2 output\" > /tmp/clive/result.txt &\\necho \"Job 3 output\" > /tmp/clive/result.txt &\\nwait' > /tmp/clive/parallel.sh && chmod +x /tmp/clive/parallel.sh"
+    },
+    "success_criteria": {
+      "type": "deterministic",
+      "check": "test -f /tmp/clive/result.txt && test $(wc -l < /tmp/clive/result.txt | tr -d ' ') -eq 3"
+    },
+    "min_turns": 2,
+    "max_turns": 10,
+    "timeout_seconds": 60
+  },
+  {
+    "id": "l3_repair_missing_dep_006",
+    "layer": 3,
+    "tool": "shell",
+    "mode": "interactive",
+    "task": "The script at /tmp/clive/report.sh fails because it depends on 'jq' for JSON processing. If jq is available, fix the jq command. If not, rewrite the JSON processing using python3 -c instead. Run the script. Write output to /tmp/clive/result.txt.",
+    "initial_state": {
+      "setup": "echo '#!/bin/bash\\ncurl -s https://api.github.com/repos/tmux/tmux | jq -r \".stargazers_count\" > /tmp/clive/result.txt' > /tmp/clive/report.sh && chmod +x /tmp/clive/report.sh"
+    },
+    "success_criteria": {
+      "type": "deterministic",
+      "check": "test -f /tmp/clive/result.txt && grep -qE '^[0-9]+$' /tmp/clive/result.txt"
+    },
+    "min_turns": 2,
+    "max_turns": 10,
+    "timeout_seconds": 60
+  },
+  {
+    "id": "l3_repair_infinite_loop_007",
+    "layer": 3,
+    "tool": "shell",
+    "mode": "interactive",
+    "task": "The script at /tmp/clive/process.sh has an infinite loop. Identify the bug, fix it, and verify it terminates. Write 'FIXED' and the corrected script to /tmp/clive/result.txt.",
+    "initial_state": {
+      "setup": "echo '#!/bin/bash\\ni=0\\nwhile [ $i -lt 10 ]; do\\n  echo \"iteration $i\"\\n  # bug: missing i increment\\ndone > /tmp/clive/output.txt' > /tmp/clive/process.sh && chmod +x /tmp/clive/process.sh"
+    },
+    "success_criteria": {
+      "type": "deterministic",
+      "check": "test -f /tmp/clive/result.txt && grep -q 'FIXED' /tmp/clive/result.txt"
+    },
+    "min_turns": 2,
+    "max_turns": 10,
+    "timeout_seconds": 60
+  },
+  {
+    "id": "l3_repair_awk_pipeline_008",
+    "layer": 3,
+    "tool": "shell",
+    "mode": "interactive",
+    "task": "The pipeline 'cat /tmp/clive/data.csv | awk -F, {print $3}' produces wrong columns because of quoting. Fix the awk command to properly extract the third column. Write the fixed output to /tmp/clive/result.txt.",
+    "initial_state": {
+      "setup": "echo 'name,city,\"salary,bonus\",department' > /tmp/clive/data.csv && echo 'Martin,München,\"85000,5000\",Engineering' >> /tmp/clive/data.csv && echo 'Kiu,Berlin,\"92000,8000\",Engineering' >> /tmp/clive/data.csv && echo 'Sarah,Hamburg,\"78000,3000\",Product' >> /tmp/clive/data.csv"
+    },
+    "success_criteria": {
+      "type": "deterministic",
+      "check": "test -f /tmp/clive/result.txt && grep -qE '85000|92000|78000' /tmp/clive/result.txt"
+    },
+    "min_turns": 2,
+    "max_turns": 10,
+    "timeout_seconds": 60
+  },
+  {
+    "id": "l3_repair_api_retry_009",
+    "layer": 3,
+    "tool": "shell",
+    "mode": "interactive",
+    "task": "The API call script at /tmp/clive/api_call.sh fails silently when the API returns a non-200 status. Add proper error handling: check HTTP status, retry on 5xx errors (up to 3 times), fail gracefully on 4xx. Test with https://httpbin.org/status/500 and https://httpbin.org/get. Write results to /tmp/clive/result.txt.",
+    "initial_state": {
+      "setup": "echo '#!/bin/bash\\ncurl -s https://httpbin.org/get > /tmp/clive/result.txt' > /tmp/clive/api_call.sh && chmod +x /tmp/clive/api_call.sh"
+    },
+    "success_criteria": {
+      "type": "deterministic",
+      "check": "test -f /tmp/clive/result.txt && test -s /tmp/clive/result.txt"
+    },
+    "min_turns": 2,
+    "max_turns": 10,
+    "timeout_seconds": 60
+  },
+  {
+    "id": "l3_repair_cron_timing_010",
+    "layer": 3,
+    "tool": "shell",
+    "mode": "interactive",
+    "task": "The cron expression '0 * * * *' was intended to run every 5 minutes but actually runs every hour. Fix the crontab entry. Also fix the associated script that has a wrong log path. Write the corrected crontab and test results to /tmp/clive/result.txt.",
+    "initial_state": {
+      "setup": "echo '0 * * * * /tmp/clive/check.sh >> /var/log/clive_check.log' > /tmp/clive/crontab.txt && echo '#!/bin/bash\\necho \"Check at $(date)\" >> /var/log/clive_check.log' > /tmp/clive/check.sh && chmod +x /tmp/clive/check.sh"
+    },
+    "success_criteria": {
+      "type": "deterministic",
+      "check": "test -f /tmp/clive/result.txt && grep -q '*/5' /tmp/clive/result.txt"
+    },
+    "min_turns": 2,
+    "max_turns": 10,
+    "timeout_seconds": 60
+  }
+]
