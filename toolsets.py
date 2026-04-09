@@ -92,6 +92,20 @@ PANES = {
         "check": "command -v neomutt",
         "install": "brew install neomutt",
         "category": "comms",
+        "config": {
+            "file": "email.toml",
+            "generates": "~/.config/neomutt/neomuttrc",
+            "fields": [
+                {"key": "address",     "prompt": "Email address",  "required": True},
+                {"key": "smtp_server", "prompt": "SMTP server",    "required": True},
+                {"key": "smtp_port",   "prompt": "SMTP port",      "default": 587},
+                {"key": "smtp_tls",    "prompt": "SMTP security",  "default": "starttls"},
+                {"key": "imap_server", "prompt": "IMAP server",    "required": True},
+                {"key": "imap_port",   "prompt": "IMAP port",      "default": 993},
+                {"key": "password",    "prompt": "Password",       "required": True, "secret": True},
+            ],
+            "generator": "generate_neomuttrc",
+        },
     },
     "media": {
         "name": "media",

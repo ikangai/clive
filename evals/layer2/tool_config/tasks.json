@@ -1,0 +1,152 @@
+[
+  {
+    "id": "config_is_configured_missing_001",
+    "layer": 2,
+    "tool": "shell",
+    "mode": "script",
+    "task": "Using python3, test that config.is_configured returns False when no config file exists. Run: python3 -c \"from config import is_configured; r = is_configured({'file': 'nonexistent_test.toml', 'fields': [{'key': 'x', 'required': True}]}); open('/tmp/clive/result.txt','w').write('PASS' if r == False else 'FAIL')\"",
+    "initial_state": {},
+    "success_criteria": {
+      "type": "deterministic",
+      "check": "grep -q 'PASS' /tmp/clive/result.txt"
+    },
+    "min_turns": 1,
+    "max_turns": 3,
+    "timeout_seconds": 15
+  },
+  {
+    "id": "config_write_read_roundtrip_002",
+    "layer": 2,
+    "tool": "shell",
+    "mode": "script",
+    "task": "Using python3, test that _write_toml and load_config round-trip correctly. Write a TOML with address='test@x.com' and port=587, read it back, verify values match. Write 'PASS' or 'FAIL' to /tmp/clive/result.txt. The config module is at the project root.",
+    "initial_state": {},
+    "success_criteria": {
+      "type": "deterministic",
+      "check": "grep -q 'PASS' /tmp/clive/result.txt"
+    },
+    "min_turns": 1,
+    "max_turns": 5,
+    "timeout_seconds": 20
+  },
+  {
+    "id": "config_toml_escaping_003",
+    "layer": 2,
+    "tool": "shell",
+    "mode": "script",
+    "task": "Using python3, test that config._write_toml correctly escapes special characters. Write a TOML with password='pass\"word\\n' (containing a double-quote and backslash-n), read it back with tomllib, verify the value round-trips correctly. Write 'PASS' or 'FAIL' to /tmp/clive/result.txt.",
+    "initial_state": {},
+    "success_criteria": {
+      "type": "deterministic",
+      "check": "grep -q 'PASS' /tmp/clive/result.txt"
+    },
+    "min_turns": 1,
+    "max_turns": 5,
+    "timeout_seconds": 20
+  },
+  {
+    "id": "config_file_permissions_004",
+    "layer": 2,
+    "tool": "shell",
+    "mode": "script",
+    "task": "Using python3, test that _write_toml sets file permissions to 0o600 (owner read/write only). Write a test TOML file, check its permissions with os.stat, write 'PASS' if mode ends in 600, else 'FAIL' to /tmp/clive/result.txt.",
+    "initial_state": {},
+    "success_criteria": {
+      "type": "deterministic",
+      "check": "grep -q 'PASS' /tmp/clive/result.txt"
+    },
+    "min_turns": 1,
+    "max_turns": 5,
+    "timeout_seconds": 15
+  },
+  {
+    "id": "config_is_configured_present_005",
+    "layer": 2,
+    "tool": "shell",
+    "mode": "script",
+    "task": "Using python3, create a valid config TOML at ~/.clive/config/test_present.toml with address='test@x.com', then test that is_configured returns True for a schema with file='test_present.toml' and required field 'address'. Clean up after. Write 'PASS' or 'FAIL' to /tmp/clive/result.txt.",
+    "initial_state": {},
+    "success_criteria": {
+      "type": "deterministic",
+      "check": "grep -q 'PASS' /tmp/clive/result.txt"
+    },
+    "min_turns": 1,
+    "max_turns": 5,
+    "timeout_seconds": 15
+  },
+  {
+    "id": "config_malformed_toml_006",
+    "layer": 2,
+    "tool": "shell",
+    "mode": "script",
+    "task": "Using python3, test that load_config gracefully handles malformed TOML. Write invalid TOML content ('not = valid [toml') to ~/.clive/config/test_bad.toml, then call load_config('test_bad.toml'). It should return {} without raising an exception. Clean up after. Write 'PASS' or 'FAIL' to /tmp/clive/result.txt.",
+    "initial_state": {},
+    "success_criteria": {
+      "type": "deterministic",
+      "check": "grep -q 'PASS' /tmp/clive/result.txt"
+    },
+    "min_turns": 1,
+    "max_turns": 5,
+    "timeout_seconds": 15
+  },
+  {
+    "id": "config_get_unconfigured_007",
+    "layer": 2,
+    "tool": "shell",
+    "mode": "script",
+    "task": "Using python3, test that get_unconfigured correctly identifies tools needing config. Create two fake pane dicts: one with a config schema pointing to a nonexistent file, one without config. Call get_unconfigured(panes, []). Should return only the name of the pane with the config schema. Write 'PASS' or 'FAIL' to /tmp/clive/result.txt.",
+    "initial_state": {},
+    "success_criteria": {
+      "type": "deterministic",
+      "check": "grep -q 'PASS' /tmp/clive/result.txt"
+    },
+    "min_turns": 1,
+    "max_turns": 5,
+    "timeout_seconds": 15
+  },
+  {
+    "id": "config_find_schema_008",
+    "layer": 2,
+    "tool": "shell",
+    "mode": "script",
+    "task": "Using python3, test that find_config_schema('email') returns a dict with 'file' == 'email.toml', and find_config_schema('jq') returns None. Write 'PASS' if both checks pass, else 'FAIL' to /tmp/clive/result.txt.",
+    "initial_state": {},
+    "success_criteria": {
+      "type": "deterministic",
+      "check": "grep -q 'PASS' /tmp/clive/result.txt"
+    },
+    "min_turns": 1,
+    "max_turns": 3,
+    "timeout_seconds": 15
+  },
+  {
+    "id": "config_neomuttrc_gen_009",
+    "layer": 2,
+    "tool": "shell",
+    "mode": "script",
+    "task": "Using python3, test generate_neomuttrc. Call it with config={'address':'test@x.com','smtp_server':'smtp.x.com','smtp_port':587,'smtp_tls':'starttls','imap_server':'imap.x.com','imap_port':993,'password':'secret'} and schema={'generates':'/tmp/clive/test_neomuttrc'}. Verify the generated file contains 'set from', 'set smtp_url', 'set smtp_pass', and has 0o600 permissions. Write 'PASS' or 'FAIL' to /tmp/clive/result.txt.",
+    "initial_state": {},
+    "success_criteria": {
+      "type": "deterministic",
+      "check": "grep -q 'PASS' /tmp/clive/result.txt"
+    },
+    "min_turns": 1,
+    "max_turns": 5,
+    "timeout_seconds": 20
+  },
+  {
+    "id": "config_neomuttrc_backup_010",
+    "layer": 2,
+    "tool": "shell",
+    "mode": "script",
+    "task": "Using python3, test that generate_neomuttrc backs up an existing file before overwriting. Create a file at /tmp/clive/test_muttrc with content 'original'. Then call generate_neomuttrc with schema={'generates':'/tmp/clive/test_muttrc'} and valid config. Verify that a .bak file exists containing 'original' and the main file now contains 'set from'. Write 'PASS' or 'FAIL' to /tmp/clive/result.txt.",
+    "initial_state": {},
+    "success_criteria": {
+      "type": "deterministic",
+      "check": "grep -q 'PASS' /tmp/clive/result.txt"
+    },
+    "min_turns": 1,
+    "max_turns": 5,
+    "timeout_seconds": 20
+  }
+]

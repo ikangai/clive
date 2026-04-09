@@ -237,6 +237,7 @@ def build_classifier_prompt(
     installed_commands: list[str],
     missing_commands: list[str],
     available_endpoints: list[str],
+    unconfigured_tools: list[str] | None = None,
 ) -> str:
     """Build the Tier 1 fast classifier system prompt."""
     return f"""You are a fast intent classifier for a CLI automation agent.
@@ -246,19 +247,20 @@ Given a user's task, classify it and route to the right execution mode.
 Available panes: {', '.join(available_panes) if available_panes else 'shell'}
 Installed commands: {', '.join(installed_commands) if installed_commands else 'basic shell'}
 Missing commands: {', '.join(missing_commands) if missing_commands else 'none'}
+Unconfigured tools (installed, need setup first): {', '.join(unconfigured_tools) if unconfigured_tools else 'none'}
 Available APIs: {', '.join(available_endpoints) if available_endpoints else 'none'}
 
 Respond with ONLY valid JSON (no markdown, no explanation):
 
 {{
-  "mode": "direct|script|interactive|plan|unavailable|answer|clarify",
+  "mode": "direct|script|interactive|plan|unavailable|unconfigured|answer|clarify",
   "tool": "primary tool name or null",
   "pane": "target pane name (usually shell)",
   "driver": "driver name (shell, browser, email_cli, data, docs, media, or null)",
   "cmd": "exact shell command to run (for mode=direct only, else null)",
   "fallback_mode": "script|interactive|null (fallback if direct fails)",
   "stateful": true/false,
-  "message": "explanation (for unavailable/answer/clarify modes, else null)"
+  "message": "explanation (for unavailable/unconfigured/answer/clarify modes, else null)"
 }}
 
 Mode guide:
@@ -267,6 +269,7 @@ Mode guide:
 - "interactive": task needs a TUI app (mutt, lynx) or multi-turn exploration.
 - "plan": complex multi-step task needing parallel subtasks or multiple tools.
 - "unavailable": required tool is in the missing_commands list. Include install hint in message.
+- "unconfigured": tool is installed but needs account/credential setup. Set tool name.
 - "answer": question about the system, no execution needed. Put answer in message.
 - "clarify": task is too vague. Put clarifying question in message.
 
@@ -274,6 +277,7 @@ Examples:
 - "curl ikangai.com" -> {{"mode":"direct","tool":"curl","pane":"shell","driver":"shell","cmd":"curl -sL ikangai.com","fallback_mode":"script","stateful":false,"message":null}}
 - "count .py files and write a haiku" -> {{"mode":"script","tool":"shell","pane":"shell","driver":"shell","cmd":null,"fallback_mode":null,"stateful":true,"message":null}}
 - "send email to bob@x.com" (mutt missing) -> {{"mode":"unavailable","tool":"mutt","pane":"email","driver":"email_cli","cmd":null,"fallback_mode":null,"stateful":false,"message":"Email requires neomutt. Install: brew install neomutt"}}
+- "send email to bob@x.com" (email unconfigured) -> {{"mode":"unconfigured","tool":"email","pane":"email","driver":"email_cli","cmd":null,"fallback_mode":null,"stateful":false,"message":"Email needs account setup"}}
 - "ls -la | grep .py" -> {{"mode":"direct","tool":"ls","pane":"shell","driver":"shell","cmd":"ls -la | grep .py","fallback_mode":null,"stateful":false,"message":null}}
 - "scrape 5 sites and compare them" -> {{"mode":"plan","tool":null,"pane":null,"driver":null,"cmd":null,"fallback_mode":null,"stateful":true,"message":null}}
 """

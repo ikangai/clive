@@ -1,0 +1,77 @@
+[
+  {
+    "id": "config_cls_email_unconfigured_001",
+    "layer": 2,
+    "tool": "shell",
+    "mode": "script",
+    "task": "Using python3, test the classifier returns mode='unconfigured' for an email task when email is in the unconfigured list. Run: from prompts import build_classifier_prompt; from llm import get_client, chat; prompt = build_classifier_prompt(['shell'], ['jq'], [], [], ['email']); client = get_client(); reply, _, _ = chat(client, [{'role':'system','content':prompt},{'role':'user','content':'send an email to bob@example.com'}], max_tokens=256); import json; data = json.loads(reply.strip().strip('`').removeprefix('json').strip()); result = 'PASS' if data.get('mode') == 'unconfigured' else f\"FAIL: got mode={data.get('mode')}\"; open('/tmp/clive/result.txt','w').write(result). Write PASS/FAIL to /tmp/clive/result.txt.",
+    "initial_state": {},
+    "success_criteria": {
+      "type": "deterministic",
+      "check": "grep -q 'PASS' /tmp/clive/result.txt"
+    },
+    "min_turns": 1,
+    "max_turns": 3,
+    "timeout_seconds": 30
+  },
+  {
+    "id": "config_cls_email_missing_002",
+    "layer": 2,
+    "tool": "shell",
+    "mode": "script",
+    "task": "Using python3, test the classifier returns mode='unavailable' (NOT 'unconfigured') for an email task when neomutt is in the missing_commands list and NOT in unconfigured. Run the classifier with missing_commands=['neomutt'] and unconfigured_tools=[]. Task: 'send email to alice@example.com'. Check mode is 'unavailable'. Write PASS/FAIL to /tmp/clive/result.txt.",
+    "initial_state": {},
+    "success_criteria": {
+      "type": "deterministic",
+      "check": "grep -q 'PASS' /tmp/clive/result.txt"
+    },
+    "min_turns": 1,
+    "max_turns": 3,
+    "timeout_seconds": 30
+  },
+  {
+    "id": "config_cls_shell_not_unconfigured_003",
+    "layer": 2,
+    "tool": "shell",
+    "mode": "script",
+    "task": "Using python3, test the classifier does NOT return mode='unconfigured' for a basic shell task even when email is unconfigured. Run the classifier with unconfigured_tools=['email']. Task: 'list all files in /tmp'. Mode should be 'direct' or 'script', not 'unconfigured'. Write PASS/FAIL to /tmp/clive/result.txt.",
+    "initial_state": {},
+    "success_criteria": {
+      "type": "deterministic",
+      "check": "grep -q 'PASS' /tmp/clive/result.txt"
+    },
+    "min_turns": 1,
+    "max_turns": 3,
+    "timeout_seconds": 30
+  },
+  {
+    "id": "config_cls_prompt_contains_unconfigured_004",
+    "layer": 2,
+    "tool": "shell",
+    "mode": "script",
+    "task": "Using python3, verify the classifier prompt includes unconfigured tools when provided. Call build_classifier_prompt with unconfigured_tools=['email','toot']. Check that the resulting prompt string contains 'email' and 'toot' on the unconfigured line, and contains the word 'unconfigured' in the mode guide. Write PASS/FAIL to /tmp/clive/result.txt.",
+    "initial_state": {},
+    "success_criteria": {
+      "type": "deterministic",
+      "check": "grep -q 'PASS' /tmp/clive/result.txt"
+    },
+    "min_turns": 1,
+    "max_turns": 3,
+    "timeout_seconds": 15
+  },
+  {
+    "id": "config_cls_prompt_none_unconfigured_005",
+    "layer": 2,
+    "tool": "shell",
+    "mode": "script",
+    "task": "Using python3, verify the classifier prompt works when unconfigured_tools is None (backward compatibility). Call build_classifier_prompt(['shell'], ['jq'], [], [], None). Should not raise an exception and should contain 'none' on the unconfigured line. Write PASS/FAIL to /tmp/clive/result.txt.",
+    "initial_state": {},
+    "success_criteria": {
+      "type": "deterministic",
+      "check": "grep -q 'PASS' /tmp/clive/result.txt"
+    },
+    "min_turns": 1,
+    "max_turns": 3,
+    "timeout_seconds": 15
+  }
+]

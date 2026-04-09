@@ -104,7 +104,7 @@ class SubtaskResult:
 
 @dataclass
 class ClassifierResult:
-    mode: str  # direct, script, interactive, plan, unavailable, answer, clarify
+    mode: str  # direct, script, interactive, plan, unavailable, unconfigured, answer, clarify
     tool: Optional[str] = None
     pane: Optional[str] = None
     driver: Optional[str] = None

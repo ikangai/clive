@@ -54,6 +54,7 @@ from executor import execute_plan
 from models import SubtaskStatus, Plan, Subtask
 from llm import get_client, chat
 from prompts import build_summarizer_prompt, build_classifier_prompt
+from config import get_unconfigured, run_setup, find_config_schema
 from models import ClassifierResult
 
 
@@ -93,12 +94,14 @@ def _classify(task: str, session_ctx: dict) -> ClassifierResult | None:
     installed = [cmd["name"] for cmd in available_cmds]
     missing = [cmd["name"] for cmd in missing_cmds]
     endpoint_names = [ep["name"] for ep in endpoints]
+    unconfigured = session_ctx.get("unconfigured", [])
 
     system_prompt = build_classifier_prompt(
         available_panes=available_panes,
         installed_commands=installed,
         missing_commands=missing,
         available_endpoints=endpoint_names,
+        unconfigured_tools=unconfigured,
     )
 
     client = get_client()
@@ -263,6 +266,7 @@ def _setup_session(toolset_spec, session_dir, _state):
 
     tool_status = check_health(panes)
     available_cmds, missing_cmds = check_commands(resolved["commands"])
+    unconfigured = get_unconfigured(resolved["panes"], available_cmds)
 
     # Compact health line: ✓ pane [type] · ✓ pane [type] · Categories: ...
     health_parts = []
@@ -293,6 +297,7 @@ def _setup_session(toolset_spec, session_dir, _state):
         "available_cmds": available_cmds,
         "missing_cmds": missing_cmds,
         "endpoints": resolved.get("endpoints", []),
+        "unconfigured": unconfigured,
     }
 
 
@@ -376,6 +381,29 @@ def _run_inner(task, toolset_spec, output_format, max_tokens, session_dir, _clea
             step(f"Unavailable: {cr.tool}")
             detail(cr.message or f"{cr.tool} is not installed")
             return cr.message or f"{cr.tool} is not available"
+
+        if cr.mode == "unconfigured":
+            tool_key = cr.tool or ""
+            config_schema = find_config_schema(tool_key)
+            if config_schema:
+                retry = run_setup(tool_key, config_schema)
+                if retry:
+                    session_ctx["unconfigured"] = [
+                        t for t in session_ctx.get("unconfigured", []) if t != tool_key
+                    ]
+                    # Re-classify instead of recursing (avoids infinite loop)
+                    classifier_result = _classify(task, session_ctx)
+                    if classifier_result and classifier_result.mode == "unconfigured":
+                        detail("Tool still not configured after setup.")
+                        return "Setup may be incomplete. Check ~/.clive/config/."
+                    # Fall through to re-execute with updated classifier result
+                    cr = classifier_result if classifier_result else cr
+                else:
+                    return "Setup completed. Re-run the task when ready."
+            else:
+                step(f"Unconfigured: {tool_key}")
+                detail("No configuration schema found for this tool.")
+                return f"{tool_key} needs configuration but no setup is available."
 
         if cr.mode == "answer":
             step("Answer")
@@ -704,6 +732,7 @@ if __name__ == "__main__":
     parser.add_argument("--notify", metavar="METHOD", default="", help="Notification: email:addr or file:/path")
     parser.add_argument("--name", metavar="NAME", help="Name this instance (makes it addressable and conversational)")
     parser.add_argument("--stop", metavar="NAME", help="Stop a named instance by sending SIGTERM")
+    parser.add_argument("--setup", metavar="TOOL", help="Configure a tool (e.g. --setup email)")
     parser.add_argument("--dashboard", action="store_true", help="Show running instances and exit")
     parser.add_argument("--serve", action="store_true", help="Start server mode with worker pool")
     parser.add_argument("--instances", action="store_true", help="List running clive instances and exit")
@@ -795,7 +824,15 @@ if __name__ == "__main__":
 
         print("\nPANES (conversation channels):\n")
         for p in resolved["panes"]:
-            print(f"  {p['name']:16s} [{p['app_type']}]")
+            cfg = p.get("config")
+            if cfg:
+                from config import is_configured
+                configured = is_configured(cfg)
+                icon = "\u2713" if configured else "\u26a0"
+                status = "configured" if configured else "needs setup"
+                print(f"  {p['name']:16s} [{p['app_type']}] {icon} {status}")
+            else:
+                print(f"  {p['name']:16s} [{p['app_type']}]")
             print(f"    {p['description'][:80]}")
             if p.get("check"):
                 print(f"    install: {p.get('install', '')}")
@@ -814,6 +851,21 @@ if __name__ == "__main__":
             print(f"  * {ep['name']:20s} {ep['description']}")
             print(f"    {'':20s} {ep['usage']}")
         print()
+        raise SystemExit(0)
+
+    if args.setup:
+        from config import run_setup, is_configured, find_config_schema
+        tool_name = args.setup
+        config_schema = find_config_schema(tool_name)
+        if not config_schema:
+            print(f"No configuration needed for '{tool_name}'.")
+            raise SystemExit(1)
+        if is_configured(config_schema):
+            print(f"'{tool_name}' is already configured.")
+            reconfigure = input("Reconfigure? [y/N]: ").strip().lower()
+            if reconfigure not in ("y", "yes"):
+                raise SystemExit(0)
+        run_setup(tool_name, config_schema)
         raise SystemExit(0)
 
     if args.tui:
@@ -1221,6 +1273,11 @@ if __name__ == "__main__":
                     break
                 if not task or task.lower() in ("exit", "quit", "q"):
                     break
+                if task == "/dashboard":
+                    from dashboard import render_lines
+                    for line in render_lines():
+                        print(line)
+                    continue
                 try:
                     run(task, toolset_spec=args.toolset, output_format=output_format,
                         max_tokens=args.max_tokens, session_ctx=session_ctx, session_dir=session_dir)
