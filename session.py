@@ -112,6 +112,18 @@ def setup_session(
     return session, panes, session_name
 
 
+def add_conversational_pane(session: libtmux.Session) -> libtmux.Pane:
+    """Add a 'conversational' window to an existing tmux session.
+
+    Named instances use this pane to listen for tasks from other clive
+    instances via the local address resolution protocol.
+    """
+    window = session.new_window(window_name="conversational", attach=False)
+    pane = window.active_pane
+    pane.send_keys('export PS1="[CONVERSATIONAL_READY] $ "', enter=True)
+    return pane
+
+
 def check_health(panes: dict[str, PaneInfo]) -> dict[str, dict]:
     """Verify each pane shows [AGENT_READY]. Returns status dict."""
     status = {}

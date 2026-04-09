@@ -1121,6 +1121,21 @@ if __name__ == "__main__":
         print(f"  Results: ~/.clive/results/{entry['name']}/")
         raise SystemExit(0)
 
+    # Named instance: register, check collision, set up deregister on exit
+    _instance_name = getattr(args, 'name', None)
+    if _instance_name:
+        from registry import is_name_available, register as _register, deregister as _deregister, get_instance as _get_inst_reg
+        if not is_name_available(_instance_name):
+            existing = _get_inst_reg(_instance_name)
+            pid = existing["pid"] if existing else "?"
+            print(f"Instance '{_instance_name}' is already running (PID {pid})", file=sys.stderr)
+            raise SystemExit(1)
+
+        import atexit
+        def _deregister_on_exit():
+            _deregister(_instance_name)
+        atexit.register(_deregister_on_exit)
+
     # Interactive REPL mode: no task arg → show banner, set up session once, loop
     if not args.task and not args.dry_run:
         from llm import PROVIDER_NAME, MODEL
@@ -1140,6 +1155,14 @@ if __name__ == "__main__":
         session_dir = f"/tmp/clive/{session_id}"
         _repl_state = {"session_name": SESSION_NAME}
         session_ctx = _setup_session(args.toolset, session_dir, _repl_state)
+
+        # Register named instance now that we have the session name
+        if _instance_name:
+            _register(_instance_name, pid=os.getpid(),
+                      tmux_session=_repl_state["session_name"],
+                      tmux_socket="clive", toolset=args.toolset,
+                      task=args.task or "", conversational=True,
+                      session_dir=session_dir)
 
         def _repl_cleanup():
             import shutil
@@ -1207,6 +1230,14 @@ if __name__ == "__main__":
         import shutil
         shutil.rmtree("/tmp/clive/dryrun", ignore_errors=True)
         raise SystemExit(0)
+
+    # Register named instance for single-task path
+    if _instance_name:
+        _register(_instance_name, pid=os.getpid(),
+                  tmux_session=f"clive-{_instance_name}",
+                  tmux_socket="clive", toolset=args.toolset,
+                  task=args.task, conversational=True,
+                  session_dir=f"/tmp/clive/{_instance_name}")
 
     summary = run(args.task, toolset_spec=args.toolset, output_format=output_format, max_tokens=args.max_tokens)
 
