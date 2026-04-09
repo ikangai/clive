@@ -740,14 +740,14 @@ def run_subtask_interactive(
     The pane scrollback IS the session store.
     """
     from command_extract import extract_command, extract_done
-    from prompts import build_interactive_prompt_v2
+    from prompts import build_interactive_prompt
 
     client = get_client()
     total_pt = total_ct = 0
     empty_reply_count = 0
     EMPTY_REPLY_LIMIT = 2
 
-    system_prompt = build_interactive_prompt_v2(
+    system_prompt = build_interactive_prompt(
         subtask_description=subtask.description,
         pane_name=subtask.pane,
         app_type=pane_info.app_type,

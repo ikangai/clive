@@ -143,130 +143,6 @@ Respond with a JSON object and nothing else:
 """
 
 
-def build_worker_prompt(
-    subtask_description: str,
-    pane_name: str,
-    app_type: str,
-    tool_description: str,
-    dependency_context: str,
-    session_dir: str = "/tmp/clive",
-    skill_name: str = "",
-) -> str:
-    dep_section = ""
-    if dependency_context:
-        dep_section = f"""
-Results from prerequisite tasks (use this information):
-{dependency_context}
-"""
-
-    driver = load_driver(app_type)
-
-    # Load skill: from [skill:name params] in description, or from planner's skill field
-    skill_content = ""
-    import re as _re
-    skill_match = _re.search(r'\[skill:([\w-]+(?:\s+\w+=\S+)*)\]', subtask_description)
-    skill_ref = skill_match.group(1) if skill_match else skill_name
-    if skill_ref:
-        from skills import load_skill, resolve_skill_with_params, inject_params, resolve_composition
-        _skill_name, params = resolve_skill_with_params(skill_ref)
-        skill = load_skill(_skill_name)
-        if skill:
-            skill = inject_params(skill, params)
-            skill = resolve_composition(skill)
-            skill_content = f"\n\nSkill procedure:\n{skill}\n"
-
-    return f"""You are an autonomous agent worker controlling a single tmux pane.
-
-Your pane: {pane_name} [{app_type}] — {tool_description}
-
-Tool knowledge:
-{driver}
-{skill_content}
-Your goal:
-{subtask_description}
-{dep_section}
-Commands (XML tags):
-  <cmd type="shell" pane="{pane_name}">command</cmd>
-  <cmd type="read_file" pane="{pane_name}">/path</cmd>
-  <cmd type="write_file" pane="{pane_name}" path="/path">content</cmd>
-  <cmd type="wait">seconds</cmd>
-  <cmd type="peek" pane="other_pane">reason</cmd>  (check another pane running in parallel)
-  <cmd type="save_skill">name: procedure content</cmd>
-  <cmd type="task_complete">summary</cmd>
-
-Rules:
-- ALWAYS send ALL predictable commands in one response. Do not wait for verification between predictable steps. Example: mkdir + write + task_complete in one response.
-- File writes are AUTO-VERIFIED by the executor. Do NOT cat/head to check your own writes.
-- Exit codes are AUTO-CAPTURED. Do NOT run echo $? to check success.
-- If the task is simple and predictable, solve it ENTIRELY in your first response.
-- Commands execute in sequence. If any fails (non-zero exit), pipeline stops and you see the error.
-- You can ONLY send commands to pane "{pane_name}".
-- Write results to {session_dir}/. Scratchpad: {session_dir}/_scratchpad.jsonl for parallel agents.
-- PREFER SCRIPTS OVER TUI: If your goal is to extract, read, or process data from an app that also has a CLI/API/protocol interface (e.g. IMAP for email, sqlite3 for databases, curl for web), write and run a script instead of navigating the TUI. Scripts are faster, more reliable, and use fewer turns. Only use the TUI when you genuinely need interactive exploration or the app has no programmatic interface.
-"""
-
-
-def build_script_prompt(
-    subtask_description: str,
-    pane_name: str,
-    app_type: str,
-    tool_description: str,
-    dependency_context: str,
-    session_dir: str = "/tmp/clive",
-) -> str:
-    dep_section = ""
-    if dependency_context:
-        dep_section = f"""
-Context from prerequisite tasks:
-{dependency_context}
-"""
-
-    driver = load_driver(app_type)
-
-    import platform
-    os_name = platform.system()
-    os_arch = platform.machine()
-    os_info = f"OS: {os_name} ({os_arch})"
-    if os_name == "Darwin":
-        os_info += "\nIMPORTANT: This is macOS with BSD coreutils. Do NOT use GNU extensions like find -printf, sed -i without '', readlink -f, xargs -d, grep -P, etc. Use POSIX-compatible or macOS alternatives."
-
-    return f"""You are a script generator for an autonomous terminal agent.
-
-Your pane: {pane_name} [{app_type}] — {tool_description}
-
-Tool knowledge:
-{driver}
-
-{os_info}
-
-Your goal:
-{subtask_description}
-{dep_section}
-Generate a single script that accomplishes this goal. The script will be executed in one shot — you will not see intermediate output.
-
-Choose bash or Python — whichever fits the task best:
-- Bash: file operations, pipelines, curl, text processing
-- Python: JSON/CSV manipulation, math, regex, structured data
-
-Requirements:
-- Bash: start with #!/bin/bash and use set -euo pipefail
-- Python: start with #!/usr/bin/env python3
-- Input files are in the current working directory (use relative paths to read them)
-- Write output/results to {session_dir}/ (use absolute paths for output)
-- The script should be self-contained and deterministic
-- Handle expected edge cases (empty files, missing dirs) with guards
-- When saving output to a file, also print a short preview (first ~20 lines) to stdout
-- Print a one-line summary of what was accomplished as the last line of output
-
-Respond with ONLY the script inside a fenced code block. No explanation, no prose, nothing else.
-The FIRST line of your response MUST be the opening fence — do not write anything before it.
-
-```bash
-#!/bin/bash
-set -euo pipefail
-# your script here
-```
-"""
 
 
 def build_classifier_prompt(
@@ -368,7 +244,7 @@ Be concise and factual."""
     return base
 
 
-def build_script_prompt_v2(
+def build_script_prompt(
     subtask_description: str,
     pane_name: str,
     app_type: str,
@@ -411,7 +287,7 @@ Respond with ONLY the script in a fenced code block. No prose.
 """
 
 
-def build_interactive_prompt_v2(
+def build_interactive_prompt(
     subtask_description: str,
     pane_name: str,
     app_type: str,

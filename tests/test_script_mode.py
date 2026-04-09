@@ -69,8 +69,8 @@ def test_script_prompt_strict_format_instruction():
         session_dir="/tmp/clive/test",
     )
     assert "ONLY" in prompt
-    assert "```bash" in prompt
-    assert "nothing else" in prompt.lower()
+    assert "fenced code block" in prompt.lower()
+    assert "no prose" in prompt.lower()
 
 
 def test_script_model_env_var(monkeypatch):
