@@ -449,10 +449,19 @@ def _run_inner(task, toolset_spec, output_format, max_tokens, session_dir, _clea
                 if _expand_toolset(cat, session_ctx):
                     # Re-classify with expanded toolset
                     classifier_result = _classify(task, session_ctx)
-                    if classifier_result:
+                    if classifier_result and classifier_result.mode not in ("unavailable", "unconfigured"):
                         cr = classifier_result
                         target_pane = cr.pane if cr.pane and cr.pane in panes else first_pane
-                    # Fall through to handle the new classification
+                    elif tool_key in panes:
+                        # Classifier still confused, but tool pane exists — force interactive
+                        from config import is_configured as _is_cfg
+                        schema = find_config_schema(tool_key)
+                        if schema and not _is_cfg(schema):
+                            # Tool needs config, let unconfigured handler deal with it
+                            cr = ClassifierResult(mode="unconfigured", tool=tool_key, pane=tool_key)
+                        else:
+                            cr = ClassifierResult(mode="interactive", tool=tool_key, pane=tool_key)
+                        target_pane = tool_key
 
         if cr.mode == "unavailable":
             step(f"Unavailable: {cr.tool}")
