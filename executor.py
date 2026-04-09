@@ -507,21 +507,6 @@ def execute_plan(
     # Plan-to-script compiler: collapse sequential all-script same-pane plans
     plan = _try_collapse_plan(plan)
 
-    # Create shared brain + per-pane agents
-    from pane_agent import PaneAgent, SharedBrain
-    shared_brain = SharedBrain(session_dir)
-
-    # Try to load persisted agent state from previous runs
-    agent_state_dir = os.path.expanduser("~/.clive/agents")
-
-    pane_agents: dict[str, PaneAgent] = {}
-    for pane_name, pane_info in panes.items():
-        agent = PaneAgent(pane_info, session_dir=session_dir, shared_brain=shared_brain)
-        # Load persisted memory/shortcuts from previous sessions
-        state_path = os.path.join(agent_state_dir, f"{pane_name}.json")
-        agent.load_state(state_path)
-        pane_agents[pane_name] = agent
-
     # Per-plan pane locks (scoped to this execution only)
     plan_locks: dict[str, threading.Lock] = {}
     for pane_name in panes:
@@ -612,32 +597,14 @@ def execute_plan(
                 start_times[subtask.id] = time.time()
                 logging.debug(f"START [{subtask.id}] [{subtask.pane}] {subtask.description[:60]}")
                 _emit(on_event, "subtask_start", subtask.id, subtask.pane, subtask.description)
-                # Use PaneAgent for context continuity across subtasks
-                agent = pane_agents.get(subtask.pane)
-                if agent:
-                    future = pool.submit(
-                        agent.execute,
-                        subtask=subtask,
-                        dep_context=dep_context,
-                        on_event=on_event,
-                        plan_context=plan_summary,
-                        tokens_used=tokens_used,
-                        max_tokens=max_tokens,
-                    )
-                else:
-                    future = pool.submit(
-                        run_subtask,
-                        subtask=subtask,
-                        pane_info=panes[subtask.pane],
-                        dep_context=dep_context,
-                        on_event=on_event,
-                        session_dir=session_dir,
-                        pane_context=pane_context,
-                        plan_context=plan_summary,
-                        tokens_used=tokens_used,
-                        max_tokens=max_tokens,
-                        all_panes=panes,
-                    )
+                future = pool.submit(
+                    run_subtask,
+                    subtask=subtask,
+                    pane_info=panes[subtask.pane],
+                    dep_context=dep_context,
+                    on_event=on_event,
+                    session_dir=session_dir,
+                )
                 future.add_done_callback(_on_future_done)
                 futures[subtask.id] = future
 
@@ -734,12 +701,6 @@ def execute_plan(
             # Event-driven wait: wake instantly when a future completes
             wake_event.wait(timeout=0.5)
             wake_event.clear()
-
-    # Persist agent state for cross-run continuity
-    os.makedirs(agent_state_dir, exist_ok=True)
-    for pane_name, agent in pane_agents.items():
-        agent.save(os.path.join(agent_state_dir, f"{pane_name}.json"))
-    shared_brain.save(os.path.join(agent_state_dir, "_shared_brain.json"))
 
     return [results[s.id] for s in plan.subtasks]
 
