@@ -1,0 +1,251 @@
+[
+  {
+    "id": "tui_mc_navigate_001",
+    "layer": 2,
+    "tool": "shell",
+    "mode": "interactive",
+    "task": "Launch Midnight Commander (mc) and navigate to /tmp/clive/. List the files visible in the panel. Write the filenames to /tmp/clive/result.txt. Quit mc with F10.",
+    "initial_state": {
+      "setup": "mkdir -p /tmp/clive && echo 'test1' > /tmp/clive/file1.txt && echo 'test2' > /tmp/clive/file2.txt && echo 'test3' > /tmp/clive/file3.csv"
+    },
+    "success_criteria": {
+      "type": "deterministic",
+      "check": "test -f /tmp/clive/result.txt && grep -q 'file1' /tmp/clive/result.txt"
+    },
+    "min_turns": 3,
+    "max_turns": 12,
+    "timeout_seconds": 60
+  },
+  {
+    "id": "tui_mc_copy_file_002",
+    "layer": 2,
+    "tool": "shell",
+    "mode": "interactive",
+    "task": "Launch mc, navigate to /tmp/clive/ in the left panel and /tmp/clive/backup/ in the right panel. Copy file1.txt to the backup directory using F5. Verify the copy and quit. Write 'COPIED' to /tmp/clive/result.txt.",
+    "initial_state": {
+      "setup": "mkdir -p /tmp/clive/backup && echo 'original' > /tmp/clive/file1.txt"
+    },
+    "success_criteria": {
+      "type": "deterministic",
+      "check": "test -f /tmp/clive/backup/file1.txt && grep -q 'COPIED' /tmp/clive/result.txt"
+    },
+    "min_turns": 4,
+    "max_turns": 15,
+    "timeout_seconds": 90
+  },
+  {
+    "id": "tui_mc_edit_file_003",
+    "layer": 2,
+    "tool": "shell",
+    "mode": "interactive",
+    "task": "Launch mc, navigate to /tmp/clive/config.txt, open it with the internal editor (F4). Add the line 'debug=true' at the end. Save and exit the editor. Quit mc. Write the file contents to /tmp/clive/result.txt to verify.",
+    "initial_state": {
+      "setup": "echo 'host=localhost' > /tmp/clive/config.txt && echo 'port=8080' >> /tmp/clive/config.txt"
+    },
+    "success_criteria": {
+      "type": "deterministic",
+      "check": "grep -q 'debug=true' /tmp/clive/config.txt"
+    },
+    "min_turns": 5,
+    "max_turns": 18,
+    "timeout_seconds": 120
+  },
+  {
+    "id": "tui_mc_rename_004",
+    "layer": 2,
+    "tool": "shell",
+    "mode": "interactive",
+    "task": "Launch mc, navigate to /tmp/clive/, and rename report.txt to report_2026.txt using F6 (move/rename). Verify the rename and quit. Write 'RENAMED' to /tmp/clive/result.txt.",
+    "initial_state": {
+      "setup": "echo 'quarterly report' > /tmp/clive/report.txt"
+    },
+    "success_criteria": {
+      "type": "deterministic",
+      "check": "test -f /tmp/clive/report_2026.txt && ! test -f /tmp/clive/report.txt && grep -q 'RENAMED' /tmp/clive/result.txt"
+    },
+    "min_turns": 4,
+    "max_turns": 15,
+    "timeout_seconds": 90
+  },
+  {
+    "id": "tui_mc_search_005",
+    "layer": 2,
+    "tool": "shell",
+    "mode": "interactive",
+    "task": "Launch mc in /tmp/clive/project/ and use the file search (Alt+?) to find all .py files. Write the list of found files to /tmp/clive/result.txt. Quit mc.",
+    "initial_state": {
+      "setup": "mkdir -p /tmp/clive/project/src /tmp/clive/project/tests && echo 'print(1)' > /tmp/clive/project/src/main.py && echo 'import unittest' > /tmp/clive/project/tests/test_main.py && echo 'README' > /tmp/clive/project/README.md"
+    },
+    "success_criteria": {
+      "type": "deterministic",
+      "check": "test -f /tmp/clive/result.txt && grep -q 'main.py' /tmp/clive/result.txt"
+    },
+    "min_turns": 4,
+    "max_turns": 15,
+    "timeout_seconds": 90
+  },
+  {
+    "id": "tui_mc_ftp_006",
+    "layer": 2,
+    "tool": "shell",
+    "mode": "interactive",
+    "task": "Launch mc and use the shell panel (Ctrl+O) to run 'ls -la /tmp/clive/' and capture the output. Toggle back to mc panels. Write the command output to /tmp/clive/result.txt. Quit mc.",
+    "initial_state": {
+      "setup": "mkdir -p /tmp/clive && echo 'test' > /tmp/clive/test_file.txt"
+    },
+    "success_criteria": {
+      "type": "deterministic",
+      "check": "test -f /tmp/clive/result.txt && grep -q 'test_file' /tmp/clive/result.txt"
+    },
+    "min_turns": 4,
+    "max_turns": 15,
+    "timeout_seconds": 90
+  },
+  {
+    "id": "tui_mc_compare_dirs_007",
+    "layer": 2,
+    "tool": "shell",
+    "mode": "interactive",
+    "task": "Launch mc with /tmp/clive/dir_a/ in the left panel and /tmp/clive/dir_b/ in the right panel. Use the directory comparison feature (Ctrl+X, D) to find differences. Write which files differ to /tmp/clive/result.txt.",
+    "initial_state": {
+      "setup": "mkdir -p /tmp/clive/dir_a /tmp/clive/dir_b && echo 'same' > /tmp/clive/dir_a/file1.txt && echo 'same' > /tmp/clive/dir_b/file1.txt && echo 'different' > /tmp/clive/dir_a/file2.txt && echo 'changed' > /tmp/clive/dir_b/file2.txt && echo 'only in a' > /tmp/clive/dir_a/file3.txt"
+    },
+    "success_criteria": {
+      "type": "deterministic",
+      "check": "test -f /tmp/clive/result.txt && grep -qE 'file2|file3|differ' /tmp/clive/result.txt"
+    },
+    "min_turns": 4,
+    "max_turns": 15,
+    "timeout_seconds": 90
+  },
+  {
+    "id": "tui_mc_archive_008",
+    "layer": 2,
+    "tool": "shell",
+    "mode": "interactive",
+    "task": "Launch mc, navigate to /tmp/clive/archive.tar.gz and browse into it (Enter on the archive). List the files inside and write them to /tmp/clive/result.txt. Quit mc.",
+    "initial_state": {
+      "setup": "mkdir -p /tmp/clive/archive_src && echo 'data1' > /tmp/clive/archive_src/a.txt && echo 'data2' > /tmp/clive/archive_src/b.txt && cd /tmp/clive && tar czf archive.tar.gz archive_src/"
+    },
+    "success_criteria": {
+      "type": "deterministic",
+      "check": "test -f /tmp/clive/result.txt && grep -q 'a.txt' /tmp/clive/result.txt"
+    },
+    "min_turns": 4,
+    "max_turns": 15,
+    "timeout_seconds": 90
+  },
+  {
+    "id": "tui_claude_ask_009",
+    "layer": 2,
+    "tool": "shell",
+    "mode": "interactive",
+    "task": "Launch the Claude CLI with a one-shot question: 'claude -p \"What is 42 * 17?\"'. Capture the response. Write the answer to /tmp/clive/result.txt.",
+    "initial_state": {},
+    "success_criteria": {
+      "type": "deterministic",
+      "check": "test -f /tmp/clive/result.txt && grep -q '714' /tmp/clive/result.txt"
+    },
+    "min_turns": 2,
+    "max_turns": 8,
+    "timeout_seconds": 60
+  },
+  {
+    "id": "tui_claude_code_review_010",
+    "layer": 2,
+    "tool": "shell",
+    "mode": "interactive",
+    "task": "Use Claude CLI to review a Python file: 'claude -p \"Review this code for bugs: $(cat /tmp/clive/code.py)\"'. Write Claude's review to /tmp/clive/result.txt.",
+    "initial_state": {
+      "setup": "cat > /tmp/clive/code.py << 'PY'\ndef divide(a, b):\n    return a / b\n\ndef process_list(items):\n    result = []\n    for i in range(len(items)):\n        result.append(items[i].upper())\n    return result\nPY"
+    },
+    "success_criteria": {
+      "type": "deterministic",
+      "check": "test -f /tmp/clive/result.txt && test $(wc -w < /tmp/clive/result.txt) -gt 10"
+    },
+    "min_turns": 2,
+    "max_turns": 8,
+    "timeout_seconds": 60
+  },
+  {
+    "id": "tui_claude_summarize_011",
+    "layer": 2,
+    "tool": "shell",
+    "mode": "interactive",
+    "task": "Use Claude CLI to summarize a text file: pipe /tmp/clive/article.txt into claude with a 'summarize in 3 bullets' prompt. Write the summary to /tmp/clive/result.txt.",
+    "initial_state": {
+      "setup": "cat > /tmp/clive/article.txt << 'TXT'\nThe European Union announced new regulations for artificial intelligence systems today. The AI Act, which has been in development for over three years, establishes a risk-based framework for AI governance. High-risk AI systems used in critical sectors like healthcare, law enforcement, and transportation will face stringent requirements including transparency, human oversight, and robustness testing. Companies that fail to comply face fines of up to 6% of global annual revenue. The act is expected to take effect in 2026, with a phased implementation period allowing companies to adapt their systems. Industry groups have expressed mixed reactions, with some praising the clarity while others worry about competitive disadvantage relative to less regulated markets.\nTXT"
+    },
+    "success_criteria": {
+      "type": "deterministic",
+      "check": "test -f /tmp/clive/result.txt && test $(wc -w < /tmp/clive/result.txt) -gt 10"
+    },
+    "min_turns": 2,
+    "max_turns": 8,
+    "timeout_seconds": 60
+  },
+  {
+    "id": "tui_htop_check_012",
+    "layer": 2,
+    "tool": "shell",
+    "mode": "interactive",
+    "task": "Launch htop (or top if htop unavailable), identify the top 3 CPU-consuming processes, then quit. Write the process names and CPU percentages to /tmp/clive/result.txt.",
+    "initial_state": {},
+    "success_criteria": {
+      "type": "deterministic",
+      "check": "test -f /tmp/clive/result.txt && test $(wc -l < /tmp/clive/result.txt | tr -d ' ') -ge 3"
+    },
+    "min_turns": 3,
+    "max_turns": 12,
+    "timeout_seconds": 60
+  },
+  {
+    "id": "tui_vim_edit_013",
+    "layer": 2,
+    "tool": "shell",
+    "mode": "interactive",
+    "task": "Open /tmp/clive/notes.txt in vim, add the line 'Action: Review PR by Friday' at the end of the file. Save and quit (:wq). Write the final file contents to /tmp/clive/result.txt to verify.",
+    "initial_state": {
+      "setup": "echo 'Meeting notes 2026-04-09' > /tmp/clive/notes.txt && echo '- Discussed roadmap' >> /tmp/clive/notes.txt"
+    },
+    "success_criteria": {
+      "type": "deterministic",
+      "check": "grep -q 'Review PR by Friday' /tmp/clive/notes.txt"
+    },
+    "min_turns": 4,
+    "max_turns": 15,
+    "timeout_seconds": 90
+  },
+  {
+    "id": "tui_less_search_014",
+    "layer": 2,
+    "tool": "shell",
+    "mode": "interactive",
+    "task": "Open /tmp/clive/biglog.txt in less, search for the pattern 'ERROR', count how many matches there are using less's search feature. Write the count to /tmp/clive/result.txt. Quit less with q.",
+    "initial_state": {
+      "setup": "for i in $(seq 1 100); do if [ $((i % 7)) -eq 0 ]; then echo \"$(date -u +%Y-%m-%dT%H:%M:%S) ERROR: Connection timeout on attempt $i\"; elif [ $((i % 13)) -eq 0 ]; then echo \"$(date -u +%Y-%m-%dT%H:%M:%S) ERROR: Disk full\"; else echo \"$(date -u +%Y-%m-%dT%H:%M:%S) INFO: Processing request $i\"; fi; done > /tmp/clive/biglog.txt"
+    },
+    "success_criteria": {
+      "type": "deterministic",
+      "check": "test -f /tmp/clive/result.txt && grep -qE '^[0-9]+$' /tmp/clive/result.txt"
+    },
+    "min_turns": 4,
+    "max_turns": 15,
+    "timeout_seconds": 90
+  },
+  {
+    "id": "tui_claude_generate_script_015",
+    "layer": 2,
+    "tool": "shell",
+    "mode": "interactive",
+    "task": "Use Claude CLI to generate a bash script: 'claude -p \"Write a bash script that counts unique IP addresses in an Apache log file. Output just the script, no explanation.\"'. Save the generated script to /tmp/clive/count_ips.sh, make it executable. Write the script path to /tmp/clive/result.txt.",
+    "initial_state": {},
+    "success_criteria": {
+      "type": "deterministic",
+      "check": "test -x /tmp/clive/count_ips.sh && grep -q 'awk\\|sort\\|uniq\\|cut' /tmp/clive/count_ips.sh"
+    },
+    "min_turns": 2,
+    "max_turns": 10,
+    "timeout_seconds": 60
+  }
+]
