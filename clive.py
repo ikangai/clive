@@ -498,12 +498,28 @@ def _run_inner(task, toolset_spec, output_format, max_tokens, session_dir, _clea
             detail(cr.message or "Could you be more specific?")
             return cr.message or "Could you be more specific?"
 
-        # Reroute: if classifier says direct/script but tool is a pane alias, use that pane
+        # Reroute: if classifier says direct/script but tool is a known pane (or alias),
+        # use that pane instead of running the command on shell. Auto-expand if needed.
         if cr.mode in ("direct", "script") and cr.tool:
             canonical = normalize_tool_name(cr.tool)
-            if canonical in panes and canonical != cr.tool:
-                cr = ClassifierResult(mode="interactive", tool=canonical, pane=canonical)
-                target_pane = canonical
+            if canonical in PANES and canonical != "shell":
+                # Ensure pane is loaded
+                if canonical not in panes:
+                    cat = find_category(canonical)
+                    if cat:
+                        step(f"Expanding toolset: +{cat}")
+                        _expand_toolset(cat, session_ctx)
+                if canonical in panes:
+                    schema = find_config_schema(canonical)
+                    if schema and not is_configured(schema):
+                        run_setup(canonical, schema)
+                        if is_configured(schema):
+                            session_ctx["unconfigured"] = [
+                                t for t in session_ctx.get("unconfigured", []) if t != canonical
+                            ]
+                    if not schema or is_configured(schema):
+                        cr = ClassifierResult(mode="interactive", tool=canonical, pane=canonical)
+                        target_pane = canonical
 
         if cr.mode == "direct" and cr.cmd:
             plan = Plan(task=task, subtasks=[
