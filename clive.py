@@ -456,7 +456,10 @@ def _run_inner(task, toolset_spec, output_format, max_tokens, session_dir, _clea
                         session_ctx["unconfigured"] = [
                             t for t in session_ctx.get("unconfigured", []) if t != tool_key
                         ]
-                    return ClassifierResult(mode="interactive", tool=tool_key, pane=tool_key)
+                    # Default to script — prefer programmatic access over TUI.
+                    # Executor falls back to interactive if script fails.
+                    return ClassifierResult(mode="script", tool=tool_key, pane=tool_key,
+                                            fallback_mode="interactive")
                 if any(c["name"] == tool_key for c in session_ctx.get("available_cmds", [])):
                     return ClassifierResult(mode="script", tool=tool_key, pane=first_pane)
                 return None
@@ -518,7 +521,11 @@ def _run_inner(task, toolset_spec, output_format, max_tokens, session_dir, _clea
                                 t for t in session_ctx.get("unconfigured", []) if t != canonical
                             ]
                     if not schema or is_configured(schema):
-                        cr = ClassifierResult(mode="interactive", tool=canonical, pane=canonical)
+                        # Preserve classifier mode — only reroute to the correct pane.
+                        # "direct" becomes "script" on non-shell panes (no raw cmd).
+                        rerouted_mode = cr.mode if cr.mode != "direct" else "script"
+                        cr = ClassifierResult(mode=rerouted_mode, tool=canonical, pane=canonical,
+                                              fallback_mode=cr.fallback_mode)
                         target_pane = canonical
 
         if cr.mode == "direct" and cr.cmd:

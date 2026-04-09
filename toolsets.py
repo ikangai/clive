@@ -579,11 +579,19 @@ def build_tools_summary(
     sections = []
 
     # Panes — conversation channels the LLM can target subtasks to
+    from prompts import load_driver_meta
     pane_lines = []
     for name, info in pane_status.items():
         if info["status"] == "ready":
+            meta = load_driver_meta(info["app_type"])
+            mode_hint = ""
+            if meta.get("preferred_mode"):
+                mode_hint = f" [prefer: {meta['preferred_mode']}"
+                if meta.get("use_interactive_when"):
+                    mode_hint += f" — interactive when: {meta['use_interactive_when']}"
+                mode_hint += "]"
             pane_lines.append(
-                f"  - {name} [{info['app_type']}]: {info['description']}"
+                f"  - {name} [{info['app_type']}]: {info['description']}{mode_hint}"
             )
     if pane_lines:
         sections.append(
