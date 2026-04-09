@@ -1,0 +1,10 @@
+{
+    "fs_writable": ["$WORKDIR", "/tmp"],
+    "max_procs": 64,
+    "max_memory_mb": 512,
+    "max_disk_mb": 1024,
+    "network": true,
+    "allowed_commands": ["*"],
+    "blocked_commands": ["rm -rf /", "mkfs", "dd", "shutdown", "reboot"],
+    "timeout_seconds": 300
+}

@@ -213,7 +213,8 @@ def run(task: str, toolset_spec: str = DEFAULT_TOOLSET, output_format: str = "de
         if owns_session:
             try:
                 import libtmux
-                server = libtmux.Server()
+                from session import SOCKET_NAME
+                server = libtmux.Server(socket_name=SOCKET_NAME)
                 for s in server.sessions.filter(session_name=_state["session_name"]):
                     s.kill()
             except Exception:
@@ -701,6 +702,11 @@ if __name__ == "__main__":
     parser.add_argument("--run-now", metavar="NAME", help="Run a scheduled task immediately")
     parser.add_argument("--history", metavar="NAME", help="Show run history")
     parser.add_argument("--notify", metavar="METHOD", default="", help="Notification: email:addr or file:/path")
+    parser.add_argument("--serve", action="store_true", help="Start server mode with worker pool")
+    parser.add_argument("--instances", action="store_true", help="List running clive instances and exit")
+    parser.add_argument("--status", action="store_true", help="Show server health status and exit")
+    parser.add_argument("--workers", type=int, default=4, metavar="N", help="Number of workers in server mode (default: 4)")
+    parser.add_argument("--queue-dir", default=os.path.expanduser("~/.clive/queue"), metavar="DIR", help="Job queue directory (default: ~/.clive/queue)")
     parser.add_argument(
         "--dry-run",
         action="store_true",
@@ -943,6 +949,43 @@ if __name__ == "__main__":
             print(f"No history for {args.history}")
         raise SystemExit(0)
 
+    if args.instances:
+        from server.discovery import discover_sessions, format_instances
+        sessions = discover_sessions()
+        print(format_instances(sessions))
+        raise SystemExit(0)
+
+    if args.status:
+        health_path = os.path.expanduser("~/.clive/health.json")
+        if os.path.exists(health_path):
+            import json as _json
+            from server.health import format_health_dict
+            with open(health_path) as f:
+                health = _json.load(f)
+            print(format_health_dict(health))
+        else:
+            print("No server running (health file not found)")
+        raise SystemExit(0)
+
+    if args.serve:
+        from server.supervisor import Supervisor
+
+        print(f"Starting clive server with {args.workers} workers")
+        print(f"Queue directory: {args.queue_dir}")
+
+        sv = Supervisor(
+            queue_dir=args.queue_dir,
+            num_workers=args.workers,
+            health_path=os.path.expanduser("~/.clive/health.json"),
+            dry_run=args.dry_run,
+        )
+        try:
+            sv.run()
+        except KeyboardInterrupt:
+            print("\nShutting down...")
+            sv.shutdown()
+        raise SystemExit(0)
+
     output_format = "default"
     if args.oneline:
         output_format = "oneline"
@@ -1079,7 +1122,8 @@ if __name__ == "__main__":
             import shutil
             try:
                 import libtmux
-                server = libtmux.Server()
+                from session import SOCKET_NAME
+                server = libtmux.Server(socket_name=SOCKET_NAME)
                 for s in server.sessions.filter(session_name=_repl_state["session_name"]):
                     s.kill()
             except Exception:
@@ -1131,7 +1175,8 @@ if __name__ == "__main__":
         # Cleanup
         try:
             import libtmux
-            server = libtmux.Server()
+            from session import SOCKET_NAME
+            server = libtmux.Server(socket_name=SOCKET_NAME)
             for s in server.sessions.filter(session_name=dry_session_name):
                 s.kill()
         except Exception:

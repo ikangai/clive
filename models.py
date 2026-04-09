@@ -20,7 +20,7 @@ class SubtaskStatus(Enum):
     SKIPPED = "skipped"
 
 
-VALID_MODES = {"script", "interactive", "streaming"}
+VALID_MODES = {"direct", "script", "interactive", "streaming"}
 
 
 @dataclass
@@ -103,9 +103,22 @@ class SubtaskResult:
 
 
 @dataclass
+class ClassifierResult:
+    mode: str  # direct, script, interactive, plan, unavailable, answer, clarify
+    tool: Optional[str] = None
+    pane: Optional[str] = None
+    driver: Optional[str] = None
+    cmd: Optional[str] = None
+    fallback_mode: Optional[str] = None
+    stateful: bool = False
+    message: Optional[str] = None
+
+
+@dataclass
 class PaneInfo:
     pane: libtmux.Pane
     app_type: str
     description: str
     name: str
     idle_timeout: float = 2.0
+    sandboxed: bool = False

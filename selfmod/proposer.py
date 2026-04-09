@@ -9,6 +9,8 @@ from selfmod.constitution import load_constitution, get_tier
 
 log = logging.getLogger(__name__)
 
+PROPOSER_TEMPERATURE = 0.7
+
 PROPOSER_PROMPT = """You are the PROPOSER in clive's self-modification system.
 
 Your job: generate precise, minimal code changes to achieve the user's goal.
@@ -76,7 +78,7 @@ def propose(
 
     # Try up to 2 times (initial + 1 retry with error feedback)
     for attempt in range(2):
-        raw, pt, ct = chat(client, messages, max_tokens=16384)
+        raw, pt, ct = chat(client, messages, max_tokens=16384, temperature=PROPOSER_TEMPERATURE)
         total_pt += pt
         total_ct += ct
 

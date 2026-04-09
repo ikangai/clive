@@ -1,9 +1,17 @@
 """Reviewer role — checks code quality and correctness."""
 
 import json
+import os
 
 from llm import get_client, chat
 from selfmod.constitution import load_constitution, get_tier
+
+REVIEWER_TEMPERATURE = 0.1
+
+
+def get_selfmod_model() -> str | None:
+    """Get the model to use for selfmod review/audit. Returns None for default."""
+    return os.environ.get("CLIVE_SELFMOD_MODEL") or None
 
 REVIEWER_PROMPT = """You are the REVIEWER in clive's self-modification system.
 
@@ -38,6 +46,26 @@ Respond with ONLY this JSON (no markdown fences):
 }}"""
 
 
+def build_review_prompt(proposal: dict, current_files: dict[str, str]) -> str:
+    """Build the review prompt, stripping proposer reasoning for information barrier."""
+    constitution = load_constitution()
+
+    # Only pass the diff (files), NOT the proposer's description/rationale
+    sanitized_proposal = {"files": proposal.get("files", {})}
+    proposal_str = json.dumps(sanitized_proposal, indent=2)
+
+    current_str = ""
+    for path, content in current_files.items():
+        tier = get_tier(path)
+        current_str += f"\n--- {path} [{tier}] ---\n{content}\n"
+
+    return REVIEWER_PROMPT.format(
+        constitution=constitution,
+        proposal=proposal_str,
+        current_files=current_str,
+    )
+
+
 def review(
     proposal: dict,
     current_files: dict[str, str],
@@ -51,29 +79,20 @@ def review(
     Returns:
         (review_dict, prompt_tokens, completion_tokens)
     """
-    constitution = load_constitution()
-
-    proposal_str = json.dumps(proposal, indent=2)
-
-    current_str = ""
-    for path, content in current_files.items():
-        tier = get_tier(path)
-        current_str += f"\n--- {path} [{tier}] ---\n{content}\n"
+    prompt = build_review_prompt(proposal, current_files)
 
     client = get_client()
+    kwargs = {"max_tokens": 2048, "temperature": REVIEWER_TEMPERATURE}
+    model = get_selfmod_model()
+    if model:
+        kwargs["model"] = model
+
     messages = [
-        {
-            "role": "system",
-            "content": REVIEWER_PROMPT.format(
-                constitution=constitution,
-                proposal=proposal_str,
-                current_files=current_str,
-            ),
-        },
+        {"role": "system", "content": prompt},
         {"role": "user", "content": "Review this proposal."},
     ]
 
-    raw, pt, ct = chat(client, messages, max_tokens=2048)
+    raw, pt, ct = chat(client, messages, **kwargs)
 
     clean = raw.strip()
     if clean.startswith("```"):

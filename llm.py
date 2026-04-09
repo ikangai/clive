@@ -47,6 +47,8 @@ if PROVIDER_NAME not in PROVIDERS:
     raise SystemExit(f"Unknown LLM_PROVIDER={PROVIDER_NAME!r}. Valid providers: {_valid}")
 _provider = PROVIDERS[PROVIDER_NAME]
 MODEL = os.getenv("AGENT_MODEL", _provider["default_model"])
+SCRIPT_MODEL = os.getenv("SCRIPT_MODEL", MODEL)
+CLASSIFIER_MODEL = os.getenv("CLASSIFIER_MODEL", "google/gemini-3-flash-preview")
 
 
 _client_cache = None
@@ -72,6 +74,7 @@ def chat(
     messages: list[dict],
     max_tokens: int = 1024,
     model: str | None = None,
+    temperature: float | None = None,
 ) -> tuple[str, int, int]:
     """Send chat completion. Returns (content, prompt_tokens, completion_tokens)."""
     if isinstance(client, anthropic.Anthropic):
@@ -86,22 +89,28 @@ def chat(
 
         # Use cache_control for system prompt (cached after first call, 90% cheaper)
         system_blocks = [{"type": "text", "text": system, "cache_control": {"type": "ephemeral"}}] if system else []
-        response = client.messages.create(
+        kwargs = dict(
             model=model or MODEL,
             max_tokens=max_tokens,
             system=system_blocks,
             messages=filtered,
         )
+        if temperature is not None:
+            kwargs["temperature"] = temperature
+        response = client.messages.create(**kwargs)
         content = response.content[0].text if response.content else ""
         pt = response.usage.input_tokens if response.usage else 0
         ct = response.usage.output_tokens if response.usage else 0
         return content, pt, ct
 
-    response = client.chat.completions.create(
+    kwargs = dict(
         model=model or MODEL,
         messages=messages,
         max_tokens=max_tokens,
     )
+    if temperature is not None:
+        kwargs["temperature"] = temperature
+    response = client.chat.completions.create(**kwargs)
     content = response.choices[0].message.content or ""
     pt = response.usage.prompt_tokens if response.usage else 0
     ct = response.usage.completion_tokens if response.usage else 0

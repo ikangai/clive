@@ -1,9 +1,13 @@
 """Auditor role — checks governance compliance."""
 
 import json
+import os
 
 from llm import get_client, chat
 from selfmod.constitution import load_constitution, get_tier, highest_tier
+from selfmod.reviewer import get_selfmod_model
+
+AUDITOR_TEMPERATURE = 0.0
 
 AUDITOR_PROMPT = """You are the AUDITOR in clive's self-modification system.
 
@@ -42,6 +46,33 @@ Respond with ONLY this JSON (no markdown fences):
 }}"""
 
 
+def build_audit_prompt(proposal: dict, review_result: dict) -> str:
+    """Build the audit prompt, stripping reviewer reasoning for information barrier."""
+    constitution = load_constitution()
+
+    files = proposal.get("files", {})
+    tier_info = ""
+    for path in files:
+        tier = get_tier(path)
+        tier_info += f"  {path}: {tier}\n"
+    overall_tier = highest_tier(list(files.keys()))
+    tier_info += f"\n  Highest tier: {overall_tier}"
+
+    # Only pass verdict + issues, NOT the reviewer's reasoning
+    sanitized_review = {
+        "verdict": review_result.get("verdict", ""),
+        "issues": review_result.get("issues", []),
+        "risk_assessment": review_result.get("risk_assessment", ""),
+    }
+
+    return AUDITOR_PROMPT.format(
+        constitution=constitution,
+        proposal=json.dumps({"files": proposal.get("files", {})}, indent=2),
+        review=json.dumps(sanitized_review, indent=2),
+        tier_info=tier_info,
+    )
+
+
 def audit(
     proposal: dict,
     review_result: dict,
@@ -55,31 +86,20 @@ def audit(
     Returns:
         (audit_dict, prompt_tokens, completion_tokens)
     """
-    constitution = load_constitution()
-
-    files = proposal.get("files", {})
-    tier_info = ""
-    for path in files:
-        tier = get_tier(path)
-        tier_info += f"  {path}: {tier}\n"
-    overall_tier = highest_tier(list(files.keys()))
-    tier_info += f"\n  Highest tier: {overall_tier}"
+    prompt = build_audit_prompt(proposal, review_result)
 
     client = get_client()
+    kwargs = {"max_tokens": 2048, "temperature": AUDITOR_TEMPERATURE}
+    model = get_selfmod_model()
+    if model:
+        kwargs["model"] = model
+
     messages = [
-        {
-            "role": "system",
-            "content": AUDITOR_PROMPT.format(
-                constitution=constitution,
-                proposal=json.dumps(proposal, indent=2),
-                review=json.dumps(review_result, indent=2),
-                tier_info=tier_info,
-            ),
-        },
+        {"role": "system", "content": prompt},
         {"role": "user", "content": "Audit this proposal for governance compliance."},
     ]
 
-    raw, pt, ct = chat(client, messages, max_tokens=2048)
+    raw, pt, ct = chat(client, messages, **kwargs)
 
     clean = raw.strip()
     if clean.startswith("```"):

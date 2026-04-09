@@ -71,6 +71,22 @@ def parse_turn_state(screen: str) -> str | None:
     return state
 
 
+def parse_question(screen: str) -> str | None:
+    """Parse the latest QUESTION: line from screen content.
+
+    Returns the question text, or None if no question found or question is empty.
+    When multiple QUESTION: lines exist, the last one wins.
+    """
+    question = None
+    for line in screen.splitlines():
+        stripped = line.strip()
+        if stripped.startswith("QUESTION:"):
+            text = stripped[9:].strip()
+            if text:
+                question = text
+    return question
+
+
 def parse_context(screen: str) -> dict | None:
     """Parse the latest CONTEXT: JSON from screen content.
 

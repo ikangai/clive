@@ -4,6 +4,7 @@ import json
 import logging
 import os
 import re
+import shlex
 import threading
 import time
 from concurrent.futures import ThreadPoolExecutor, Future
@@ -61,6 +62,20 @@ def _check_command_safety(command: str) -> str | None:
         if pattern.search(command):
             return f"Blocked dangerous command: {command[:80]}"
     return None
+
+
+# ─── Sandbox Wrapping ───────────────────────────────────────────────────────
+
+def _wrap_for_sandbox(cmd: str, session_dir: str, sandboxed: bool = False, no_network: bool = False) -> str:
+    """Wrap a command through the sandbox script if sandboxing is enabled."""
+    if not sandboxed and os.environ.get("CLIVE_SANDBOX") != "1":
+        return cmd
+    script = os.path.join(os.path.dirname(__file__), "sandbox", "run.sh")
+    parts = ["bash", shlex.quote(script), shlex.quote(session_dir)]
+    if no_network:
+        parts.append("--no-network")
+    parts.append(shlex.quote(cmd))
+    return " ".join(parts)
 
 
 # ─── Outcome Detection ───────────────────────────────────────────────────────
@@ -231,6 +246,7 @@ def run_subtask_direct(
     import uuid as _uuid
 
     cmd = subtask.description.strip()
+    cmd = _wrap_for_sandbox(cmd, session_dir, sandboxed=pane_info.sandboxed)
     nonce = _uuid.uuid4().hex[:4]
     marker = f"___DONE_{subtask.id}_{nonce}___"
     out_file = os.path.join(session_dir, f"_direct_{subtask.id}.out")
@@ -362,7 +378,8 @@ def run_subtask_script(
             import uuid as _uuid
             nonce = _uuid.uuid4().hex[:4]
             marker = f"___DONE_{subtask.id}_{nonce}___"
-            combined = f'{script_executor} {script_path}; echo "EXIT:$? {marker}"'
+            script_cmd = _wrap_for_sandbox(f'{script_executor} {script_path}', session_dir, sandboxed=pane_info.sandboxed)
+            combined = f'{script_cmd}; echo "EXIT:$? {marker}"'
             pane_info.pane.send_keys(combined, enter=True)
             screen, method = wait_for_ready(pane_info, marker=marker, max_wait=60.0)
 
@@ -1200,7 +1217,8 @@ def run_subtask(
                     _SHELL_LIKE = {"shell", "data", "docs", "media", "browser", "files"}
                     cmd_t0 = time.time()
                     if pane_info.app_type in _SHELL_LIKE:
-                        wrapped, marker = wrap_command(cmd["value"], subtask.id)
+                        sandboxed_cmd = _wrap_for_sandbox(cmd["value"], session_dir, sandboxed=pane_info.sandboxed)
+                        wrapped, marker = wrap_command(sandboxed_cmd, subtask.id)
                         pane_info.pane.send_keys(wrapped, enter=True)
                         screen, method = wait_for_ready(
                             pane_info, marker=marker,
