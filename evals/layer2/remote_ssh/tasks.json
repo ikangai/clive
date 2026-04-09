@@ -1,0 +1,229 @@
+[
+  {
+    "id": "ssh_connect_001",
+    "layer": 2,
+    "tool": "shell",
+    "mode": "interactive",
+    "task": "Connect to the remote server at ssh.ikangai.com via SSH. Once connected, run 'hostname' and 'uname -a'. Write the outputs to /tmp/clive/result.txt. Disconnect when done.",
+    "initial_state": {},
+    "success_criteria": {
+      "type": "deterministic",
+      "check": "test -f /tmp/clive/result.txt && test -s /tmp/clive/result.txt"
+    },
+    "min_turns": 3,
+    "max_turns": 12,
+    "timeout_seconds": 60
+  },
+  {
+    "id": "ssh_file_transfer_002",
+    "layer": 2,
+    "tool": "shell",
+    "mode": "script",
+    "task": "Create a test file at /tmp/clive/upload.txt with content 'Hello from local'. Upload it to the remote server ssh.ikangai.com:/tmp/ using scp. Write 'UPLOADED' to /tmp/clive/result.txt if successful, or the error message if not.",
+    "initial_state": {},
+    "success_criteria": {
+      "type": "deterministic",
+      "check": "test -f /tmp/clive/result.txt && grep -qE 'UPLOADED|error|denied|refused' /tmp/clive/result.txt"
+    },
+    "min_turns": 1,
+    "max_turns": 5,
+    "timeout_seconds": 30
+  },
+  {
+    "id": "ssh_remote_script_003",
+    "layer": 2,
+    "tool": "shell",
+    "mode": "script",
+    "task": "Execute a remote command on ssh.ikangai.com: 'df -h / | tail -1 | awk {print $5}' to get disk usage percentage. Write just the percentage to /tmp/clive/result.txt.",
+    "initial_state": {},
+    "success_criteria": {
+      "type": "deterministic",
+      "check": "test -f /tmp/clive/result.txt && grep -qE '[0-9]+%|error|refused' /tmp/clive/result.txt"
+    },
+    "min_turns": 1,
+    "max_turns": 5,
+    "timeout_seconds": 30
+  },
+  {
+    "id": "ssh_tunnel_check_004",
+    "layer": 2,
+    "tool": "shell",
+    "mode": "interactive",
+    "task": "Set up an SSH tunnel from local port 5433 to remote port 5432 on ssh.ikangai.com (for database access). Verify the tunnel is working by checking if the local port is listening. Write the tunnel status to /tmp/clive/result.txt. Clean up the tunnel when done.",
+    "initial_state": {},
+    "success_criteria": {
+      "type": "deterministic",
+      "check": "test -f /tmp/clive/result.txt && grep -qEi 'listening|LISTEN|tunnel|error|refused' /tmp/clive/result.txt"
+    },
+    "min_turns": 3,
+    "max_turns": 12,
+    "timeout_seconds": 60
+  },
+  {
+    "id": "ssh_multi_host_005",
+    "layer": 2,
+    "tool": "shell",
+    "mode": "script",
+    "task": "Check SSH connectivity to 3 hosts: ssh.ikangai.com, github.com, gitlab.com. For each host, attempt SSH connection with a 5-second timeout and write 'HOST: REACHABLE/UNREACHABLE' to /tmp/clive/result.txt.",
+    "initial_state": {},
+    "success_criteria": {
+      "type": "deterministic",
+      "check": "test -f /tmp/clive/result.txt && test $(wc -l < /tmp/clive/result.txt | tr -d ' ') -ge 3 && grep -qE 'REACHABLE|UNREACHABLE' /tmp/clive/result.txt"
+    },
+    "min_turns": 1,
+    "max_turns": 5,
+    "timeout_seconds": 30
+  },
+  {
+    "id": "ssh_remote_log_analysis_006",
+    "layer": 2,
+    "tool": "shell",
+    "mode": "interactive",
+    "task": "SSH into ssh.ikangai.com and analyze /var/log/syslog (or /var/log/messages). Count the number of ERROR lines in the last 100 lines. Write the count to /tmp/clive/result.txt.",
+    "initial_state": {},
+    "success_criteria": {
+      "type": "deterministic",
+      "check": "test -f /tmp/clive/result.txt && grep -qE '^[0-9]+$|error|refused|denied' /tmp/clive/result.txt"
+    },
+    "min_turns": 3,
+    "max_turns": 12,
+    "timeout_seconds": 60
+  },
+  {
+    "id": "ssh_rsync_backup_007",
+    "layer": 2,
+    "tool": "shell",
+    "mode": "script",
+    "task": "Use rsync over SSH to sync /tmp/clive/data/ to ssh.ikangai.com:/tmp/backup/. Include --progress flag. Write the rsync output summary to /tmp/clive/result.txt.",
+    "initial_state": {
+      "setup": "mkdir -p /tmp/clive/data && echo 'file 1' > /tmp/clive/data/a.txt && echo 'file 2' > /tmp/clive/data/b.txt"
+    },
+    "success_criteria": {
+      "type": "deterministic",
+      "check": "test -f /tmp/clive/result.txt && test -s /tmp/clive/result.txt"
+    },
+    "min_turns": 1,
+    "max_turns": 5,
+    "timeout_seconds": 30
+  },
+  {
+    "id": "ssh_key_management_008",
+    "layer": 2,
+    "tool": "shell",
+    "mode": "script",
+    "task": "Check if an SSH key pair exists at ~/.ssh/id_ed25519. If not, generate one (non-interactively, no passphrase). Write the public key fingerprint to /tmp/clive/result.txt.",
+    "initial_state": {},
+    "success_criteria": {
+      "type": "deterministic",
+      "check": "test -f /tmp/clive/result.txt && grep -qE 'SHA256|fingerprint|ED25519' /tmp/clive/result.txt"
+    },
+    "min_turns": 1,
+    "max_turns": 5,
+    "timeout_seconds": 30
+  },
+  {
+    "id": "ssh_config_generate_009",
+    "layer": 2,
+    "tool": "shell",
+    "mode": "script",
+    "task": "Generate an SSH config entry for host 'ikangai-prod' at ssh.ikangai.com with user 'deploy', identity file ~/.ssh/id_ed25519, and connection keepalive every 60 seconds. Write the config block to /tmp/clive/result.txt.",
+    "initial_state": {},
+    "success_criteria": {
+      "type": "deterministic",
+      "check": "grep -q 'Host ikangai-prod' /tmp/clive/result.txt && grep -q 'ssh.ikangai.com' /tmp/clive/result.txt && grep -qi 'IdentityFile\\|identity' /tmp/clive/result.txt"
+    },
+    "min_turns": 1,
+    "max_turns": 5,
+    "timeout_seconds": 30
+  },
+  {
+    "id": "ssh_remote_process_010",
+    "layer": 2,
+    "tool": "shell",
+    "mode": "interactive",
+    "task": "SSH into ssh.ikangai.com, start a long-running process in the background (e.g., 'nohup sleep 300 &'), verify it's running with ps, then disconnect. Write the PID of the background process to /tmp/clive/result.txt.",
+    "initial_state": {},
+    "success_criteria": {
+      "type": "deterministic",
+      "check": "test -f /tmp/clive/result.txt && grep -qE '^[0-9]+$|error|refused' /tmp/clive/result.txt"
+    },
+    "min_turns": 3,
+    "max_turns": 12,
+    "timeout_seconds": 60
+  },
+  {
+    "id": "ssh_remote_docker_011",
+    "layer": 2,
+    "tool": "shell",
+    "mode": "interactive",
+    "task": "SSH into ssh.ikangai.com and check if Docker is running. List running containers (docker ps). Write the container list to /tmp/clive/result.txt. If Docker is not installed, write 'DOCKER_NOT_FOUND'.",
+    "initial_state": {},
+    "success_criteria": {
+      "type": "deterministic",
+      "check": "test -f /tmp/clive/result.txt && grep -qEi 'CONTAINER|docker|NOT_FOUND|error|refused' /tmp/clive/result.txt"
+    },
+    "min_turns": 3,
+    "max_turns": 12,
+    "timeout_seconds": 60
+  },
+  {
+    "id": "ssh_tmux_remote_012",
+    "layer": 2,
+    "tool": "shell",
+    "mode": "interactive",
+    "task": "SSH into ssh.ikangai.com, create a tmux session named 'clive-remote', run 'uptime' inside it, then detach and write the tmux session list to /tmp/clive/result.txt.",
+    "initial_state": {},
+    "success_criteria": {
+      "type": "deterministic",
+      "check": "test -f /tmp/clive/result.txt && grep -qEi 'clive-remote|tmux|error|refused' /tmp/clive/result.txt"
+    },
+    "min_turns": 4,
+    "max_turns": 15,
+    "timeout_seconds": 90
+  },
+  {
+    "id": "ssh_scp_directory_013",
+    "layer": 2,
+    "tool": "shell",
+    "mode": "script",
+    "task": "Download the /tmp/clive/ directory recursively from ssh.ikangai.com to /tmp/clive/remote_copy/ using scp -r. Write the file count of the downloaded directory to /tmp/clive/result.txt.",
+    "initial_state": {},
+    "success_criteria": {
+      "type": "deterministic",
+      "check": "test -f /tmp/clive/result.txt && grep -qE '[0-9]+|error|refused' /tmp/clive/result.txt"
+    },
+    "min_turns": 1,
+    "max_turns": 5,
+    "timeout_seconds": 30
+  },
+  {
+    "id": "ssh_remote_cron_014",
+    "layer": 2,
+    "tool": "shell",
+    "mode": "interactive",
+    "task": "SSH into ssh.ikangai.com and list the current user's crontab (crontab -l). Write the crontab contents to /tmp/clive/result.txt. If no crontab exists, write 'NO_CRONTAB'.",
+    "initial_state": {},
+    "success_criteria": {
+      "type": "deterministic",
+      "check": "test -f /tmp/clive/result.txt && grep -qE '\\*|NO_CRONTAB|error|refused' /tmp/clive/result.txt"
+    },
+    "min_turns": 3,
+    "max_turns": 12,
+    "timeout_seconds": 60
+  },
+  {
+    "id": "ssh_remote_clive_015",
+    "layer": 2,
+    "tool": "shell",
+    "mode": "interactive",
+    "task": "SSH into ssh.ikangai.com and invoke clive remotely: 'clive \"list all python files in /tmp\"'. Write the remote clive output to /tmp/clive/result.txt.",
+    "initial_state": {},
+    "success_criteria": {
+      "type": "deterministic",
+      "check": "test -f /tmp/clive/result.txt && test -s /tmp/clive/result.txt"
+    },
+    "min_turns": 3,
+    "max_turns": 15,
+    "timeout_seconds": 90
+  }
+]

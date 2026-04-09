@@ -1,0 +1,135 @@
+[
+  {
+    "id": "l4_multi_clive_remote_001",
+    "layer": 4,
+    "tool": "planning",
+    "task": "SSH into ssh.ikangai.com and use the remote clive instance to check disk usage, then compare it with local disk usage. Write a comparison report.",
+    "expected": {
+      "min_subtasks": 2,
+      "max_subtasks": 4,
+      "has_parallel": true,
+      "has_dependencies": true
+    },
+    "min_turns": 1,
+    "max_turns": 1
+  },
+  {
+    "id": "l4_multi_clive_sync_002",
+    "layer": 4,
+    "tool": "planning",
+    "task": "Use local clive to generate an invoice for client Acme Corp (3 line items), then SSH to ssh.ikangai.com and have remote clive email it to kiu@ikangai.com.",
+    "expected": {
+      "min_subtasks": 2,
+      "max_subtasks": 4,
+      "has_dependencies": true
+    },
+    "min_turns": 1,
+    "max_turns": 1
+  },
+  {
+    "id": "l4_multi_clive_monitor_003",
+    "layer": 4,
+    "tool": "planning",
+    "task": "Monitor both local and remote (ssh.ikangai.com) systems: check CPU load, memory, and disk on both. Generate a unified status dashboard.",
+    "expected": {
+      "min_subtasks": 2,
+      "max_subtasks": 4,
+      "has_parallel": true
+    },
+    "min_turns": 1,
+    "max_turns": 1
+  },
+  {
+    "id": "l4_multi_clive_deploy_004",
+    "layer": 4,
+    "tool": "planning",
+    "task": "Build a project locally (create tarball of /tmp/clive/src/), transfer it to ssh.ikangai.com via scp, then have the remote system extract and verify the files.",
+    "expected": {
+      "min_subtasks": 3,
+      "max_subtasks": 5,
+      "has_dependencies": true
+    },
+    "min_turns": 1,
+    "max_turns": 1
+  },
+  {
+    "id": "l4_multi_clive_log_aggregate_005",
+    "layer": 4,
+    "tool": "planning",
+    "task": "Collect the last 50 lines of syslog from ssh.ikangai.com and the last 50 lines from local /var/log/system.log. Merge them chronologically and highlight any errors.",
+    "expected": {
+      "min_subtasks": 2,
+      "max_subtasks": 4,
+      "has_parallel": true,
+      "has_dependencies": true
+    },
+    "min_turns": 1,
+    "max_turns": 1
+  },
+  {
+    "id": "l4_multi_clive_backup_verify_006",
+    "layer": 4,
+    "tool": "planning",
+    "task": "Create a backup of /tmp/clive/data/ locally, rsync it to ssh.ikangai.com:/tmp/backup/, then verify the remote backup matches the local files using checksums.",
+    "expected": {
+      "min_subtasks": 3,
+      "max_subtasks": 5,
+      "has_dependencies": true
+    },
+    "min_turns": 1,
+    "max_turns": 1
+  },
+  {
+    "id": "l4_multi_clive_config_sync_007",
+    "layer": 4,
+    "tool": "planning",
+    "task": "Read the local clive config from ~/.clive/config/, generate a matching config for the remote instance, and deploy it to ssh.ikangai.com:~/.clive/config/ via scp.",
+    "expected": {
+      "min_subtasks": 3,
+      "max_subtasks": 5,
+      "has_dependencies": true
+    },
+    "min_turns": 1,
+    "max_turns": 1
+  },
+  {
+    "id": "l4_multi_clive_alert_008",
+    "layer": 4,
+    "tool": "planning",
+    "task": "Check if the remote server ssh.ikangai.com has disk usage over 80% or load average over 4.0. If either condition is true, send an alert email to kiu@ikangai.com with the details.",
+    "expected": {
+      "min_subtasks": 2,
+      "max_subtasks": 4,
+      "has_dependencies": true
+    },
+    "min_turns": 1,
+    "max_turns": 1
+  },
+  {
+    "id": "l4_multi_clive_web_report_009",
+    "layer": 4,
+    "tool": "planning",
+    "task": "Fetch the latest news from https://news.ycombinator.com using lynx, fetch the current weather for Munich from Open-Meteo API, and compile both into a morning briefing document. Email it to kiu@ikangai.com.",
+    "expected": {
+      "min_subtasks": 3,
+      "max_subtasks": 5,
+      "has_parallel": true,
+      "has_dependencies": true
+    },
+    "min_turns": 1,
+    "max_turns": 1
+  },
+  {
+    "id": "l4_multi_clive_data_pipeline_010",
+    "layer": 4,
+    "tool": "planning",
+    "task": "Download sales data from https://jsonplaceholder.typicode.com/posts (simulating sales API), process it locally to extract user IDs and counts, then upload the summary CSV to ssh.ikangai.com and have remote clive generate a report.",
+    "expected": {
+      "min_subtasks": 3,
+      "max_subtasks": 5,
+      "has_dependencies": true
+    },
+    "min_turns": 1,
+    "max_turns": 1
+  }
+]
