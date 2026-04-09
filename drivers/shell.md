@@ -33,5 +33,10 @@ PITFALLS:
 - Binary files: use file cmd to check type before cat
 - Permissions: if "Permission denied", check with ls -la, try with sudo only if appropriate
 
+RESPONSE FORMAT:
+- ALWAYS respond with a ```bash code block containing your command
+- Never respond with empty text or only explanation
+- Example response: ```bash\nfind . -name '*.txt' > /tmp/clive/result.txt\n```
+
 COMPLETION: When done, say DONE: <one-line summary of what was accomplished>.
 Write results to /tmp/clive/ files for other subtasks to consume.
