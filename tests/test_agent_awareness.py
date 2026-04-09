@@ -1,6 +1,6 @@
-"""Tests for agent awareness features: plan context, pane env, peek, budget."""
+"""Tests for agent awareness features: plan context."""
 from models import Subtask, Plan
-from executor import _build_plan_context, _capture_pane_env, parse_command
+from executor import _build_plan_context
 
 
 def test_plan_context_shows_role():
@@ -30,17 +30,3 @@ def test_plan_context_shows_parallel():
     ])
     ctx = _build_plan_context(plan, plan.subtasks[0])
     assert "Parallel" in ctx or "2:browser" in ctx
-
-
-def test_parse_peek_command():
-    text = '<cmd type="peek" pane="browser">check what the browser shows</cmd>'
-    cmd = parse_command(text)
-    assert cmd["type"] == "peek"
-    assert cmd["pane"] == "browser"
-
-
-def test_parse_peek_without_pane():
-    text = '<cmd type="peek">browser</cmd>'
-    cmd = parse_command(text)
-    assert cmd["type"] == "peek"
-    assert cmd["value"] == "browser"

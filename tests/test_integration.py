@@ -6,31 +6,7 @@ Uses mock objects to simulate the LLM and tmux pane.
 import json
 from unittest.mock import MagicMock, patch
 from models import Subtask, Plan, SubtaskResult, SubtaskStatus, PaneInfo
-from executor import parse_command, _extract_script, _build_dependency_context
-
-
-# ─── parse_command integration ────────────────────────────────────────────────
-
-def test_parse_command_from_realistic_llm_response():
-    """LLM responses have explanatory text around the command."""
-    response = """I'll list the files in the directory to see what's there.
-
-<cmd type="shell" pane="eval">find . -name "*.txt" -type f</cmd>
-
-This will find all text files recursively."""
-    cmd = parse_command(response)
-    assert cmd["type"] == "shell"
-    assert cmd["pane"] == "eval"
-    assert "find" in cmd["value"]
-
-
-def test_parse_command_task_complete_with_summary():
-    response = """The task is complete. I found all the files and wrote the results.
-
-<cmd type="task_complete">Found 3 .txt files: ./a.txt, ./b.txt, ./sub/c.txt. Results written to /tmp/clive/result.txt.</cmd>"""
-    cmd = parse_command(response)
-    assert cmd["type"] == "task_complete"
-    assert "3 .txt files" in cmd["value"]
+from executor import _extract_script, _build_dependency_context
 
 
 # ─── _extract_script integration ──────────────────────────────────────────────

@@ -14,8 +14,7 @@ log = logging.getLogger(__name__)
 from output import progress
 from models import Plan, Subtask, SubtaskStatus, SubtaskResult, PaneInfo
 from completion import wait_for_ready, wrap_command
-from llm import get_client, chat, chat_stream
-from prompts import build_worker_prompt
+from llm import get_client, chat
 from session import capture_pane
 from screen_diff import compute_screen_diff
 
@@ -88,119 +87,12 @@ _ERROR_PATTERNS = [
 ]
 
 
-def _detect_outcome_signal(screen: str) -> str:
-    """Detect semantic success/failure from screen content (no LLM, just regex)."""
-    last_lines = "\n".join(screen.splitlines()[-5:])
-    errors = any(p.search(last_lines) for p in _ERROR_PATTERNS)
-    successes = any(p.search(last_lines) for p in _SUCCESS_PATTERNS)
-    if errors and not successes:
-        return "error indicators detected"
-    if successes and not errors:
-        return "success indicators detected"
-    return ""
 
 
-def _auto_verify_command(command: str, session_dir: str) -> str:
-    """Auto-verify file writes after shell commands. Saves verification turns.
-
-    Detects redirect operators (>, >>) and checks if the target file exists.
-    Returns a verification string or empty if nothing to verify.
-    """
-    # Detect file writes: cmd > file or cmd >> file
-    m = re.search(r'>\s*(\S+)\s*$', command)
-    if not m:
-        m = re.search(r'>>\s*(\S+)\s*$', command)
-    if not m:
-        return ""
-
-    target = m.group(1).strip("'\"")
-    # Resolve relative to session_dir if not absolute
-    if not target.startswith("/"):
-        target = os.path.join(session_dir, target)
-
-    if os.path.exists(target):
-        size = os.path.getsize(target)
-        # Quick content check for JSON/CSV validity
-        if target.endswith(".json") and size > 0:
-            try:
-                import json as _json
-                with open(target) as _f:
-                    _json.load(_f)
-                return f"{os.path.basename(target)} exists, {size} bytes, valid JSON"
-            except Exception:
-                return f"{os.path.basename(target)} exists, {size} bytes, invalid JSON"
-        return f"{os.path.basename(target)} exists, {size} bytes"
-    return ""
 
 
-# ─── Command Parsing ──────────────────────────────────────────────────────────
-
-def parse_command(text: str) -> dict:
-    """Extract a single XML command from LLM response text."""
-    # write_file — pane before path
-    m = re.search(
-        r'<cmd\s+type=["\']write_file["\'][^>]*pane=["\']([^"\']+)["\'][^>]*path=["\']([^"\']+)["\']>([\s\S]*?)</cmd>',
-        text,
-    )
-    if m:
-        return {"type": "write_file", "pane": m.group(1), "path": m.group(2), "value": m.group(3).strip()}
-
-    # write_file — path before pane
-    m = re.search(
-        r'<cmd\s+type=["\']write_file["\'][^>]*path=["\']([^"\']+)["\'][^>]*pane=["\']([^"\']+)["\']>([\s\S]*?)</cmd>',
-        text,
-    )
-    if m:
-        return {"type": "write_file", "pane": m.group(2), "path": m.group(1), "value": m.group(3).strip()}
-
-    # task_complete — no pane needed
-    m = re.search(r'<cmd\s+type=["\']task_complete["\']>([\s\S]*?)</cmd>', text)
-    if m:
-        return {"type": "task_complete", "pane": None, "value": m.group(1).strip()}
-
-    # everything else with pane
-    m = re.search(
-        r'<cmd\s+type=["\'](\w+)["\'][^>]*pane=["\']([^"\']+)["\'][^>]*>([\s\S]*?)</cmd>',
-        text,
-    )
-    if m:
-        return {"type": m.group(1), "pane": m.group(2), "value": m.group(3).strip()}
-
-    # fallback: no pane attribute
-    m = re.search(r'<cmd\s+type=["\'](\w+)["\']>([\s\S]*?)</cmd>', text)
-    if m:
-        return {"type": m.group(1), "pane": None, "value": m.group(2).strip()}
-
-    return {"type": "none", "pane": None, "value": ""}
 
 
-def parse_commands(text: str) -> list[dict]:
-    """Extract ALL commands from LLM response (for pipelining).
-
-    Returns a list of command dicts. If only one command found,
-    returns a single-element list. Falls back to parse_command for
-    responses with just one command.
-    """
-    cmds = []
-    # Find all <cmd ...>...</cmd> blocks
-    for m in re.finditer(r'<cmd\s+[^>]*>[\s\S]*?</cmd>', text):
-        cmd = parse_command(m.group(0))
-        if cmd["type"] != "none":
-            cmds.append(cmd)
-    return cmds if cmds else [parse_command(text)]
-
-
-# ─── File Channel ─────────────────────────────────────────────────────────────
-
-def read_file(path: str) -> str:
-    try:
-        with open(path, "r", errors="replace") as f:
-            content = f.read()
-        return f"[File: {path} — {len(content.splitlines())} lines]\n{content}"
-    except FileNotFoundError:
-        return f"[Error: file not found: {path}]"
-    except Exception as e:
-        return f"[Error reading {path}: {e}]"
 
 
 def write_file(path: str, content: str) -> str:
@@ -705,18 +597,6 @@ def execute_plan(
     return [results[s.id] for s in plan.subtasks]
 
 
-def _write_recovery_pattern(session_dir: str, agent: str, successful_cmd: str):
-    """Write an error-recovery pattern to the scratchpad for parallel agents."""
-    scratchpad = os.path.join(session_dir, "_scratchpad.jsonl")
-    try:
-        with open(scratchpad, "a") as f:
-            f.write(json.dumps({
-                "agent": agent,
-                "type": "recovery",
-                "fix": successful_cmd[:200],
-            }) + "\n")
-    except OSError:
-        pass
 
 
 def _try_collapse_plan(plan: Plan) -> Plan:
@@ -786,16 +666,6 @@ def _build_plan_context(plan: Plan, current: Subtask) -> str:
     return "\n".join(parts)
 
 
-def _capture_pane_env(pane_info: PaneInfo, session_dir: str) -> str:
-    """Capture pane environment state cheaply (no LLM call)."""
-    # Get pane dimensions
-    try:
-        w = pane_info.pane.cmd("display-message", "-p", "#{pane_width}").stdout[0]
-        h = pane_info.pane.cmd("display-message", "-p", "#{pane_height}").stdout[0]
-        dims = f", {w}x{h}"
-    except Exception:
-        dims = ""
-    return f"[Pane: {pane_info.name} [{pane_info.app_type}]{dims}, session_dir={session_dir}]"
 
 
 def _track_result_files(subtask_id: str, session_dir: str, registry: dict[str, list[str]],
@@ -1005,11 +875,6 @@ def run_subtask(
     dep_context: str,
     on_event=None,
     session_dir: str = "/tmp/clive",
-    pane_context: str = "",
-    plan_context: str = "",
-    tokens_used: int = 0,
-    max_tokens: int = 50000,
-    all_panes: dict | None = None,
 ) -> SubtaskResult:
     """Execute a single subtask. Dispatches based on observation level (mode)."""
     # Check for executable skill: if description contains [skill:name] and the skill
@@ -1066,379 +931,14 @@ def run_subtask(
         session_dir=session_dir,
     )
 
-    # --- Legacy interactive loop below (unreachable, pending deletion in Task 6) ---
 
-    # Streaming mode uses interactive loop with intervention detection
-    detect_intervention = subtask.mode == "streaming"
 
-    log.info(f"Subtask {subtask.id}: mode={subtask.mode}, pane={subtask.pane}, max_turns={subtask.max_turns}")
 
-    # Interactive/streaming mode: turn-by-turn observation loop
-    client = get_client()
-    total_pt = 0
-    last_cmd_had_error = False  # for error recovery sharing
-    total_ct = 0
-
-    # Build enriched system prompt with plan context and pane environment
-    pane_env = _capture_pane_env(pane_info, session_dir)
-    system_prompt = build_worker_prompt(
-        subtask_description=subtask.description,
-        pane_name=subtask.pane,
-        app_type=pane_info.app_type,
-        tool_description=pane_info.description,
-        dependency_context=dep_context,
-        session_dir=session_dir,
-    )
-    if plan_context:
-        system_prompt += f"\n\n{plan_context}"
-    system_prompt += f"\n{pane_env}"
-
-    # Pane state continuity: include previous subtask's screen if available
-    begin_msg = f"Begin. Achieve this goal: {subtask.description}"
-    if pane_context:
-        begin_msg += f"\n\n[Previous task on this pane left the screen showing:]\n{pane_context[-500:]}"
-
-    messages = [
-        {"role": "system", "content": system_prompt},
-        {"role": "user", "content": begin_msg},
-    ]
-
-    last_screen = None
-    no_change_count = 0
-    NO_CHANGE_LIMIT = 3
-    empty_reply_count = 0
-    EMPTY_REPLY_LIMIT = 2
-    skip_capture = False  # skip capture after file ops (screen unchanged)
-
-    lock = _pane_locks.setdefault(subtask.pane, threading.Lock())
-    with lock:
-        for turn in range(1, subtask.max_turns + 1):
-            if _cancel_event.is_set():
-                return SubtaskResult(
-                    subtask_id=subtask.id, status=SubtaskStatus.FAILED,
-                    summary="Cancelled", output_snippet=last_screen or "",
-                    turns_used=turn - 1, prompt_tokens=total_pt, completion_tokens=total_ct,
-                )
-            # Capture current pane state (skip if last action was a file op)
-            if not skip_capture:
-                screen = capture_pane(pane_info)
-            skip_capture = False
-
-            # No-change early stop: if screen is identical for N turns, the task is stuck
-            if last_screen is not None and screen == last_screen:
-                no_change_count += 1
-                if no_change_count >= NO_CHANGE_LIMIT:
-                    logging.debug(f"[{subtask.id}] Screen unchanged for {NO_CHANGE_LIMIT} turns, stopping")
-                    return SubtaskResult(
-                        subtask_id=subtask.id,
-                        status=SubtaskStatus.FAILED,
-                        summary=f"Stuck: screen unchanged for {NO_CHANGE_LIMIT} consecutive turns",
-                        output_snippet=screen[-500:] if len(screen) > 500 else screen,
-                        turns_used=turn,
-                        prompt_tokens=total_pt,
-                        completion_tokens=total_ct,
-                    )
-            else:
-                no_change_count = 0
-
-            # Check for TURN:/DONE: protocol (clive-to-clive, agent panes only)
-            if pane_info.app_type == "agent":
-                from remote import (
-                    parse_turn_state, parse_context,
-                    parse_remote_result, parse_remote_files, parse_remote_progress,
-                )
-                turn_state = parse_turn_state(screen)
-
-                # New conversational protocol (TURN:)
-                if turn_state in ("done", "failed"):
-                    ctx = parse_context(screen) or {}
-                    summary = ctx.get("result", ctx.get("error", ctx.get("raw", str(ctx))))
-                    status = SubtaskStatus.COMPLETED if turn_state == "done" else SubtaskStatus.FAILED
-
-                    for prog in parse_remote_progress(screen):
-                        logging.debug(f"[{subtask.id}] Remote: {prog}")
-
-                    remote_files = ctx.get("files", []) + parse_remote_files(screen)
-                    output_files = [{"path": f, "type": "remote", "size": 0} for f in remote_files]
-
-                    return SubtaskResult(
-                        subtask_id=subtask.id, status=status, summary=summary,
-                        output_snippet=screen[-500:], turns_used=turn,
-                        prompt_tokens=total_pt, completion_tokens=total_ct,
-                        output_files=output_files,
-                    )
-
-                if turn_state == "thinking":
-                    # Inner clive is working — skip LLM call, save tokens
-                    logging.debug(f"[{subtask.id}] Agent thinking, skipping LLM call")
-                    last_screen = screen
-                    time.sleep(2)
-                    continue
-
-                # turn_state == "waiting" or None → fall through to LLM loop
-                # "waiting" = inner clive wants input, LLM will read and respond
-                # None = legacy DONE: protocol or still starting up
-
-                # Backward compat: check legacy DONE: protocol
-                if turn_state is None:
-                    done = parse_remote_result(screen)
-                    if done:
-                        summary = done.get("result", done.get("reason", str(done)))
-                        status = SubtaskStatus.COMPLETED if done.get("status") == "success" else SubtaskStatus.FAILED
-
-                        for prog in parse_remote_progress(screen):
-                            logging.debug(f"[{subtask.id}] Remote: {prog}")
-
-                        remote_files = done.get("files", []) + parse_remote_files(screen)
-                        output_files = [{"path": f, "type": "remote", "size": 0} for f in remote_files]
-
-                        return SubtaskResult(
-                            subtask_id=subtask.id, status=status, summary=summary,
-                            output_snippet=screen[-500:], turns_used=turn,
-                            prompt_tokens=total_pt, completion_tokens=total_ct,
-                            output_files=output_files,
-                        )
-
-            screen_content = compute_screen_diff(last_screen, screen)
-            last_screen = screen
-
-            # Read shared scratchpad for cross-agent discoveries
-            scratchpad_note = ""
-            scratchpad_path = os.path.join(session_dir, "_scratchpad.jsonl")
-            if os.path.exists(scratchpad_path):
-                try:
-                    with open(scratchpad_path, "r") as sf:
-                        notes = [l.strip() for l in sf.readlines()[-5:] if l.strip()]
-                    if notes:
-                        scratchpad_note = f"\n[Scratchpad from other agents]:\n" + "\n".join(notes)
-                except OSError:
-                    pass
-
-            # Turn progress + budget awareness
-            budget_remaining = max_tokens - tokens_used - total_pt - total_ct
-            budget_note = f"\n[Budget: {budget_remaining:,} tokens remaining]" if budget_remaining < max_tokens * 0.5 else ""
-            turn_stats = f"[Turn {turn}/{subtask.max_turns} | {total_pt+total_ct:,} tokens used]"
-
-            context = (
-                f"{turn_stats}\n"
-                f"[Pane: {subtask.pane}]\n{screen_content}"
-                f"{scratchpad_note}{budget_note}"
-            )
-            messages.append({"role": "user", "content": context})
-
-            # Trim context to prevent unbounded growth
-            messages = _trim_messages(messages, max_user_turns=4)
-
-            # Progressive prompt thinning: after turn 1, trim system prompt but keep essentials
-            # (for non-caching providers; Anthropic caches automatically)
-            if turn > 1 and len(messages) > 0 and messages[0]["role"] == "system":
-                if len(messages[0]["content"]) > 500:
-                    # Preserve: task goal, command format, session dir. Drop: driver, dep context.
-                    messages[0] = {"role": "system", "content": (
-                        f"Continue on pane {subtask.pane}. Goal: {subtask.description[:200]}\n"
-                        f"Commands: <cmd type=\"shell\" pane=\"{subtask.pane}\">cmd</cmd>, "
-                        f"<cmd type=\"task_complete\">summary</cmd>, "
-                        f"<cmd type=\"write_file\" pane=\"{subtask.pane}\" path=\"/path\">content</cmd>\n"
-                        f"Pipeline commands OK. Auto-verify active. Exit codes captured. "
-                        f"Session: {session_dir}"
-                    )}
-
-            # Call LLM (try streaming, fall back to sync)
-            try:
-                reply, pt, ct = chat_stream(client, messages)
-            except Exception:
-                reply, pt, ct = chat(client, messages)
-
-            total_pt += pt
-            total_ct += ct
-
-            # Detect consecutive empty replies (LLM outage / broken provider)
-            if not reply.strip():
-                empty_reply_count += 1
-                if empty_reply_count >= EMPTY_REPLY_LIMIT:
-                    return SubtaskResult(
-                        subtask_id=subtask.id,
-                        status=SubtaskStatus.FAILED,
-                        summary=f"LLM returned {EMPTY_REPLY_LIMIT} consecutive empty responses",
-                        output_snippet=screen[-500:] if screen else "",
-                        turns_used=turn,
-                        prompt_tokens=total_pt,
-                        completion_tokens=total_ct,
-                    )
-                continue
-            empty_reply_count = 0
-
-            messages.append({"role": "assistant", "content": reply})
-
-            logging.debug(f"[{subtask.id}] Turn {turn}: {reply[:80]}")
-
-            # Parse commands — support pipelining (multiple commands per LLM call)
-            cmds = parse_commands(reply)
-
-            # Emit turn event
-            cmd_snippet = cmds[0]["value"][:80] if cmds[0]["value"] else cmds[0]["type"]
-            if len(cmds) > 1:
-                cmd_snippet += f" (+{len(cmds)-1} more)"
-            _emit(on_event, "turn", subtask.id, turn, cmd_snippet)
-            _emit(on_event, "tokens", subtask.id, pt, ct)
-
-            # Execute commands in pipeline order; stop on first requiring LLM feedback
-            pipeline_broke = False
-            for cmd_idx, cmd in enumerate(cmds):
-                if cmd["type"] == "task_complete":
-                    return SubtaskResult(
-                        subtask_id=subtask.id,
-                        status=SubtaskStatus.COMPLETED,
-                        summary=cmd["value"],
-                        output_snippet=screen[-500:] if len(screen) > 500 else screen,
-                        turns_used=turn,
-                        prompt_tokens=total_pt,
-                        completion_tokens=total_ct,
-                    )
-
-                elif cmd["type"] == "shell":
-                    violation = _check_command_safety(cmd["value"])
-                    if violation:
-                        log.warning(violation)
-                        messages.append({"role": "user", "content": f"[BLOCKED] {violation}. Choose a safer approach."})
-                        pipeline_broke = True
-                        break
-
-                    _SHELL_LIKE = {"shell", "data", "docs", "media", "browser", "files"}
-                    cmd_t0 = time.time()
-                    if pane_info.app_type in _SHELL_LIKE:
-                        sandboxed_cmd = _wrap_for_sandbox(cmd["value"], session_dir, sandboxed=pane_info.sandboxed)
-                        wrapped, marker = wrap_command(sandboxed_cmd, subtask.id)
-                        pane_info.pane.send_keys(wrapped, enter=True)
-                        screen, method = wait_for_ready(
-                            pane_info, marker=marker,
-                            detect_intervention=detect_intervention,
-                        )
-                    else:
-                        pane_info.pane.send_keys(cmd["value"], enter=True)
-                        screen, method = wait_for_ready(
-                            pane_info,
-                            detect_intervention=detect_intervention,
-                        )
-                    cmd_elapsed = time.time() - cmd_t0
-
-                    # Parse exit code from marker line
-                    exit_code = None
-                    for line in screen.splitlines():
-                        if "EXIT:" in line and "___DONE_" in line:
-                            try:
-                                exit_code = int(line.split("EXIT:")[1].split()[0])
-                            except (ValueError, IndexError):
-                                pass
-
-                    # Command echo with timing + exit code
-                    echo_parts = [f"[Command executed: {cmd['value'][:100]}]"]
-                    if exit_code is not None:
-                        echo_parts.append(f"[Exit: {exit_code} | {cmd_elapsed:.1f}s | {method}]")
-                    else:
-                        echo_parts.append(f"[{cmd_elapsed:.1f}s | {method}]")
-
-                    signal = _detect_outcome_signal(screen)
-                    if signal:
-                        echo_parts.append(f"[Outcome: {signal}]")
-
-                    auto_verify = _auto_verify_command(cmd["value"], session_dir)
-                    if auto_verify:
-                        echo_parts.append(f"[Verified: {auto_verify}]")
-
-                    current_has_error = signal == "error indicators detected"
-                    if last_cmd_had_error and not current_has_error:
-                        _write_recovery_pattern(session_dir, subtask.pane, cmd["value"])
-                    last_cmd_had_error = current_has_error
-
-                    messages.append({"role": "user", "content": "\n".join(echo_parts)})
-
-                    # Pipeline break: if command failed or needs intervention, stop pipeline
-                    if method.startswith("intervention:"):
-                        intervention_type = method.split(":", 1)[1]
-                        messages.append({
-                            "role": "user",
-                            "content": f"[INTERVENTION DETECTED: {intervention_type}] "
-                                       f"The command needs your input. Screen:\n{screen}",
-                        })
-                        pipeline_broke = True
-                        break
-                    if exit_code is not None and exit_code != 0:
-                        pipeline_broke = True
-                        break  # stop pipeline, let LLM see the error
-
-                elif cmd["type"] == "read_file":
-                    content = read_file(cmd["value"])
-                    messages.append({"role": "user", "content": content})
-                    no_change_count = 0
-                    skip_capture = True
-
-                elif cmd["type"] == "write_file":
-                    result = write_file(cmd["path"], cmd["value"])
-                    messages.append({"role": "user", "content": result})
-                    no_change_count = 0
-                    skip_capture = True
-
-                elif cmd["type"] == "peek":
-                    target_pane = cmd.get("pane") or cmd.get("value", "").strip()
-                    if all_panes and target_pane in all_panes:
-                        peek_screen = capture_pane(all_panes[target_pane])
-                        messages.append({
-                            "role": "user",
-                            "content": f"[Peek at pane {target_pane}]:\n{peek_screen[-500:]}",
-                        })
-                    else:
-                        messages.append({
-                            "role": "user",
-                            "content": f"[Peek failed: pane '{target_pane}' not found]",
-                        })
-                    no_change_count = 0
-
-                elif cmd["type"] == "wait":
-                    wait_secs = 2
-                    try:
-                        wait_secs = max(1, min(int(cmd["value"]), 10))
-                    except (ValueError, TypeError):
-                        pass
-                    logging.debug(f"[{subtask.id}] Waiting {wait_secs}s")
-                    time.sleep(wait_secs)
-
-                elif cmd["type"] == "save_skill":
-                    # Agent creates a new skill for future reuse
-                    try:
-                        from skills import save_skill
-                        # value format: "name: content..." or just content with name from pane
-                        if ":" in cmd["value"][:30]:
-                            skill_name, skill_body = cmd["value"].split(":", 1)
-                            skill_name = skill_name.strip()
-                            skill_body = skill_body.strip()
-                        else:
-                            skill_name = f"learned_{subtask.id}"
-                            skill_body = cmd["value"]
-                        path = save_skill(skill_name, skill_body)
-                        messages.append({"role": "user", "content": f"[Skill saved: {skill_name} → {path}]"})
-                        logging.debug(f"[{subtask.id}] Saved skill: {skill_name}")
-                    except Exception as e:
-                        messages.append({"role": "user", "content": f"[Skill save failed: {e}]"})
-                    no_change_count = 0
-
-                elif cmd["type"] == "none":
-                    pass  # no command, next turn will observe screen
-
-            # If pipeline broke (error/intervention), stop executing remaining commands
-            if pipeline_broke:
-                break
-
-    # Exhausted turns
-    final_screen = capture_pane(pane_info)
+    # NOTE: This point is unreachable — all modes dispatched above.
+    # Old interactive loop was here (removed in pane-core-refocus).
     return SubtaskResult(
-        subtask_id=subtask.id,
-        status=SubtaskStatus.FAILED,
-        summary=f"Exhausted {subtask.max_turns} turns without completing",
-        output_snippet=final_screen[-500:],
-        turns_used=subtask.max_turns,
-        prompt_tokens=total_pt,
-        completion_tokens=total_ct,
+        subtask_id=subtask.id, status=SubtaskStatus.FAILED,
+        summary="Unknown mode", output_snippet="", turns_used=0,
     )
 
 
