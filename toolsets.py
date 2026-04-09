@@ -672,6 +672,22 @@ def list_toolsets() -> dict[str, list[str]]:
     return result
 
 
+def find_category(tool_name: str) -> str | None:
+    """Reverse lookup: find which category provides a tool (pane or command)."""
+    for cat_name, cat_def in CATEGORIES.items():
+        if tool_name in cat_def.get("panes", []):
+            return cat_name
+        if tool_name in cat_def.get("commands", []):
+            return cat_name
+    # Also check pane names (pane dict key != pane "name" field)
+    for cat_name, cat_def in CATEGORIES.items():
+        for pane_id in cat_def.get("panes", []):
+            pane_def = PANES.get(pane_id)
+            if pane_def and pane_def["name"] == tool_name:
+                return cat_name
+    return None
+
+
 def list_categories() -> dict[str, dict]:
     """Return the category registry for display."""
     return dict(CATEGORIES)

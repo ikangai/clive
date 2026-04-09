@@ -112,6 +112,52 @@ def setup_session(
     return session, panes, session_name
 
 
+def add_pane(session: libtmux.Session, tool: dict, session_dir: str | None = None) -> PaneInfo:
+    """Add a single pane to a running session. Returns PaneInfo."""
+    import os, uuid
+    window = session.new_window(window_name=tool["name"], attach=False)
+    pane = window.active_pane
+    is_remote = bool(tool.get("host"))
+
+    if not is_remote:
+        pane.send_keys('export PS1="[AGENT_READY] $ "', enter=True)
+        pane.send_keys(f'printf "\\033]2;{tool["app_type"]}\\033\\\\"', enter=True)
+        if tool.get("cmd"):
+            pane.send_keys(tool["cmd"], enter=True)
+    else:
+        if tool.get("cmd"):
+            pane.send_keys(tool["cmd"], enter=True)
+        else:
+            pane.send_keys(f"ssh {tool['host']}", enter=True)
+        time.sleep(tool.get("connect_timeout", 3))
+        pane.send_keys('export PS1="[AGENT_READY] $ "', enter=True)
+        pane.send_keys(f'printf "\\033]2;{tool["app_type"]}\\033\\\\"', enter=True)
+
+    cwd = os.getcwd()
+    workdir = session_dir or "/tmp/clive"
+    marker = f"___SETUP_{uuid.uuid4().hex[:4]}___"
+    pane.send_keys(f"cd {cwd} && mkdir -p {workdir}; echo {marker}", enter=True)
+
+    # Wait for ready
+    start = time.time()
+    poll = 0.01
+    while time.time() - start < 5.0:
+        lines = pane.cmd("capture-pane", "-p", "-J").stdout
+        screen = "\n".join(lines) if lines else ""
+        if marker in screen:
+            break
+        time.sleep(poll)
+        poll = min(poll * 2, 0.3)
+
+    return PaneInfo(
+        pane=pane,
+        app_type=tool["app_type"],
+        description=tool["description"],
+        name=tool["name"],
+        idle_timeout=tool.get("idle_timeout", 2.0),
+    )
+
+
 def add_conversational_pane(session: libtmux.Session) -> libtmux.Pane:
     """Add a 'conversational' window to an existing tmux session.
 

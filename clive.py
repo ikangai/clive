@@ -47,7 +47,7 @@ from session import setup_session, check_health, generate_session_id, SESSION_NA
 from toolsets import (
     resolve_toolset, check_commands, build_tools_summary,
     print_availability, list_toolsets, list_categories,
-    DEFAULT_TOOLSET, PROFILES, CATEGORIES,
+    find_category, DEFAULT_TOOLSET, PROFILES, CATEGORIES, PANES, COMMANDS,
 )
 from planner import create_plan, display_plan
 from executor import execute_plan
@@ -290,6 +290,8 @@ def _setup_session(toolset_spec, session_dir, _state):
     )
 
     return {
+        "session": session,
+        "session_dir": session_dir,
         "panes": panes,
         "tool_status": tool_status,
         "tools_summary": tools_summary,
@@ -298,7 +300,67 @@ def _setup_session(toolset_spec, session_dir, _state):
         "missing_cmds": missing_cmds,
         "endpoints": resolved.get("endpoints", []),
         "unconfigured": unconfigured,
+        "categories": set(resolved.get("categories", ["core"])),
     }
+
+
+def _expand_toolset(category: str, session_ctx: dict) -> bool:
+    """Dynamically add a category to the running session. Returns True if expanded."""
+    if category in session_ctx.get("categories", set()):
+        return False  # already loaded
+
+    cat_def = CATEGORIES.get(category)
+    if not cat_def:
+        return False
+
+    from session import add_pane
+    session = session_ctx.get("session")
+    session_dir = session_ctx.get("session_dir")
+
+    # Add new panes
+    for pane_id in cat_def.get("panes", []):
+        pane_def = PANES.get(pane_id)
+        if pane_def and pane_def["name"] not in session_ctx["panes"]:
+            pane_info = add_pane(session, pane_def, session_dir)
+            session_ctx["panes"][pane_def["name"]] = pane_info
+            session_ctx["tool_status"][pane_def["name"]] = {
+                "status": "ready",
+                "app_type": pane_def["app_type"],
+                "description": pane_def["description"],
+            }
+
+    # Add new commands
+    new_cmds = []
+    for cmd_id in cat_def.get("commands", []):
+        cmd_def = COMMANDS.get(cmd_id)
+        if cmd_def and not any(c["name"] == cmd_id for c in session_ctx["available_cmds"]):
+            if not any(c["name"] == cmd_id for c in session_ctx["missing_cmds"]):
+                new_cmds.append({"name": cmd_id, **cmd_def})
+    if new_cmds:
+        avail, miss = check_commands(new_cmds)
+        session_ctx["available_cmds"].extend(avail)
+        session_ctx["missing_cmds"].extend(miss)
+
+    # Add new endpoints
+    from toolsets import ENDPOINTS
+    for ep_id in cat_def.get("endpoints", []):
+        ep_def = ENDPOINTS.get(ep_id)
+        if ep_def and not any(e["name"] == ep_id for e in session_ctx["endpoints"]):
+            session_ctx["endpoints"].append({"name": ep_id, **ep_def})
+
+    # Check config for new panes
+    new_pane_defs = [PANES[pid] for pid in cat_def.get("panes", []) if pid in PANES]
+    unconfigured_new = get_unconfigured(new_pane_defs, [])
+    session_ctx["unconfigured"].extend(unconfigured_new)
+
+    # Update categories and tools summary
+    session_ctx["categories"].add(category)
+    session_ctx["tools_summary"] = build_tools_summary(
+        session_ctx["tool_status"], session_ctx["available_cmds"], session_ctx["endpoints"],
+    )
+
+    detail(f"Added {category}: {', '.join(cat_def.get('panes', []) + cat_def.get('commands', []))}")
+    return True
 
 
 def _run_inner(task, toolset_spec, output_format, max_tokens, session_dir, _cleanup, _state, session_ctx=None):
@@ -377,6 +439,21 @@ def _run_inner(task, toolset_spec, output_format, max_tokens, session_dir, _clea
         first_pane = list(panes.keys())[0]
         target_pane = cr.pane if cr.pane and cr.pane in panes else first_pane
 
+        if cr.mode in ("unavailable", "unconfigured"):
+            tool_key = cr.tool or ""
+
+            # Auto-expand: if tool belongs to a known category, add it dynamically
+            cat = find_category(tool_key)
+            if cat and cat not in session_ctx.get("categories", set()):
+                step(f"Expanding toolset: +{cat}")
+                if _expand_toolset(cat, session_ctx):
+                    # Re-classify with expanded toolset
+                    classifier_result = _classify(task, session_ctx)
+                    if classifier_result:
+                        cr = classifier_result
+                        target_pane = cr.pane if cr.pane and cr.pane in panes else first_pane
+                    # Fall through to handle the new classification
+
         if cr.mode == "unavailable":
             step(f"Unavailable: {cr.tool}")
             detail(cr.message or f"{cr.tool} is not installed")
@@ -385,12 +462,10 @@ def _run_inner(task, toolset_spec, output_format, max_tokens, session_dir, _clea
         if cr.mode == "unconfigured":
             tool_key = cr.tool or ""
             unconfigured_list = session_ctx.get("unconfigured", [])
-            # Validate: only run setup if the tool is actually unconfigured
             if tool_key not in unconfigured_list:
-                # Classifier hallucinated — tool isn't in this toolset or is already configured
                 step(f"Unavailable: {tool_key}")
-                detail(f"{tool_key} is not in the current toolset. Use -t with a profile that includes it.")
-                return f"{tool_key} is not available in the current toolset."
+                detail(f"{tool_key} is not available.")
+                return f"{tool_key} is not available."
             config_schema = find_config_schema(tool_key)
             if config_schema:
                 run_setup(tool_key, config_schema)
@@ -1294,6 +1369,27 @@ if __name__ == "__main__":
                     from dashboard import render_lines
                     for line in render_lines():
                         print(line)
+                    continue
+                if task.startswith("/add "):
+                    cat = task[5:].strip()
+                    if cat in CATEGORIES:
+                        if _expand_toolset(cat, session_ctx):
+                            step(f"Added {cat}")
+                        else:
+                            detail(f"{cat} already loaded")
+                    else:
+                        detail(f"Unknown category: {cat}. Available: {', '.join(sorted(CATEGORIES.keys()))}")
+                    continue
+                if task == "/tools":
+                    cats = sorted(session_ctx.get("categories", set()))
+                    detail(f"Active: {', '.join(cats)}")
+                    detail(f"Panes: {', '.join(session_ctx['panes'].keys())}")
+                    avail = [c['name'] for c in session_ctx['available_cmds']]
+                    if avail:
+                        detail(f"Commands: {', '.join(avail)}")
+                    uncfg = session_ctx.get('unconfigured', [])
+                    if uncfg:
+                        detail(f"Needs setup: {', '.join(uncfg)}")
                     continue
                 try:
                     run(task, toolset_spec=args.toolset, output_format=output_format,
