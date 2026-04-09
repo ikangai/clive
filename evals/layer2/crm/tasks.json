@@ -1,0 +1,255 @@
+[
+  {
+    "id": "crm_add_contact_001",
+    "layer": 2,
+    "tool": "shell",
+    "mode": "script",
+    "task": "Add a new contact to the CRM file at /tmp/clive/contacts.json: Name 'Kiu Chen', email 'kiu@ikangai.com', company 'ikangai UG', phone '+49 176 1234567', role 'CTO'. If the file doesn't exist, create it with an array. Write the updated JSON to /tmp/clive/result.json.",
+    "initial_state": {
+      "setup": "echo '[]' > /tmp/clive/contacts.json"
+    },
+    "success_criteria": {
+      "type": "deterministic",
+      "check": "python3 -c \"import json; d=json.load(open('/tmp/clive/result.json')); assert len(d)==1; assert d[0]['email']=='kiu@ikangai.com'\""
+    },
+    "min_turns": 1,
+    "max_turns": 5,
+    "timeout_seconds": 30
+  },
+  {
+    "id": "crm_search_contacts_002",
+    "layer": 2,
+    "tool": "shell",
+    "mode": "script",
+    "task": "Search the CRM contacts file /tmp/clive/contacts.json for all contacts at company 'ikangai'. Write matching contacts as a formatted list to /tmp/clive/result.txt.",
+    "initial_state": {
+      "setup": "echo '[{\"name\":\"Kiu Chen\",\"email\":\"kiu@ikangai.com\",\"company\":\"ikangai UG\",\"role\":\"CTO\"},{\"name\":\"Sarah Mueller\",\"email\":\"sarah@techstart.de\",\"company\":\"TechStart\",\"role\":\"PM\"},{\"name\":\"Martin Treiber\",\"email\":\"martin@ikangai.com\",\"company\":\"ikangai UG\",\"role\":\"CEO\"}]' > /tmp/clive/contacts.json"
+    },
+    "success_criteria": {
+      "type": "deterministic",
+      "check": "grep -q 'Kiu' /tmp/clive/result.txt && grep -q 'Martin' /tmp/clive/result.txt && ! grep -q 'Sarah' /tmp/clive/result.txt"
+    },
+    "min_turns": 1,
+    "max_turns": 5,
+    "timeout_seconds": 30
+  },
+  {
+    "id": "crm_deal_pipeline_003",
+    "layer": 2,
+    "tool": "shell",
+    "mode": "script",
+    "task": "Create a sales pipeline report from /tmp/clive/deals.csv. Group deals by stage (lead, qualified, proposal, negotiation, closed_won, closed_lost). Calculate total value per stage. Write the pipeline summary to /tmp/clive/result.txt.",
+    "initial_state": {
+      "setup": "echo 'id,company,value,stage,contact' > /tmp/clive/deals.csv && echo '1,Acme Corp,50000,closed_won,john@acme.com' >> /tmp/clive/deals.csv && echo '2,TechStart,30000,proposal,sarah@techstart.de' >> /tmp/clive/deals.csv && echo '3,GlobalFin,80000,negotiation,cfo@globalfin.com' >> /tmp/clive/deals.csv && echo '4,MedTech,25000,qualified,info@medtech.de' >> /tmp/clive/deals.csv && echo '5,EduSoft,15000,lead,contact@edusoft.com' >> /tmp/clive/deals.csv && echo '6,AutoDrive,60000,proposal,sales@autodrive.de' >> /tmp/clive/deals.csv && echo '7,FinServe,45000,closed_lost,pm@finserve.com' >> /tmp/clive/deals.csv && echo '8,DataCorp,35000,negotiation,cto@datacorp.de' >> /tmp/clive/deals.csv"
+    },
+    "success_criteria": {
+      "type": "deterministic",
+      "check": "grep -qi 'proposal' /tmp/clive/result.txt && grep -qi 'negotiation' /tmp/clive/result.txt && grep -qE '[0-9]{4,}' /tmp/clive/result.txt"
+    },
+    "min_turns": 1,
+    "max_turns": 5,
+    "timeout_seconds": 30
+  },
+  {
+    "id": "crm_followup_reminders_004",
+    "layer": 2,
+    "tool": "shell",
+    "mode": "script",
+    "task": "Check /tmp/clive/interactions.csv for contacts that haven't been contacted in over 14 days (relative to 2026-04-09). Generate follow-up reminders. Write them to /tmp/clive/result.txt.",
+    "initial_state": {
+      "setup": "echo 'contact,email,last_contact,type' > /tmp/clive/interactions.csv && echo 'Kiu Chen,kiu@ikangai.com,2026-04-07,email' >> /tmp/clive/interactions.csv && echo 'Sarah Mueller,sarah@techstart.de,2026-03-20,call' >> /tmp/clive/interactions.csv && echo 'John Smith,john@acme.com,2026-03-15,meeting' >> /tmp/clive/interactions.csv && echo 'Lisa Park,lisa@datacorp.de,2026-04-01,email' >> /tmp/clive/interactions.csv"
+    },
+    "success_criteria": {
+      "type": "deterministic",
+      "check": "grep -q 'Sarah' /tmp/clive/result.txt && grep -q 'John' /tmp/clive/result.txt && ! grep -q 'Kiu' /tmp/clive/result.txt"
+    },
+    "min_turns": 1,
+    "max_turns": 5,
+    "timeout_seconds": 30
+  },
+  {
+    "id": "crm_email_campaign_005",
+    "layer": 2,
+    "tool": "shell",
+    "mode": "script",
+    "task": "Generate a personalized email campaign from /tmp/clive/campaign_contacts.csv using /tmp/clive/campaign_template.txt. Each email should have the contact's name and company filled in. Write all generated emails to /tmp/clive/result.txt with separators between them.",
+    "initial_state": {
+      "setup": "echo 'name,email,company,product_interest' > /tmp/clive/campaign_contacts.csv && echo 'Kiu Chen,kiu@ikangai.com,ikangai,Enterprise Plan' >> /tmp/clive/campaign_contacts.csv && echo 'Sarah Mueller,sarah@techstart.de,TechStart,Startup Plan' >> /tmp/clive/campaign_contacts.csv && echo 'Tom Baker,tom@globalfin.com,GlobalFin,Enterprise Plan' >> /tmp/clive/campaign_contacts.csv && echo 'Hi {{name}},\\n\\nI noticed {{company}} might benefit from our {{product_interest}}.\\n\\nWould you have 15 minutes for a quick call this week?\\n\\nBest,\\nMartin' > /tmp/clive/campaign_template.txt"
+    },
+    "success_criteria": {
+      "type": "deterministic",
+      "check": "grep -q 'Kiu' /tmp/clive/result.txt && grep -q 'Sarah' /tmp/clive/result.txt && grep -q 'Tom' /tmp/clive/result.txt && grep -q 'Enterprise' /tmp/clive/result.txt"
+    },
+    "min_turns": 1,
+    "max_turns": 5,
+    "timeout_seconds": 30
+  },
+  {
+    "id": "crm_contact_merge_006",
+    "layer": 2,
+    "tool": "shell",
+    "mode": "script",
+    "task": "Merge two contact files (/tmp/clive/contacts_a.json and /tmp/clive/contacts_b.json) removing duplicates by email address. Keep the most recently updated record when duplicates exist. Write the merged list to /tmp/clive/result.json.",
+    "initial_state": {
+      "setup": "echo '[{\"name\":\"Kiu Chen\",\"email\":\"kiu@ikangai.com\",\"updated\":\"2026-04-01\"},{\"name\":\"Sarah M\",\"email\":\"sarah@techstart.de\",\"updated\":\"2026-03-15\"}]' > /tmp/clive/contacts_a.json && echo '[{\"name\":\"Kiu Chen (updated)\",\"email\":\"kiu@ikangai.com\",\"updated\":\"2026-04-08\"},{\"name\":\"Tom Baker\",\"email\":\"tom@globalfin.com\",\"updated\":\"2026-04-05\"}]' > /tmp/clive/contacts_b.json"
+    },
+    "success_criteria": {
+      "type": "deterministic",
+      "check": "python3 -c \"import json; d=json.load(open('/tmp/clive/result.json')); emails=[c['email'] for c in d]; assert len(d)==3; assert len(set(emails))==3\""
+    },
+    "min_turns": 1,
+    "max_turns": 5,
+    "timeout_seconds": 30
+  },
+  {
+    "id": "crm_activity_log_007",
+    "layer": 2,
+    "tool": "shell",
+    "mode": "script",
+    "task": "Create a CRM activity log from /tmp/clive/activities.csv. Group activities by contact, show timeline with dates and types (call, email, meeting). Write to /tmp/clive/result.txt.",
+    "initial_state": {
+      "setup": "echo 'date,contact,type,notes' > /tmp/clive/activities.csv && echo '2026-04-01,Kiu Chen,email,Sent proposal' >> /tmp/clive/activities.csv && echo '2026-04-03,Kiu Chen,call,Discussed timeline' >> /tmp/clive/activities.csv && echo '2026-04-05,Sarah Mueller,meeting,Product demo' >> /tmp/clive/activities.csv && echo '2026-04-07,Kiu Chen,meeting,Contract review' >> /tmp/clive/activities.csv && echo '2026-04-08,Sarah Mueller,email,Follow-up on demo' >> /tmp/clive/activities.csv"
+    },
+    "success_criteria": {
+      "type": "deterministic",
+      "check": "grep -q 'Kiu' /tmp/clive/result.txt && grep -q 'Sarah' /tmp/clive/result.txt"
+    },
+    "min_turns": 1,
+    "max_turns": 5,
+    "timeout_seconds": 30
+  },
+  {
+    "id": "crm_revenue_forecast_008",
+    "layer": 2,
+    "tool": "shell",
+    "mode": "script",
+    "task": "Generate a revenue forecast from /tmp/clive/deals.csv. Weight deal values by probability: lead=10%, qualified=25%, proposal=50%, negotiation=75%, closed_won=100%. Write weighted total and per-stage weighted values to /tmp/clive/result.txt.",
+    "initial_state": {
+      "setup": "echo 'id,company,value,stage' > /tmp/clive/deals.csv && echo '1,Acme Corp,50000,closed_won' >> /tmp/clive/deals.csv && echo '2,TechStart,30000,proposal' >> /tmp/clive/deals.csv && echo '3,GlobalFin,80000,negotiation' >> /tmp/clive/deals.csv && echo '4,MedTech,25000,qualified' >> /tmp/clive/deals.csv && echo '5,EduSoft,15000,lead' >> /tmp/clive/deals.csv"
+    },
+    "success_criteria": {
+      "type": "deterministic",
+      "check": "grep -qE '[0-9]{4,}' /tmp/clive/result.txt && grep -qi 'forecast\\|weighted\\|total' /tmp/clive/result.txt"
+    },
+    "min_turns": 1,
+    "max_turns": 5,
+    "timeout_seconds": 30
+  },
+  {
+    "id": "crm_export_vcard_009",
+    "layer": 2,
+    "tool": "shell",
+    "mode": "script",
+    "task": "Export all contacts from /tmp/clive/contacts.json as individual vCard (.vcf) files in /tmp/clive/vcards/. Each file named by the contact's email. Write the count of exported files to /tmp/clive/result.txt.",
+    "initial_state": {
+      "setup": "echo '[{\"name\":\"Kiu Chen\",\"email\":\"kiu@ikangai.com\",\"phone\":\"+49 176 1234567\",\"company\":\"ikangai UG\"},{\"name\":\"Sarah Mueller\",\"email\":\"sarah@techstart.de\",\"phone\":\"+49 170 9876543\",\"company\":\"TechStart\"}]' > /tmp/clive/contacts.json"
+    },
+    "success_criteria": {
+      "type": "deterministic",
+      "check": "test -d /tmp/clive/vcards && test $(ls /tmp/clive/vcards/*.vcf 2>/dev/null | wc -l | tr -d ' ') -eq 2 && grep -q 'BEGIN:VCARD' /tmp/clive/vcards/*.vcf"
+    },
+    "min_turns": 1,
+    "max_turns": 5,
+    "timeout_seconds": 30
+  },
+  {
+    "id": "crm_tag_contacts_010",
+    "layer": 2,
+    "tool": "shell",
+    "mode": "script",
+    "task": "Add tags to contacts in /tmp/clive/contacts.json based on rules: if company contains 'UG' or 'GmbH' tag as 'DACH', if role is 'CTO' or 'CEO' tag as 'executive', if last_contact is over 30 days ago tag as 'stale'. Write updated JSON to /tmp/clive/result.json.",
+    "initial_state": {
+      "setup": "echo '[{\"name\":\"Kiu Chen\",\"email\":\"kiu@ikangai.com\",\"company\":\"ikangai UG\",\"role\":\"CTO\",\"last_contact\":\"2026-04-07\"},{\"name\":\"John Smith\",\"email\":\"john@acme.com\",\"company\":\"Acme Corp\",\"role\":\"PM\",\"last_contact\":\"2026-02-15\"},{\"name\":\"Lisa Park\",\"email\":\"lisa@datacorp.de\",\"company\":\"DataCorp GmbH\",\"role\":\"CEO\",\"last_contact\":\"2026-04-01\"}]' > /tmp/clive/contacts.json"
+    },
+    "success_criteria": {
+      "type": "deterministic",
+      "check": "python3 -c \"import json; d=json.load(open('/tmp/clive/result.json')); tags=[c.get('tags',[]) for c in d]; assert any('DACH' in t for t in tags); assert any('executive' in t for t in tags); assert any('stale' in t for t in tags)\""
+    },
+    "min_turns": 1,
+    "max_turns": 8,
+    "timeout_seconds": 45
+  },
+  {
+    "id": "crm_meeting_prep_011",
+    "layer": 2,
+    "tool": "shell",
+    "mode": "script",
+    "task": "Prepare a meeting brief for a call with Kiu Chen. Pull their contact info from /tmp/clive/contacts.json, recent activities from /tmp/clive/activities.csv, and open deals from /tmp/clive/deals.csv. Write a one-page meeting prep document to /tmp/clive/result.txt.",
+    "initial_state": {
+      "setup": "echo '[{\"name\":\"Kiu Chen\",\"email\":\"kiu@ikangai.com\",\"company\":\"ikangai UG\",\"role\":\"CTO\",\"notes\":\"Decision maker for platform team\"}]' > /tmp/clive/contacts.json && echo 'date,contact,type,notes' > /tmp/clive/activities.csv && echo '2026-04-01,Kiu Chen,email,Sent proposal' >> /tmp/clive/activities.csv && echo '2026-04-07,Kiu Chen,call,Discussed pricing' >> /tmp/clive/activities.csv && echo 'id,company,value,stage,contact' > /tmp/clive/deals.csv && echo '1,ikangai UG,45000,negotiation,Kiu Chen' >> /tmp/clive/deals.csv"
+    },
+    "success_criteria": {
+      "type": "deterministic",
+      "check": "grep -q 'Kiu' /tmp/clive/result.txt && grep -qi 'ikangai' /tmp/clive/result.txt && grep -qE 'proposal|pricing|45000' /tmp/clive/result.txt"
+    },
+    "min_turns": 1,
+    "max_turns": 5,
+    "timeout_seconds": 30
+  },
+  {
+    "id": "crm_import_csv_012",
+    "layer": 2,
+    "tool": "shell",
+    "mode": "script",
+    "task": "Import contacts from a CSV file (/tmp/clive/import.csv) into the JSON CRM (/tmp/clive/contacts.json). Skip rows with missing email. Append only new contacts (don't duplicate existing ones). Write the final count to /tmp/clive/result.txt.",
+    "initial_state": {
+      "setup": "echo '[{\"name\":\"Existing User\",\"email\":\"existing@test.com\"}]' > /tmp/clive/contacts.json && echo 'name,email,company' > /tmp/clive/import.csv && echo 'Kiu Chen,kiu@ikangai.com,ikangai' >> /tmp/clive/import.csv && echo 'Bad Row,,NoCompany' >> /tmp/clive/import.csv && echo 'Existing User,existing@test.com,TestCo' >> /tmp/clive/import.csv && echo 'New Person,new@person.com,NewCo' >> /tmp/clive/import.csv"
+    },
+    "success_criteria": {
+      "type": "deterministic",
+      "check": "python3 -c \"import json; d=json.load(open('/tmp/clive/contacts.json')); assert len(d)==3\" && grep -q '3' /tmp/clive/result.txt"
+    },
+    "min_turns": 1,
+    "max_turns": 5,
+    "timeout_seconds": 30
+  },
+  {
+    "id": "crm_win_loss_report_013",
+    "layer": 2,
+    "tool": "shell",
+    "mode": "script",
+    "task": "Analyze win/loss data from /tmp/clive/deals_history.csv. Calculate win rate, average deal size for wins vs losses, and top reasons for losses. Write the analysis to /tmp/clive/result.txt.",
+    "initial_state": {
+      "setup": "echo 'id,company,value,outcome,reason' > /tmp/clive/deals_history.csv && echo '1,Acme,50000,won,' >> /tmp/clive/deals_history.csv && echo '2,Beta,30000,lost,price' >> /tmp/clive/deals_history.csv && echo '3,Gamma,80000,won,' >> /tmp/clive/deals_history.csv && echo '4,Delta,25000,lost,competitor' >> /tmp/clive/deals_history.csv && echo '5,Echo,60000,won,' >> /tmp/clive/deals_history.csv && echo '6,Foxtrot,35000,lost,price' >> /tmp/clive/deals_history.csv && echo '7,Golf,45000,won,' >> /tmp/clive/deals_history.csv && echo '8,Hotel,20000,lost,timing' >> /tmp/clive/deals_history.csv"
+    },
+    "success_criteria": {
+      "type": "deterministic",
+      "check": "grep -qi 'win' /tmp/clive/result.txt && grep -qi 'price\\|reason' /tmp/clive/result.txt"
+    },
+    "min_turns": 1,
+    "max_turns": 5,
+    "timeout_seconds": 30
+  },
+  {
+    "id": "crm_kanbancli_014",
+    "layer": 2,
+    "tool": "shell",
+    "mode": "interactive",
+    "task": "If taskwarrior (task) is installed, use it to create 3 CRM tasks: 'Call Kiu about contract', 'Send proposal to TechStart', 'Schedule demo for GlobalFin'. Set priorities H, M, L respectively. List all tasks and write output to /tmp/clive/result.txt. If taskwarrior isn't installed, use a simple todo.txt format instead.",
+    "initial_state": {},
+    "success_criteria": {
+      "type": "deterministic",
+      "check": "test -f /tmp/clive/result.txt && grep -qi 'Kiu' /tmp/clive/result.txt && grep -qi 'TechStart\\|proposal' /tmp/clive/result.txt"
+    },
+    "min_turns": 2,
+    "max_turns": 10,
+    "timeout_seconds": 45
+  },
+  {
+    "id": "crm_quarterly_contacts_015",
+    "layer": 2,
+    "tool": "shell",
+    "mode": "script",
+    "task": "Generate a quarterly contacts report from /tmp/clive/contacts.json and /tmp/clive/activities.csv. For each contact: total interactions this quarter, last interaction date, engagement level (high: >3, medium: 1-3, low: 0). Write to /tmp/clive/result.txt.",
+    "initial_state": {
+      "setup": "echo '[{\"name\":\"Kiu Chen\",\"email\":\"kiu@ikangai.com\"},{\"name\":\"Sarah Mueller\",\"email\":\"sarah@techstart.de\"},{\"name\":\"Tom Baker\",\"email\":\"tom@globalfin.com\"}]' > /tmp/clive/contacts.json && echo 'date,contact_email,type' > /tmp/clive/activities.csv && echo '2026-04-01,kiu@ikangai.com,email' >> /tmp/clive/activities.csv && echo '2026-04-03,kiu@ikangai.com,call' >> /tmp/clive/activities.csv && echo '2026-04-05,sarah@techstart.de,meeting' >> /tmp/clive/activities.csv && echo '2026-04-07,kiu@ikangai.com,meeting' >> /tmp/clive/activities.csv && echo '2026-04-08,kiu@ikangai.com,email' >> /tmp/clive/activities.csv"
+    },
+    "success_criteria": {
+      "type": "deterministic",
+      "check": "grep -qi 'Kiu\\|kiu' /tmp/clive/result.txt && grep -qEi 'high|medium|low' /tmp/clive/result.txt"
+    },
+    "min_turns": 1,
+    "max_turns": 5,
+    "timeout_seconds": 30
+  }
+]
