@@ -1,0 +1,227 @@
+[
+  {
+    "id": "social_twitter_api_001",
+    "layer": 2,
+    "tool": "browser",
+    "mode": "script",
+    "task": "Fetch the Twitter/X profile page for @AnthropicAI using lynx -dump https://nitter.net/AnthropicAI (Nitter mirror). Extract the bio text and write it to /tmp/clive/result.txt.",
+    "initial_state": {},
+    "success_criteria": {
+      "type": "deterministic",
+      "check": "test -f /tmp/clive/result.txt && test -s /tmp/clive/result.txt"
+    },
+    "min_turns": 2,
+    "max_turns": 10,
+    "timeout_seconds": 45
+  },
+  {
+    "id": "social_mastodon_api_002",
+    "layer": 2,
+    "tool": "browser",
+    "mode": "script",
+    "task": "Fetch the Mastodon public timeline from https://mastodon.social/api/v1/timelines/public?limit=5 using curl -s. Extract the content text of each post (strip HTML tags). Write the first 5 posts to /tmp/clive/result.txt.",
+    "initial_state": {},
+    "success_criteria": {
+      "type": "deterministic",
+      "check": "test -f /tmp/clive/result.txt && test $(wc -l < /tmp/clive/result.txt | tr -d ' ') -ge 3"
+    },
+    "min_turns": 1,
+    "max_turns": 5,
+    "timeout_seconds": 30
+  },
+  {
+    "id": "social_github_trending_003",
+    "layer": 2,
+    "tool": "browser",
+    "mode": "interactive",
+    "task": "Fetch the GitHub trending page at https://github.com/trending using lynx -dump. Extract the top 5 trending repository names and their descriptions. Write them to /tmp/clive/result.txt.",
+    "initial_state": {},
+    "success_criteria": {
+      "type": "deterministic",
+      "check": "test -f /tmp/clive/result.txt && test $(wc -l < /tmp/clive/result.txt | tr -d ' ') -ge 5"
+    },
+    "min_turns": 2,
+    "max_turns": 10,
+    "timeout_seconds": 45
+  },
+  {
+    "id": "social_linkedin_scrape_004",
+    "layer": 2,
+    "tool": "browser",
+    "mode": "interactive",
+    "task": "Fetch the LinkedIn company page for Anthropic: lynx -dump https://www.linkedin.com/company/anthropic. Extract any visible company description or about text. Write it to /tmp/clive/result.txt. If blocked, write 'LOGIN_REQUIRED'.",
+    "initial_state": {},
+    "success_criteria": {
+      "type": "deterministic",
+      "check": "test -f /tmp/clive/result.txt && grep -qEi 'anthropic|LOGIN_REQUIRED|blocked' /tmp/clive/result.txt"
+    },
+    "min_turns": 2,
+    "max_turns": 10,
+    "timeout_seconds": 45
+  },
+  {
+    "id": "social_hn_discussion_005",
+    "layer": 2,
+    "tool": "browser",
+    "mode": "interactive",
+    "task": "Fetch a Hacker News thread: curl -s https://hacker-news.firebaseio.com/v0/item/1.json. Extract the title, author, and score. Then fetch its children (kid IDs). Write the thread summary to /tmp/clive/result.txt.",
+    "initial_state": {},
+    "success_criteria": {
+      "type": "deterministic",
+      "check": "test -f /tmp/clive/result.txt && grep -qi 'Y Combinator\\|title\\|score' /tmp/clive/result.txt"
+    },
+    "min_turns": 2,
+    "max_turns": 10,
+    "timeout_seconds": 45
+  },
+  {
+    "id": "social_reddit_subreddit_006",
+    "layer": 2,
+    "tool": "browser",
+    "mode": "script",
+    "task": "Fetch the about info for a subreddit: curl -s -H 'User-Agent: clive/1.0' 'https://www.reddit.com/r/commandline/about.json'. Extract the subscriber count, description, and creation date. Write to /tmp/clive/result.txt.",
+    "initial_state": {},
+    "success_criteria": {
+      "type": "deterministic",
+      "check": "test -f /tmp/clive/result.txt && grep -qE '[0-9]+|subscriber' /tmp/clive/result.txt"
+    },
+    "min_turns": 1,
+    "max_turns": 5,
+    "timeout_seconds": 30
+  },
+  {
+    "id": "social_compose_tweet_007",
+    "layer": 2,
+    "tool": "shell",
+    "mode": "script",
+    "task": "Draft a tweet (max 280 chars) announcing the release of clive v2.0 with key features: script-first execution, parallel DAG, terminal-native TUI. Save to /tmp/clive/result.txt. Verify it's under 280 characters.",
+    "initial_state": {},
+    "success_criteria": {
+      "type": "deterministic",
+      "check": "test -f /tmp/clive/result.txt && test $(wc -c < /tmp/clive/result.txt) -le 282"
+    },
+    "min_turns": 1,
+    "max_turns": 5,
+    "timeout_seconds": 30
+  },
+  {
+    "id": "social_compose_thread_008",
+    "layer": 2,
+    "tool": "shell",
+    "mode": "script",
+    "task": "Compose a 5-tweet thread about the clive architecture. Each tweet must be under 280 chars and numbered (1/5, 2/5, etc.). Save all tweets to /tmp/clive/result.txt, separated by blank lines.",
+    "initial_state": {},
+    "success_criteria": {
+      "type": "deterministic",
+      "check": "test -f /tmp/clive/result.txt && grep -q '1/5' /tmp/clive/result.txt && grep -q '5/5' /tmp/clive/result.txt"
+    },
+    "min_turns": 1,
+    "max_turns": 5,
+    "timeout_seconds": 30
+  },
+  {
+    "id": "social_github_issue_009",
+    "layer": 2,
+    "tool": "browser",
+    "mode": "script",
+    "task": "Fetch the latest 5 issues from the tmux/tmux GitHub repo using the API: curl -s 'https://api.github.com/repos/tmux/tmux/issues?state=open&per_page=5'. Extract issue number, title, and author. Write as a formatted list to /tmp/clive/result.txt.",
+    "initial_state": {},
+    "success_criteria": {
+      "type": "deterministic",
+      "check": "test -f /tmp/clive/result.txt && grep -qE '#[0-9]+' /tmp/clive/result.txt && test $(wc -l < /tmp/clive/result.txt | tr -d ' ') -ge 5"
+    },
+    "min_turns": 1,
+    "max_turns": 5,
+    "timeout_seconds": 30
+  },
+  {
+    "id": "social_blog_post_draft_010",
+    "layer": 2,
+    "tool": "shell",
+    "mode": "script",
+    "task": "Draft a short blog post (300-500 words) about terminal-based AI agents. Include a title, introduction, 3 key points, and conclusion. Save to /tmp/clive/result.md in markdown format.",
+    "initial_state": {},
+    "success_criteria": {
+      "type": "deterministic",
+      "check": "test -f /tmp/clive/result.md && grep -q '^# ' /tmp/clive/result.md && test $(wc -w < /tmp/clive/result.md) -ge 250"
+    },
+    "min_turns": 1,
+    "max_turns": 5,
+    "timeout_seconds": 30
+  },
+  {
+    "id": "social_newsletter_compile_011",
+    "layer": 2,
+    "tool": "browser",
+    "mode": "interactive",
+    "task": "Compile a weekly tech newsletter: fetch top stories from https://news.ycombinator.com/ (3 stories) and trending repos from https://api.github.com/search/repositories?q=created:>2026-04-02&sort=stars&per_page=3. Format as a newsletter and save to /tmp/clive/result.txt.",
+    "initial_state": {},
+    "success_criteria": {
+      "type": "deterministic",
+      "check": "test -f /tmp/clive/result.txt && test $(wc -w < /tmp/clive/result.txt) -gt 50"
+    },
+    "min_turns": 3,
+    "max_turns": 12,
+    "timeout_seconds": 60
+  },
+  {
+    "id": "social_sentiment_analysis_012",
+    "layer": 2,
+    "tool": "browser",
+    "mode": "interactive",
+    "task": "Fetch the 10 latest posts from https://www.reddit.com/r/programming/new.json?limit=10 (with User-Agent header). For each post, classify the title as positive/neutral/negative sentiment. Write the analysis to /tmp/clive/result.txt.",
+    "initial_state": {},
+    "success_criteria": {
+      "type": "deterministic",
+      "check": "test -f /tmp/clive/result.txt && grep -qEi 'positive|neutral|negative' /tmp/clive/result.txt"
+    },
+    "min_turns": 2,
+    "max_turns": 10,
+    "timeout_seconds": 60
+  },
+  {
+    "id": "social_github_pr_summary_013",
+    "layer": 2,
+    "tool": "browser",
+    "mode": "script",
+    "task": "Fetch the latest 5 merged PRs from https://api.github.com/repos/tmux/tmux/pulls?state=closed&per_page=5&sort=updated. Filter only merged ones (merged_at not null). Write PR number, title, and merge date to /tmp/clive/result.txt.",
+    "initial_state": {},
+    "success_criteria": {
+      "type": "deterministic",
+      "check": "test -f /tmp/clive/result.txt && test -s /tmp/clive/result.txt"
+    },
+    "min_turns": 1,
+    "max_turns": 5,
+    "timeout_seconds": 30
+  },
+  {
+    "id": "social_profile_bio_014",
+    "layer": 2,
+    "tool": "shell",
+    "mode": "script",
+    "task": "Write a professional bio for a GitHub profile: Martin Treiber, founder of ikangai, building clive (terminal-native AI agent). Include key skills and interests. Max 160 characters for the one-liner, full version in the body. Save to /tmp/clive/result.txt.",
+    "initial_state": {},
+    "success_criteria": {
+      "type": "deterministic",
+      "check": "test -f /tmp/clive/result.txt && grep -qi 'ikangai\\|clive\\|martin' /tmp/clive/result.txt"
+    },
+    "min_turns": 1,
+    "max_turns": 5,
+    "timeout_seconds": 30
+  },
+  {
+    "id": "social_release_notes_015",
+    "layer": 2,
+    "tool": "shell",
+    "mode": "script",
+    "task": "Generate release notes for clive v2.0 from the git log. Include: version, date, changelog grouped by category (features, fixes, refactors), and list of contributors. Save to /tmp/clive/result.md.",
+    "initial_state": {},
+    "success_criteria": {
+      "type": "deterministic",
+      "check": "test -f /tmp/clive/result.md && grep -qi 'v2.0\\|changelog\\|feature\\|release' /tmp/clive/result.md"
+    },
+    "min_turns": 1,
+    "max_turns": 5,
+    "timeout_seconds": 30
+  }
+]
