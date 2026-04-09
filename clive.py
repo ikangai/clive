@@ -718,7 +718,7 @@ if __name__ == "__main__":
     parser.add_argument(
         "--version",
         action="version",
-        version="clive 0.9.0",
+        version="clive 0.2.0",
     )
     parser.add_argument(
         "--debug",

@@ -171,6 +171,7 @@ The TUI provides a single-screen interface: scrolling output on top, input line 
 | `/status` | Show running task status |
 | `/cancel` | Cancel the running task |
 | `/clear` | Clear the screen |
+| `/dashboard` | Show running clive instances |
 | `/selfmod <goal>` | Self-modify clive (experimental) |
 | `/undo` | Roll back last self-modification |
 | `/safe-mode` | Disable self-modification for this session |
@@ -317,8 +318,15 @@ python clive.py --tui
 python clive.py --quiet "your task"
 result=$(python clive.py -q "count files in /tmp")  # use as shell primitive
 
-# Agent-to-agent — delegate to remote Clive instances
+# Named instances — addressable, stay alive between tasks
+python clive.py --name mybot "monitor server logs"
+python clive.py --name mybot                       # no initial task, just listen
+python clive.py --stop mybot                       # send SIGTERM to named instance
+python clive.py --dashboard                        # show running instances
+
+# Agent-to-agent — delegate to remote or local Clive instances
 python clive.py "clive@devbox check disk usage"
+python clive.py "clive@mybot summarize the logs"   # routes to local named instance
 python clive.py "clive@gpu render video then clive@web upload it"
 
 # Conversational mode — for clive-to-clive peer dialogue (auto-detected)
@@ -444,6 +452,35 @@ gpu:
   host: gpu.internal
   path: /opt/clive/clive.py
 ```
+
+### Named instances & dashboard
+
+Named instances are long-running clive processes that stay alive between tasks and are addressable via `clive@name`:
+
+```bash
+# Start a named instance
+clive --name researcher "analyze competitor pricing"
+# It runs the task, then waits for more work on stdin
+
+# Address it from another clive
+clive "clive@researcher now compare with our pricing"
+
+# See all running instances
+clive --dashboard
+#  CLIVE INSTANCES
+#  ───────────────────────────────────────────────────────
+#   NAME          PID     TOOLSET          STATUS    UPTIME
+#   researcher    48305   standard         idle      0h 14m
+
+# Stop it
+clive --stop researcher
+```
+
+**Core invariant:** If you have a name, you're conversational. A named instance stays alive after its initial task, listening for more work. This is the contract that makes local addressing work.
+
+**Local-first resolution:** When `clive@researcher` is encountered, the local instance registry (`~/.clive/instances/`) is checked first. If a live, conversational instance matches, it resolves locally (microsecond latency via tmux attach) instead of SSH. Local instances can shadow remote hosts with the same name.
+
+**Dashboard in TUI:** Use `/dashboard` in the TUI for the same view.
 
 ### Long-running disconnected tasks
 
@@ -596,7 +633,9 @@ models.py         — dataclasses: Subtask (with mode field), Plan, SubtaskResul
 llm.py            — multi-provider LLM client (OpenAI, Anthropic, Gemini, OpenRouter, LMStudio, Ollama)
 prompts.py        — prompt templates (planner, worker, script generator, summarizer, triage)
 output.py         — output routing: telemetry to stderr in --quiet mode, results to stdout, conversational protocol
-agents.py         — clive@host address parsing, YAML registry resolution, SSH command building
+agents.py         — clive@host address parsing, local-first + YAML registry resolution, SSH command building
+registry.py       — file-based instance registry (~/.clive/instances/), PID liveness, stale pruning
+dashboard.py      — dashboard snapshot (render_lines for TUI, render_snapshot for CLI)
 remote.py         — remote agent protocol: DONE:/TURN:/CONTEXT: parsing, SCP file transfer
 tui.py            — Textual-based terminal UI with slash commands
 completion.py     — three-strategy completion detection (marker/prompt/idle)

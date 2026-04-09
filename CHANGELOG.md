@@ -1,5 +1,29 @@
 # Changelog
 
+## 0.2.0 — Instance Dashboard & Local Addressing (2026-04-09)
+
+### Added
+
+- **Named instances** (`--name`) — Give a clive instance a name to make it addressable and long-lived. Named instances register in `~/.clive/instances/`, stay alive after their initial task, and accept follow-up tasks on stdin. Name collisions are rejected at startup.
+
+- **Instance registry** (`registry.py`) — File-based registry at `~/.clive/instances/`, one JSON file per running instance. Automatic stale entry pruning via `os.kill(pid, 0)` liveness checks. No daemon, no socket, no coordination needed.
+
+- **Local-first address resolution** — `clive@mybot` now checks the local instance registry before SSH. If a live, conversational instance matches, it resolves locally via tmux attach (microsecond latency). Local instances shadow remote hosts with the same name.
+
+- **`--dashboard`** — Snapshot CLI showing all running instances, their PID, toolset, status, and uptime. Also shows remote agents from `~/.clive/agents.yaml`. Like `docker ps` for clive instances.
+
+- **`--stop <name>`** — Send SIGTERM to a named instance by looking up its PID from the registry.
+
+- **`/dashboard` TUI command** — Shows the same instance table in the TUI via `render_lines()`.
+
+- **Conversational loop for named instances** — Named instances loop after task completion, reading additional tasks from stdin. Supports `/stop`, `exit`, `quit` to break the loop.
+
+- **Conversational pane** (`session.py`) — Named instances get a dedicated `conversational` tmux window for receiving tasks from other instances.
+
+- **Production hardening** — Sandboxing (bwrap/sandbox-exec/ulimit fallback), per-user resource quotas, file-based job queue with `fcntl.flock`, worker pool daemon with supervisor, health endpoint, cross-process SharedBrain via Unix domain sockets, agent-to-agent authentication, stall detection with exponential backoff.
+
+---
+
 ## Agent Addressing & Peer Conversation (2026-04-08)
 
 ### Added
