@@ -1,0 +1,336 @@
+[
+  {
+    "id": "biz_invoice_extract_001",
+    "layer": 2,
+    "tool": "shell",
+    "mode": "script",
+    "task": "Parse the invoice text file at /tmp/clive/invoice.txt and extract: invoice number, date, total amount, and vendor name. Write a JSON object with these fields to /tmp/clive/result.json.",
+    "initial_state": {
+      "setup": "cat > /tmp/clive/invoice.txt << 'INVOICE'\nINVOICE #INV-2026-0042\nDate: 2026-04-01\nFrom: CloudServe GmbH\nTo: ikangai UG, München\n\nDescription                    Qty    Unit Price    Total\n---------------------------------------------------------\nCloud Hosting (March 2026)      1     €2,400.00    €2,400.00\nSSL Certificate Renewal         2       €49.00       €98.00\nDNS Management                  1      €120.00      €120.00\n---------------------------------------------------------\nSubtotal:                                         €2,618.00\nVAT (19%):                                          €497.42\nTotal:                                            €3,115.42\n\nPayment due: 2026-04-15\nBank: IBAN DE89 3704 0044 0532 0130 00\nINVOICE"
+    },
+    "success_criteria": {
+      "type": "deterministic",
+      "check": "python3 -c \"import json; d=json.load(open('/tmp/clive/result.json')); assert 'INV-2026-0042' in str(d.get('invoice_number',d.get('number',''))); assert '3115' in str(d.get('total',''))\""
+    },
+    "min_turns": 1,
+    "max_turns": 5,
+    "timeout_seconds": 30
+  },
+  {
+    "id": "biz_invoice_csv_batch_002",
+    "layer": 2,
+    "tool": "shell",
+    "mode": "script",
+    "task": "Process all invoice files in /tmp/clive/invoices/ and create a CSV summary at /tmp/clive/result.csv with columns: filename,invoice_number,date,total. Sort by date ascending.",
+    "initial_state": {
+      "setup": "mkdir -p /tmp/clive/invoices && echo 'INVOICE #INV-001\\nDate: 2026-01-15\\nTotal: €1,200.00' > /tmp/clive/invoices/jan.txt && echo 'INVOICE #INV-002\\nDate: 2026-02-15\\nTotal: €1,500.00' > /tmp/clive/invoices/feb.txt && echo 'INVOICE #INV-003\\nDate: 2026-03-15\\nTotal: €980.00' > /tmp/clive/invoices/mar.txt"
+    },
+    "success_criteria": {
+      "type": "deterministic",
+      "check": "test -f /tmp/clive/result.csv && head -1 /tmp/clive/result.csv | grep -qi 'filename\\|invoice' && test $(wc -l < /tmp/clive/result.csv | tr -d ' ') -ge 4"
+    },
+    "min_turns": 1,
+    "max_turns": 5,
+    "timeout_seconds": 30
+  },
+  {
+    "id": "biz_expense_report_003",
+    "layer": 2,
+    "tool": "shell",
+    "mode": "script",
+    "task": "Generate an expense report from /tmp/clive/expenses.csv. Group by category, sum amounts per category, and write a formatted report to /tmp/clive/result.txt showing each category total and the grand total.",
+    "initial_state": {
+      "setup": "echo 'date,category,description,amount' > /tmp/clive/expenses.csv && echo '2026-04-01,Travel,Train to Berlin,89.00' >> /tmp/clive/expenses.csv && echo '2026-04-02,Meals,Client dinner,145.50' >> /tmp/clive/expenses.csv && echo '2026-04-03,Travel,Taxi to airport,35.00' >> /tmp/clive/expenses.csv && echo '2026-04-03,Software,GitHub subscription,44.00' >> /tmp/clive/expenses.csv && echo '2026-04-04,Meals,Team lunch,78.30' >> /tmp/clive/expenses.csv && echo '2026-04-05,Travel,Hotel Munich,195.00' >> /tmp/clive/expenses.csv"
+    },
+    "success_criteria": {
+      "type": "deterministic",
+      "check": "grep -qi 'travel' /tmp/clive/result.txt && grep -qi 'total' /tmp/clive/result.txt"
+    },
+    "min_turns": 1,
+    "max_turns": 5,
+    "timeout_seconds": 30
+  },
+  {
+    "id": "biz_timesheet_calc_004",
+    "layer": 2,
+    "tool": "shell",
+    "mode": "script",
+    "task": "Calculate total billable hours from /tmp/clive/timesheet.csv. Compute per-project totals and write the result to /tmp/clive/result.txt in format 'ProjectName: X.Xh'.",
+    "initial_state": {
+      "setup": "echo 'date,project,hours,description' > /tmp/clive/timesheet.csv && echo '2026-04-07,ikangai-platform,3.5,API development' >> /tmp/clive/timesheet.csv && echo '2026-04-07,clive,2.0,Eval harness' >> /tmp/clive/timesheet.csv && echo '2026-04-08,ikangai-platform,4.0,Database migration' >> /tmp/clive/timesheet.csv && echo '2026-04-08,clive,1.5,TUI improvements' >> /tmp/clive/timesheet.csv && echo '2026-04-09,ikangai-platform,6.0,Testing' >> /tmp/clive/timesheet.csv"
+    },
+    "success_criteria": {
+      "type": "deterministic",
+      "check": "grep -qi 'ikangai' /tmp/clive/result.txt && grep -qi 'clive' /tmp/clive/result.txt"
+    },
+    "min_turns": 1,
+    "max_turns": 5,
+    "timeout_seconds": 30
+  },
+  {
+    "id": "biz_project_kanban_005",
+    "layer": 2,
+    "tool": "shell",
+    "mode": "script",
+    "task": "Create a kanban board representation from /tmp/clive/tasks.csv. Group tasks by status (todo, in_progress, done) and write a formatted text board to /tmp/clive/result.txt with columns for each status.",
+    "initial_state": {
+      "setup": "echo 'id,title,status,assignee' > /tmp/clive/tasks.csv && echo '1,Design API schema,done,kiu' >> /tmp/clive/tasks.csv && echo '2,Implement auth,in_progress,martin' >> /tmp/clive/tasks.csv && echo '3,Write tests,todo,kiu' >> /tmp/clive/tasks.csv && echo '4,Deploy to staging,todo,martin' >> /tmp/clive/tasks.csv && echo '5,Database migration,in_progress,kiu' >> /tmp/clive/tasks.csv && echo '6,Update docs,done,martin' >> /tmp/clive/tasks.csv"
+    },
+    "success_criteria": {
+      "type": "deterministic",
+      "check": "grep -qi 'todo' /tmp/clive/result.txt && grep -qi 'in_progress\\|in progress' /tmp/clive/result.txt && grep -qi 'done' /tmp/clive/result.txt"
+    },
+    "min_turns": 1,
+    "max_turns": 5,
+    "timeout_seconds": 30
+  },
+  {
+    "id": "biz_meeting_notes_006",
+    "layer": 2,
+    "tool": "shell",
+    "mode": "script",
+    "task": "Parse meeting notes from /tmp/clive/meeting_notes.txt and extract all action items (lines starting with '- [ ]' or 'ACTION:'). Write them to /tmp/clive/result.txt with assignees.",
+    "initial_state": {
+      "setup": "cat > /tmp/clive/meeting_notes.txt << 'NOTES'\n# Sprint Planning 2026-04-09\n\nAttendees: Martin, Kiu, Sarah\n\n## Discussion\n- Reviewed Q2 roadmap\n- Discussed clive eval coverage gaps\n\n## Action Items\n- [ ] Martin: Set up CI pipeline for evals by 2026-04-12\n- [ ] Kiu: Review invoice extraction algorithm\nACTION: Sarah to update the project timeline document\n- [ ] Martin: Add calendar integration tests\nACTION: Kiu to prepare demo for stakeholders\n\n## Next Meeting: 2026-04-16\nNOTES"
+    },
+    "success_criteria": {
+      "type": "deterministic",
+      "check": "test $(wc -l < /tmp/clive/result.txt | tr -d ' ') -ge 4 && grep -qi 'martin\\|kiu\\|sarah' /tmp/clive/result.txt"
+    },
+    "min_turns": 1,
+    "max_turns": 5,
+    "timeout_seconds": 30
+  },
+  {
+    "id": "biz_revenue_report_007",
+    "layer": 2,
+    "tool": "shell",
+    "mode": "script",
+    "task": "Generate a monthly revenue report from /tmp/clive/revenue.csv. Calculate monthly totals and year-to-date cumulative. Write the report to /tmp/clive/result.txt.",
+    "initial_state": {
+      "setup": "echo 'month,revenue,expenses' > /tmp/clive/revenue.csv && echo 'Jan,45000,32000' >> /tmp/clive/revenue.csv && echo 'Feb,52000,35000' >> /tmp/clive/revenue.csv && echo 'Mar,48000,31000' >> /tmp/clive/revenue.csv && echo 'Apr,61000,38000' >> /tmp/clive/revenue.csv"
+    },
+    "success_criteria": {
+      "type": "deterministic",
+      "check": "grep -qE 'Jan|Feb|Mar|Apr' /tmp/clive/result.txt && grep -qi 'total\\|cumulative\\|ytd' /tmp/clive/result.txt"
+    },
+    "min_turns": 1,
+    "max_turns": 5,
+    "timeout_seconds": 30
+  },
+  {
+    "id": "biz_gantt_text_008",
+    "layer": 2,
+    "tool": "shell",
+    "mode": "script",
+    "task": "Create a text-based Gantt chart from /tmp/clive/project.csv showing task timelines as ASCII bars. Write the chart to /tmp/clive/result.txt.",
+    "initial_state": {
+      "setup": "echo 'task,start,end' > /tmp/clive/project.csv && echo 'Research,2026-04-01,2026-04-05' >> /tmp/clive/project.csv && echo 'Design,2026-04-03,2026-04-10' >> /tmp/clive/project.csv && echo 'Implementation,2026-04-08,2026-04-20' >> /tmp/clive/project.csv && echo 'Testing,2026-04-18,2026-04-25' >> /tmp/clive/project.csv && echo 'Deploy,2026-04-25,2026-04-28' >> /tmp/clive/project.csv"
+    },
+    "success_criteria": {
+      "type": "deterministic",
+      "check": "grep -q 'Research' /tmp/clive/result.txt && grep -q 'Deploy' /tmp/clive/result.txt && grep -qE '[#=|█▓░-]{3,}' /tmp/clive/result.txt"
+    },
+    "min_turns": 1,
+    "max_turns": 8,
+    "timeout_seconds": 45
+  },
+  {
+    "id": "biz_contact_vcard_009",
+    "layer": 2,
+    "tool": "shell",
+    "mode": "script",
+    "task": "Create a vCard (.vcf) file for a business contact: Name 'Kiu Chen', Email 'kiu@ikangai.com', Company 'ikangai UG', Phone '+49 176 1234567', Address 'Leopoldstr. 1, 80802 München, Germany'. Save to /tmp/clive/contact.vcf. Write the path to /tmp/clive/result.txt.",
+    "initial_state": {},
+    "success_criteria": {
+      "type": "deterministic",
+      "check": "test -f /tmp/clive/contact.vcf && grep -q 'BEGIN:VCARD' /tmp/clive/contact.vcf && grep -q 'kiu@ikangai.com' /tmp/clive/contact.vcf"
+    },
+    "min_turns": 1,
+    "max_turns": 5,
+    "timeout_seconds": 30
+  },
+  {
+    "id": "biz_budget_variance_010",
+    "layer": 2,
+    "tool": "shell",
+    "mode": "script",
+    "task": "Compare actual vs budget spending from /tmp/clive/budget.csv. Calculate variance (actual - budget) and variance percentage for each category. Write a formatted table to /tmp/clive/result.txt, flagging items over budget with 'OVER'.",
+    "initial_state": {
+      "setup": "echo 'category,budget,actual' > /tmp/clive/budget.csv && echo 'Engineering,50000,48000' >> /tmp/clive/budget.csv && echo 'Marketing,20000,25000' >> /tmp/clive/budget.csv && echo 'Operations,15000,14500' >> /tmp/clive/budget.csv && echo 'Travel,10000,12500' >> /tmp/clive/budget.csv && echo 'Software,8000,7200' >> /tmp/clive/budget.csv"
+    },
+    "success_criteria": {
+      "type": "deterministic",
+      "check": "grep -qi 'marketing' /tmp/clive/result.txt && grep -qi 'OVER\\|over budget\\|+' /tmp/clive/result.txt"
+    },
+    "min_turns": 1,
+    "max_turns": 5,
+    "timeout_seconds": 30
+  },
+  {
+    "id": "biz_sprint_burndown_011",
+    "layer": 2,
+    "tool": "shell",
+    "mode": "script",
+    "task": "Generate a text-based sprint burndown chart from /tmp/clive/sprint.csv. Show remaining story points per day as an ASCII chart. Write to /tmp/clive/result.txt.",
+    "initial_state": {
+      "setup": "echo 'day,remaining_points' > /tmp/clive/sprint.csv && echo '1,40' >> /tmp/clive/sprint.csv && echo '2,38' >> /tmp/clive/sprint.csv && echo '3,35' >> /tmp/clive/sprint.csv && echo '4,30' >> /tmp/clive/sprint.csv && echo '5,28' >> /tmp/clive/sprint.csv && echo '6,22' >> /tmp/clive/sprint.csv && echo '7,18' >> /tmp/clive/sprint.csv && echo '8,12' >> /tmp/clive/sprint.csv && echo '9,5' >> /tmp/clive/sprint.csv && echo '10,0' >> /tmp/clive/sprint.csv"
+    },
+    "success_criteria": {
+      "type": "deterministic",
+      "check": "test -f /tmp/clive/result.txt && grep -qE '[#=|█▓░*-]{2,}' /tmp/clive/result.txt"
+    },
+    "min_turns": 1,
+    "max_turns": 8,
+    "timeout_seconds": 45
+  },
+  {
+    "id": "biz_client_report_pdf_012",
+    "layer": 2,
+    "tool": "shell",
+    "mode": "script",
+    "task": "Create a client-facing project status report. Include: project name 'ikangai Platform v2', date, status summary, key metrics (3 items completed, 2 in progress, 5 remaining), and next milestones. Write as formatted markdown to /tmp/clive/result.md.",
+    "initial_state": {},
+    "success_criteria": {
+      "type": "deterministic",
+      "check": "test -f /tmp/clive/result.md && grep -q 'ikangai' /tmp/clive/result.md && grep -qE 'completed|progress|remaining' /tmp/clive/result.md"
+    },
+    "min_turns": 1,
+    "max_turns": 5,
+    "timeout_seconds": 30
+  },
+  {
+    "id": "biz_invoice_generate_013",
+    "layer": 2,
+    "tool": "shell",
+    "mode": "script",
+    "task": "Generate a professional invoice text file from structured data. Invoice from ikangai UG to CloudServe GmbH: 3 line items (Consulting 20h @ €150/h, Development 40h @ €120/h, Testing 10h @ €100/h). Include subtotal, 19% VAT, and total. Save to /tmp/clive/result.txt.",
+    "initial_state": {},
+    "success_criteria": {
+      "type": "deterministic",
+      "check": "grep -q 'ikangai' /tmp/clive/result.txt && grep -qE 'VAT|Mwst' /tmp/clive/result.txt && grep -qE '[0-9]+\\.[0-9]{2}' /tmp/clive/result.txt"
+    },
+    "min_turns": 1,
+    "max_turns": 5,
+    "timeout_seconds": 30
+  },
+  {
+    "id": "biz_task_priority_014",
+    "layer": 2,
+    "tool": "shell",
+    "mode": "script",
+    "task": "Read /tmp/clive/backlog.csv and sort tasks by priority (P0 > P1 > P2 > P3), then by effort (ascending). Write the sorted list to /tmp/clive/result.txt.",
+    "initial_state": {
+      "setup": "echo 'id,title,priority,effort_days' > /tmp/clive/backlog.csv && echo '1,Fix auth bug,P0,1' >> /tmp/clive/backlog.csv && echo '2,Add search,P2,5' >> /tmp/clive/backlog.csv && echo '3,Upgrade database,P1,3' >> /tmp/clive/backlog.csv && echo '4,Update docs,P3,2' >> /tmp/clive/backlog.csv && echo '5,Fix memory leak,P0,2' >> /tmp/clive/backlog.csv && echo '6,New dashboard,P2,8' >> /tmp/clive/backlog.csv && echo '7,SSL renewal,P1,1' >> /tmp/clive/backlog.csv"
+    },
+    "success_criteria": {
+      "type": "deterministic",
+      "check": "test -f /tmp/clive/result.txt && head -1 /tmp/clive/result.txt | grep -qi 'P0\\|auth bug\\|Fix auth'"
+    },
+    "min_turns": 1,
+    "max_turns": 5,
+    "timeout_seconds": 30
+  },
+  {
+    "id": "biz_standup_template_015",
+    "layer": 2,
+    "tool": "shell",
+    "mode": "script",
+    "task": "Generate a daily standup template for today (2026-04-09) for team member 'Martin'. Pull yesterday's completed tasks from /tmp/clive/done.log and today's planned tasks from /tmp/clive/planned.csv. Format as: Yesterday / Today / Blockers. Write to /tmp/clive/result.txt.",
+    "initial_state": {
+      "setup": "echo '2026-04-08 Completed eval harness refactor' > /tmp/clive/done.log && echo '2026-04-08 Fixed TUI layout bug' >> /tmp/clive/done.log && echo 'task,assignee' > /tmp/clive/planned.csv && echo 'Add calendar evals,Martin' >> /tmp/clive/planned.csv && echo 'Review PR #42,Martin' >> /tmp/clive/planned.csv && echo 'Deploy staging,Sarah' >> /tmp/clive/planned.csv"
+    },
+    "success_criteria": {
+      "type": "deterministic",
+      "check": "grep -qi 'yesterday' /tmp/clive/result.txt && grep -qi 'today' /tmp/clive/result.txt && grep -qi 'Martin\\|martin' /tmp/clive/result.txt"
+    },
+    "min_turns": 1,
+    "max_turns": 5,
+    "timeout_seconds": 30
+  },
+  {
+    "id": "biz_kpi_dashboard_016",
+    "layer": 2,
+    "tool": "shell",
+    "mode": "script",
+    "task": "Create a text-based KPI dashboard from /tmp/clive/kpis.json showing each metric with a progress bar toward its target. Write to /tmp/clive/result.txt.",
+    "initial_state": {
+      "setup": "echo '[{\"name\":\"Revenue\",\"current\":156000,\"target\":200000},{\"name\":\"Users\",\"current\":4200,\"target\":5000},{\"name\":\"NPS\",\"current\":72,\"target\":80},{\"name\":\"Uptime\",\"current\":99.7,\"target\":99.9}]' > /tmp/clive/kpis.json"
+    },
+    "success_criteria": {
+      "type": "deterministic",
+      "check": "grep -q 'Revenue' /tmp/clive/result.txt && grep -q 'Users' /tmp/clive/result.txt && grep -qE '[#=|█▓░]{2,}' /tmp/clive/result.txt"
+    },
+    "min_turns": 1,
+    "max_turns": 8,
+    "timeout_seconds": 45
+  },
+  {
+    "id": "biz_payroll_summary_017",
+    "layer": 2,
+    "tool": "shell",
+    "mode": "script",
+    "task": "Calculate payroll totals from /tmp/clive/payroll.csv. Compute gross pay, deductions (30%), and net pay per employee. Write a summary table to /tmp/clive/result.txt with a total row.",
+    "initial_state": {
+      "setup": "echo 'employee,hours,rate' > /tmp/clive/payroll.csv && echo 'Martin,160,65.00' >> /tmp/clive/payroll.csv && echo 'Kiu,160,70.00' >> /tmp/clive/payroll.csv && echo 'Sarah,120,55.00' >> /tmp/clive/payroll.csv"
+    },
+    "success_criteria": {
+      "type": "deterministic",
+      "check": "grep -q 'Martin' /tmp/clive/result.txt && grep -qi 'total\\|sum' /tmp/clive/result.txt && grep -qE '[0-9]+\\.[0-9]{2}' /tmp/clive/result.txt"
+    },
+    "min_turns": 1,
+    "max_turns": 5,
+    "timeout_seconds": 30
+  },
+  {
+    "id": "biz_inventory_alert_018",
+    "layer": 2,
+    "tool": "shell",
+    "mode": "script",
+    "task": "Check /tmp/clive/inventory.csv for items below reorder threshold. Write a reorder alert to /tmp/clive/result.txt listing items that need restocking.",
+    "initial_state": {
+      "setup": "echo 'item,quantity,reorder_threshold' > /tmp/clive/inventory.csv && echo 'Laptop,5,10' >> /tmp/clive/inventory.csv && echo 'Monitor,25,15' >> /tmp/clive/inventory.csv && echo 'Keyboard,3,20' >> /tmp/clive/inventory.csv && echo 'Mouse,45,20' >> /tmp/clive/inventory.csv && echo 'Headset,2,5' >> /tmp/clive/inventory.csv"
+    },
+    "success_criteria": {
+      "type": "deterministic",
+      "check": "grep -qi 'laptop' /tmp/clive/result.txt && grep -qi 'keyboard' /tmp/clive/result.txt && grep -qi 'headset' /tmp/clive/result.txt"
+    },
+    "min_turns": 1,
+    "max_turns": 5,
+    "timeout_seconds": 30
+  },
+  {
+    "id": "biz_contract_expiry_019",
+    "layer": 2,
+    "tool": "shell",
+    "mode": "script",
+    "task": "Check /tmp/clive/contracts.csv for contracts expiring within 30 days of 2026-04-09. Write the expiring contracts with days remaining to /tmp/clive/result.txt.",
+    "initial_state": {
+      "setup": "echo 'vendor,contract_id,expiry_date,value' > /tmp/clive/contracts.csv && echo 'AWS,C-001,2026-04-20,24000' >> /tmp/clive/contracts.csv && echo 'Slack,C-002,2026-06-15,3600' >> /tmp/clive/contracts.csv && echo 'GitHub,C-003,2026-04-30,7200' >> /tmp/clive/contracts.csv && echo 'Datadog,C-004,2026-05-01,12000' >> /tmp/clive/contracts.csv && echo 'Zoom,C-005,2026-04-12,2400' >> /tmp/clive/contracts.csv"
+    },
+    "success_criteria": {
+      "type": "deterministic",
+      "check": "grep -qi 'AWS' /tmp/clive/result.txt && grep -qi 'Zoom' /tmp/clive/result.txt && grep -qi 'GitHub' /tmp/clive/result.txt"
+    },
+    "min_turns": 1,
+    "max_turns": 5,
+    "timeout_seconds": 30
+  },
+  {
+    "id": "biz_quarterly_review_020",
+    "layer": 2,
+    "tool": "shell",
+    "mode": "script",
+    "task": "Generate a Q1 2026 quarterly business review document from /tmp/clive/q1_data.csv. Include: revenue trend, top 3 clients by revenue, cost breakdown, and profit margin. Write to /tmp/clive/result.txt.",
+    "initial_state": {
+      "setup": "echo 'month,client,revenue,costs' > /tmp/clive/q1_data.csv && echo 'Jan,Acme Corp,15000,8000' >> /tmp/clive/q1_data.csv && echo 'Jan,TechStart,12000,6000' >> /tmp/clive/q1_data.csv && echo 'Jan,GlobalFin,8000,4000' >> /tmp/clive/q1_data.csv && echo 'Feb,Acme Corp,18000,9000' >> /tmp/clive/q1_data.csv && echo 'Feb,TechStart,14000,7000' >> /tmp/clive/q1_data.csv && echo 'Feb,GlobalFin,9000,5000' >> /tmp/clive/q1_data.csv && echo 'Mar,Acme Corp,20000,10000' >> /tmp/clive/q1_data.csv && echo 'Mar,TechStart,16000,8000' >> /tmp/clive/q1_data.csv && echo 'Mar,GlobalFin,11000,6000' >> /tmp/clive/q1_data.csv"
+    },
+    "success_criteria": {
+      "type": "deterministic",
+      "check": "grep -qi 'acme' /tmp/clive/result.txt && grep -qi 'revenue\\|profit' /tmp/clive/result.txt"
+    },
+    "min_turns": 1,
+    "max_turns": 8,
+    "timeout_seconds": 45
+  }
+]
