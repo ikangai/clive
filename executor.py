@@ -77,17 +77,6 @@ def _wrap_for_sandbox(cmd: str, session_dir: str, sandboxed: bool = False, no_ne
     return " ".join(parts)
 
 
-# ─── Outcome Detection ───────────────────────────────────────────────────────
-
-_SUCCESS_PATTERNS = [
-    re.compile(r'\b(saved|written|created|completed|success|done|ok)\b', re.IGNORECASE),
-]
-_ERROR_PATTERNS = [
-    re.compile(r'\b(error|failed|not found|no such|cannot|denied|refused)\b', re.IGNORECASE),
-]
-
-
-
 
 
 
@@ -412,9 +401,6 @@ def execute_plan(
     subtask_map = {s.id: s for s in plan.subtasks}
     start_times: dict[str, float] = {}
 
-    # Pane state continuity: track last screen per pane for handoff
-    pane_last_screen: dict[str, str] = {}
-
     # Result file registry: track files written by each subtask
     result_files: dict[str, list[str]] = {}
 
@@ -475,15 +461,6 @@ def execute_plan(
                 # Build enriched dependency context (with file registry)
                 dep_context = _build_dependency_context(subtask, results, result_files)
 
-                # Pane state continuity: pass last screen from previous subtask
-                pane_context = pane_last_screen.get(subtask.pane, "")
-
-                # Build plan context — agent knows its role in the bigger picture
-                plan_summary = _build_plan_context(plan, subtask)
-
-                # Current token usage for budget awareness
-                tokens_used = sum(r.prompt_tokens + r.completion_tokens for r in results.values())
-
                 # Submit to thread pool
                 subtask.status = SubtaskStatus.RUNNING
                 start_times[subtask.id] = time.time()
@@ -535,8 +512,6 @@ def execute_plan(
                     elapsed = time.time() - start_times.get(sid, time.time())
                     logging.debug(f"{'DONE' if result.status == SubtaskStatus.COMPLETED else 'FAIL'} [{sid}] {result.summary[:60]}")
 
-                    # Track pane state and result files
-                    pane_last_screen[subtask_obj.pane] = result.output_snippet
                     if result.status == SubtaskStatus.COMPLETED:
                         _emit(on_event, "subtask_done", sid, result.summary, elapsed)
                         # Scan session dir for files written by this subtask
@@ -929,16 +904,6 @@ def run_subtask(
         dep_context=dep_context,
         on_event=on_event,
         session_dir=session_dir,
-    )
-
-
-
-
-    # NOTE: This point is unreachable — all modes dispatched above.
-    # Old interactive loop was here (removed in pane-core-refocus).
-    return SubtaskResult(
-        subtask_id=subtask.id, status=SubtaskStatus.FAILED,
-        summary="Unknown mode", output_snippet="", turns_used=0,
     )
 
 
