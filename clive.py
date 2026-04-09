@@ -387,10 +387,13 @@ def _run_inner(task, toolset_spec, output_format, max_tokens, session_dir, _clea
             config_schema = find_config_schema(tool_key)
             if config_schema:
                 retry = run_setup(tool_key, config_schema)
-                if retry:
+                # Refresh unconfigured list regardless of retry choice
+                from config import is_configured
+                if is_configured(config_schema):
                     session_ctx["unconfigured"] = [
                         t for t in session_ctx.get("unconfigured", []) if t != tool_key
                     ]
+                if retry:
                     # Re-classify instead of recursing (avoids infinite loop)
                     classifier_result = _classify(task, session_ctx)
                     if classifier_result and classifier_result.mode == "unconfigured":
