@@ -1264,6 +1264,16 @@ if __name__ == "__main__":
             if os.path.isdir(session_dir):
                 shutil.rmtree(session_dir, ignore_errors=True)
 
+        # Enable readline for arrow keys, history, and special chars
+        import readline
+        history_file = os.path.expanduser("~/.clive/history")
+        os.makedirs(os.path.dirname(history_file), exist_ok=True)
+        try:
+            readline.read_history_file(history_file)
+        except FileNotFoundError:
+            pass
+        readline.set_history_length(500)
+
         try:
             while True:
                 try:
@@ -1286,6 +1296,10 @@ if __name__ == "__main__":
                 except Exception as e:
                     progress(f"Error: {e}")
         finally:
+            try:
+                readline.write_history_file(history_file)
+            except OSError:
+                pass
             _repl_cleanup()
 
         raise SystemExit(0)
