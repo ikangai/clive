@@ -386,23 +386,13 @@ def _run_inner(task, toolset_spec, output_format, max_tokens, session_dir, _clea
             tool_key = cr.tool or ""
             config_schema = find_config_schema(tool_key)
             if config_schema:
-                retry = run_setup(tool_key, config_schema)
-                # Refresh unconfigured list regardless of retry choice
+                run_setup(tool_key, config_schema)
                 from config import is_configured
                 if is_configured(config_schema):
                     session_ctx["unconfigured"] = [
                         t for t in session_ctx.get("unconfigured", []) if t != tool_key
                     ]
-                if retry:
-                    # Re-classify instead of recursing (avoids infinite loop)
-                    classifier_result = _classify(task, session_ctx)
-                    if classifier_result and classifier_result.mode == "unconfigured":
-                        detail("Tool still not configured after setup.")
-                        return "Setup may be incomplete. Check ~/.clive/config/."
-                    # Fall through to re-execute with updated classifier result
-                    cr = classifier_result if classifier_result else cr
-                else:
-                    return "Setup completed. Re-run the task when ready."
+                return f"{tool_key} setup complete." if is_configured(config_schema) else f"{tool_key} setup cancelled."
             else:
                 step(f"Unconfigured: {tool_key}")
                 detail("No configuration schema found for this tool.")

@@ -93,11 +93,8 @@ def find_config_schema(tool_name: str) -> dict | None:
     return None
 
 
-def run_setup(tool_name: str, config_schema: dict) -> bool:
-    """Interactive setup: prompt for fields, write config, generate native config.
-
-    Returns True if user wants to retry the original task.
-    """
+def run_setup(tool_name: str, config_schema: dict) -> None:
+    """Interactive setup: prompt for fields, write config, generate native config."""
     step(f"{tool_name} not configured. Let's set it up.")
     finish()  # stop pulse animation before input() prompts
     fields = config_schema.get("fields", [])
@@ -121,13 +118,13 @@ def run_setup(tool_name: str, config_schema: dict) -> bool:
         except (EOFError, KeyboardInterrupt):
             print()
             detail("Setup cancelled.")
-            return False
+            return
 
         if not val and default is not None:
             val = default
         if not val and field.get("required"):
             detail(f"{field['prompt']} is required. Setup cancelled.")
-            return False
+            return
 
         if isinstance(default, int) and isinstance(val, str):
             try:
@@ -147,12 +144,7 @@ def run_setup(tool_name: str, config_schema: dict) -> bool:
         if gen_fn:
             gen_fn(values, config_schema)
 
-    try:
-        retry = input("  Try the task again? [Y/n]: ").strip().lower()
-    except (EOFError, KeyboardInterrupt):
-        print()
-        return False
-    return retry in ("", "y", "yes")
+    detail(f"{tool_name} configured. Run the task again to use it.")
 
 
 def generate_neomuttrc(config: dict, schema: dict) -> None:
