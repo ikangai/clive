@@ -47,6 +47,7 @@ PANES = {
     },
     "browser": {
         "name": "browser",
+        "aliases": ["lynx", "web", "www"],
         "cmd": None,
         "app_type": "browser",
         "description": (
@@ -81,6 +82,7 @@ PANES = {
     },
     "email": {
         "name": "email",
+        "aliases": ["mail", "neomutt", "mutt", "msmtp", "sendmail"],
         "cmd": None,
         "app_type": "email_cli",
         "description": (
@@ -672,18 +674,37 @@ def list_toolsets() -> dict[str, list[str]]:
     return result
 
 
+def normalize_tool_name(name: str) -> str:
+    """Map classifier tool names to canonical pane/command names via aliases.
+
+    E.g. "mail" → "email", "lynx" → "browser". Returns original if no match.
+    """
+    # Direct match
+    if name in PANES or name in COMMANDS:
+        return name
+    # Check pane aliases
+    for pane_id, pane_def in PANES.items():
+        if name in pane_def.get("aliases", []):
+            return pane_def["name"]
+    return name
+
+
 def find_category(tool_name: str) -> str | None:
-    """Reverse lookup: find which category provides a tool (pane or command)."""
+    """Reverse lookup: find which category provides a tool (pane or command).
+
+    Handles aliases: find_category("mail") → "comms" (via email pane alias).
+    """
+    canonical = normalize_tool_name(tool_name)
     for cat_name, cat_def in CATEGORIES.items():
-        if tool_name in cat_def.get("panes", []):
+        if canonical in cat_def.get("panes", []):
             return cat_name
-        if tool_name in cat_def.get("commands", []):
+        if canonical in cat_def.get("commands", []):
             return cat_name
-    # Also check pane names (pane dict key != pane "name" field)
+    # Also check pane name field
     for cat_name, cat_def in CATEGORIES.items():
         for pane_id in cat_def.get("panes", []):
             pane_def = PANES.get(pane_id)
-            if pane_def and pane_def["name"] == tool_name:
+            if pane_def and pane_def["name"] == canonical:
                 return cat_name
     return None
 

@@ -47,7 +47,8 @@ from session import setup_session, check_health, generate_session_id, SESSION_NA
 from toolsets import (
     resolve_toolset, check_commands, build_tools_summary,
     print_availability, list_toolsets, list_categories,
-    find_category, DEFAULT_TOOLSET, PROFILES, CATEGORIES, PANES, COMMANDS,
+    find_category, normalize_tool_name,
+    DEFAULT_TOOLSET, PROFILES, CATEGORIES, PANES, COMMANDS,
 )
 from planner import create_plan, display_plan
 from executor import execute_plan
@@ -442,7 +443,7 @@ def _run_inner(task, toolset_spec, output_format, max_tokens, session_dir, _clea
         # ── Reality check: validate classifier against actual session state ──
         # The classifier is a hint — the session state is the source of truth.
         if cr.mode in ("unavailable", "unconfigured"):
-            tool_key = cr.tool or ""
+            tool_key = normalize_tool_name(cr.tool or "")
 
             def _try_activate_tool(tool_key):
                 """Check if tool is ready as pane or command. Returns ClassifierResult or None."""
@@ -496,6 +497,13 @@ def _run_inner(task, toolset_spec, output_format, max_tokens, session_dir, _clea
             step("Clarification needed")
             detail(cr.message or "Could you be more specific?")
             return cr.message or "Could you be more specific?"
+
+        # Reroute: if classifier says direct/script but tool is a pane alias, use that pane
+        if cr.mode in ("direct", "script") and cr.tool:
+            canonical = normalize_tool_name(cr.tool)
+            if canonical in panes and canonical != cr.tool:
+                cr = ClassifierResult(mode="interactive", tool=canonical, pane=canonical)
+                target_pane = canonical
 
         if cr.mode == "direct" and cr.cmd:
             plan = Plan(task=task, subtasks=[
