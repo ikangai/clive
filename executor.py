@@ -1091,13 +1091,24 @@ def run_subtask(
             session_dir=session_dir,
         )
 
-    # Streaming mode uses interactive loop with intervention detection
-    detect_intervention = subtask.mode == "streaming"
-
     # Smart max_turns: mode-aware defaults when planner didn't specify
     _MODE_TURNS = {"script": 3, "interactive": 8, "streaming": 10}
     if subtask.max_turns == 15:  # default wasn't overridden
         subtask.max_turns = _MODE_TURNS.get(subtask.mode, 8)
+
+    # Interactive and streaming modes → v2 worker
+    return run_subtask_interactive(
+        subtask=subtask,
+        pane_info=pane_info,
+        dep_context=dep_context,
+        on_event=on_event,
+        session_dir=session_dir,
+    )
+
+    # --- Legacy interactive loop below (unreachable, pending deletion in Task 6) ---
+
+    # Streaming mode uses interactive loop with intervention detection
+    detect_intervention = subtask.mode == "streaming"
 
     log.info(f"Subtask {subtask.id}: mode={subtask.mode}, pane={subtask.pane}, max_turns={subtask.max_turns}")
 
