@@ -21,7 +21,7 @@ PATTERNS:
 - Long output: cmd | head -50 or cmd | tail -20
 - Search files: grep -r 'pattern' /path or rg 'pattern' /path
 - JSON processing: curl -s url | jq '.field'
-- CSV processing: mlr --csv filter '$col > val' file.csv
+- CSV: awk -F',' 'condition{print fields}' file.csv (check header with head -1)
 - File listing: ls -la /path (not just ls)
 - Disk usage: du -sh /path/*
 - Process text: awk, sed, sort, uniq, wc, cut, tr
