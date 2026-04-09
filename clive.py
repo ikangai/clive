@@ -702,6 +702,9 @@ if __name__ == "__main__":
     parser.add_argument("--run-now", metavar="NAME", help="Run a scheduled task immediately")
     parser.add_argument("--history", metavar="NAME", help="Show run history")
     parser.add_argument("--notify", metavar="METHOD", default="", help="Notification: email:addr or file:/path")
+    parser.add_argument("--name", metavar="NAME", help="Name this instance (makes it addressable and conversational)")
+    parser.add_argument("--stop", metavar="NAME", help="Stop a named instance by sending SIGTERM")
+    parser.add_argument("--dashboard", action="store_true", help="Show running instances and exit")
     parser.add_argument("--serve", action="store_true", help="Start server mode with worker pool")
     parser.add_argument("--instances", action="store_true", help="List running clive instances and exit")
     parser.add_argument("--status", action="store_true", help="Show server health status and exit")
@@ -947,6 +950,26 @@ if __name__ == "__main__":
                 print(f"  {indicator} {ts:20s} {status:8s} {dur:>4s}s  {res}")
         else:
             print(f"No history for {args.history}")
+        raise SystemExit(0)
+
+    if args.dashboard:
+        from dashboard import render_snapshot
+        render_snapshot()
+        raise SystemExit(0)
+
+    if args.stop:
+        from registry import get_instance as _get_inst
+        inst = _get_inst(args.stop)
+        if inst is None:
+            print(f"Instance '{args.stop}' not found or not running", file=sys.stderr)
+            raise SystemExit(1)
+        pid = inst["pid"]
+        try:
+            os.kill(pid, signal.SIGTERM)
+            print(f"Sent SIGTERM to instance '{args.stop}' (PID {pid})")
+        except OSError as e:
+            print(f"Failed to stop '{args.stop}': {e}", file=sys.stderr)
+            raise SystemExit(1)
         raise SystemExit(0)
 
     if args.instances:
