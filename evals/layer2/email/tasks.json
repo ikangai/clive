@@ -4,7 +4,7 @@
     "layer": 2,
     "tool": "shell",
     "mode": "interactive",
-    "task": "Send an email to test@example.com with the subject 'Hello from clive' and body 'This is a test email.' using the send_reply.sh script. Write the command output to /tmp/clive/result.txt.",
+    "task": "Send an email to kiu@ikangai.com with the subject 'Weekly status update' and body 'Hi, please find attached the weekly status update. All milestones on track.' using the send_reply.sh script. Write the command output to /tmp/clive/result.txt.",
     "initial_state": {},
     "success_criteria": {
       "type": "deterministic",
@@ -15,15 +15,15 @@
     "timeout_seconds": 30
   },
   {
-    "id": "email_send_uses_script_002",
+    "id": "email_send_with_cc_002",
     "layer": 2,
     "tool": "shell",
     "mode": "interactive",
-    "task": "Send an email to alice@example.com with subject 'Meeting tomorrow' and body 'Can we meet at 3pm?'. Use the send_reply.sh helper script. Capture the full command you ran to /tmp/clive/result.txt.",
+    "task": "Send an email to kiu@ikangai.com with CC to team@ikangai.com, subject 'Q2 Planning meeting', body 'Scheduling the Q2 planning session for next Wednesday at 2pm CET. Please confirm availability.' Use send_reply.sh. Write the command to /tmp/clive/result.txt.",
     "initial_state": {},
     "success_criteria": {
       "type": "deterministic",
-      "check": "grep -q 'send_reply.sh' /tmp/clive/result.txt && grep -q 'alice@example.com' /tmp/clive/result.txt"
+      "check": "grep -q 'send_reply.sh' /tmp/clive/result.txt && grep -q 'kiu@ikangai.com' /tmp/clive/result.txt"
     },
     "min_turns": 1,
     "max_turns": 5,
@@ -34,7 +34,7 @@
     "layer": 2,
     "tool": "shell",
     "mode": "interactive",
-    "task": "Send an email to bob@example.com about project updates. Do NOT use the system 'mail' or 'sendmail' commands — use the configured email tools. Write what command you used to /tmp/clive/result.txt.",
+    "task": "Send an email to kiu@ikangai.com about project deadline extension. Do NOT use the system 'mail' or 'sendmail' commands — use the configured email tools. Write what command you used to /tmp/clive/result.txt.",
     "initial_state": {},
     "success_criteria": {
       "type": "deterministic",
@@ -60,18 +60,168 @@
     "timeout_seconds": 45
   },
   {
-    "id": "email_send_with_special_chars_005",
+    "id": "email_send_special_chars_005",
     "layer": 2,
     "tool": "shell",
     "mode": "interactive",
-    "task": "Send an email to user@example.com with subject 'Re: Q&A session' and body 'What\\'s the plan for tomorrow?' using send_reply.sh. Write the command you used to /tmp/clive/result.txt.",
+    "task": "Send an email to kiu@ikangai.com with subject 'Re: Q&A session — München office' and body 'What\\'s the plan for the München offsite? Budget is €5,000.' using send_reply.sh. Write the command to /tmp/clive/result.txt.",
     "initial_state": {},
     "success_criteria": {
       "type": "deterministic",
-      "check": "grep -q 'send_reply.sh' /tmp/clive/result.txt && grep -q 'user@example.com' /tmp/clive/result.txt"
+      "check": "grep -q 'send_reply.sh' /tmp/clive/result.txt && grep -q 'kiu@ikangai.com' /tmp/clive/result.txt"
     },
     "min_turns": 1,
     "max_turns": 5,
     "timeout_seconds": 30
+  },
+  {
+    "id": "email_search_inbox_006",
+    "layer": 2,
+    "tool": "shell",
+    "mode": "interactive",
+    "task": "Open neomutt and search for emails containing 'invoice' in the subject line. List the matching email subjects to /tmp/clive/result.txt, one per line. Quit neomutt when done.",
+    "initial_state": {},
+    "success_criteria": {
+      "type": "deterministic",
+      "check": "test -f /tmp/clive/result.txt"
+    },
+    "min_turns": 3,
+    "max_turns": 12,
+    "timeout_seconds": 60
+  },
+  {
+    "id": "email_forward_007",
+    "layer": 2,
+    "tool": "shell",
+    "mode": "interactive",
+    "task": "Forward the most recent email in the inbox to kiu@ikangai.com with an added note 'FYI — see below for context on the project timeline.' using neomutt. Write 'FORWARDED' to /tmp/clive/result.txt when done.",
+    "initial_state": {},
+    "success_criteria": {
+      "type": "deterministic",
+      "check": "grep -qi 'forwarded' /tmp/clive/result.txt"
+    },
+    "min_turns": 3,
+    "max_turns": 12,
+    "timeout_seconds": 60
+  },
+  {
+    "id": "email_reply_008",
+    "layer": 2,
+    "tool": "shell",
+    "mode": "interactive",
+    "task": "Open neomutt, find the most recent email, and reply with 'Thank you, I will review this and get back to you by end of day.' Quit neomutt after sending. Write 'REPLIED' to /tmp/clive/result.txt.",
+    "initial_state": {},
+    "success_criteria": {
+      "type": "deterministic",
+      "check": "grep -qi 'replied' /tmp/clive/result.txt"
+    },
+    "min_turns": 3,
+    "max_turns": 12,
+    "timeout_seconds": 60
+  },
+  {
+    "id": "email_attachment_009",
+    "layer": 2,
+    "tool": "shell",
+    "mode": "interactive",
+    "task": "Create a file /tmp/clive/report.txt with content 'Q2 Revenue: €1.2M'. Then send it as an attachment to kiu@ikangai.com with subject 'Q2 Report attached'. Use the configured email tools. Write the send command to /tmp/clive/result.txt.",
+    "initial_state": {},
+    "success_criteria": {
+      "type": "deterministic",
+      "check": "test -f /tmp/clive/report.txt && grep -q 'kiu@ikangai.com' /tmp/clive/result.txt"
+    },
+    "min_turns": 2,
+    "max_turns": 8,
+    "timeout_seconds": 45
+  },
+  {
+    "id": "email_list_unread_010",
+    "layer": 2,
+    "tool": "shell",
+    "mode": "interactive",
+    "task": "Open neomutt and count the number of unread emails in the inbox. Write just the count to /tmp/clive/result.txt. Quit neomutt when done.",
+    "initial_state": {},
+    "success_criteria": {
+      "type": "deterministic",
+      "check": "grep -qE '^[0-9]+$' /tmp/clive/result.txt"
+    },
+    "min_turns": 3,
+    "max_turns": 12,
+    "timeout_seconds": 60
+  },
+  {
+    "id": "email_flag_important_011",
+    "layer": 2,
+    "tool": "shell",
+    "mode": "interactive",
+    "task": "Open neomutt, flag the most recent email as important, then quit. Write 'FLAGGED' to /tmp/clive/result.txt when done.",
+    "initial_state": {},
+    "success_criteria": {
+      "type": "deterministic",
+      "check": "grep -qi 'flagged' /tmp/clive/result.txt"
+    },
+    "min_turns": 3,
+    "max_turns": 12,
+    "timeout_seconds": 60
+  },
+  {
+    "id": "email_multi_recipient_012",
+    "layer": 2,
+    "tool": "shell",
+    "mode": "interactive",
+    "task": "Send an email to kiu@ikangai.com and team@ikangai.com (both in To:) with subject 'Sprint retrospective notes' and body 'Please review the attached retro notes before Friday standup.' Use send_reply.sh. Write the command to /tmp/clive/result.txt.",
+    "initial_state": {},
+    "success_criteria": {
+      "type": "deterministic",
+      "check": "grep -q 'send_reply.sh' /tmp/clive/result.txt && grep -q 'kiu@ikangai.com' /tmp/clive/result.txt"
+    },
+    "min_turns": 1,
+    "max_turns": 5,
+    "timeout_seconds": 30
+  },
+  {
+    "id": "email_save_attachment_013",
+    "layer": 2,
+    "tool": "shell",
+    "mode": "interactive",
+    "task": "Open neomutt, find an email with an attachment, and save the attachment to /tmp/clive/. Write the saved filename to /tmp/clive/result.txt. Quit neomutt when done.",
+    "initial_state": {},
+    "success_criteria": {
+      "type": "deterministic",
+      "check": "test -f /tmp/clive/result.txt && test -s /tmp/clive/result.txt"
+    },
+    "min_turns": 4,
+    "max_turns": 15,
+    "timeout_seconds": 90
+  },
+  {
+    "id": "email_draft_professional_014",
+    "layer": 2,
+    "tool": "shell",
+    "mode": "interactive",
+    "task": "Draft a professional email to kiu@ikangai.com declining a meeting invitation politely, suggesting alternative dates next week. Save the draft text to /tmp/clive/result.txt before sending.",
+    "initial_state": {},
+    "success_criteria": {
+      "type": "deterministic",
+      "check": "test -f /tmp/clive/result.txt && grep -qi 'alternative\\|reschedule\\|another time' /tmp/clive/result.txt"
+    },
+    "min_turns": 2,
+    "max_turns": 8,
+    "timeout_seconds": 45
+  },
+  {
+    "id": "email_thread_summary_015",
+    "layer": 2,
+    "tool": "shell",
+    "mode": "interactive",
+    "task": "Open neomutt, find the longest email thread (most replies), and write a one-paragraph summary of the thread's topic to /tmp/clive/result.txt. Quit neomutt when done.",
+    "initial_state": {},
+    "success_criteria": {
+      "type": "deterministic",
+      "check": "test -f /tmp/clive/result.txt && test $(wc -w < /tmp/clive/result.txt) -gt 10"
+    },
+    "min_turns": 4,
+    "max_turns": 15,
+    "timeout_seconds": 90
   }
 ]
