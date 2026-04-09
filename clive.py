@@ -1060,6 +1060,21 @@ if __name__ == "__main__":
             step("Remote task timed out (300s)")
         raise SystemExit(proc.returncode if 'proc' in dir() else 1)
 
+    # Named instance: register, check collision, set up deregister on exit
+    _instance_name = getattr(args, 'name', None)
+    if _instance_name:
+        from registry import is_name_available, register as _register, deregister as _deregister, get_instance as _get_inst_reg
+        if not is_name_available(_instance_name):
+            existing = _get_inst_reg(_instance_name)
+            pid = existing["pid"] if existing else "?"
+            print(f"Instance '{_instance_name}' is already running (PID {pid})", file=sys.stderr)
+            raise SystemExit(1)
+
+        import atexit
+        def _deregister_on_exit():
+            _deregister(_instance_name)
+        atexit.register(_deregister_on_exit)
+
     # ─── Mode auto-detection ──────────────────────────────────────────
     # Conversational mode: explicit flag or no TTY (clive-to-clive via SSH)
     if args.conversational or (
@@ -1155,21 +1170,6 @@ if __name__ == "__main__":
             print(f"  Notify: {entry['notify']}")
         print(f"  Results: ~/.clive/results/{entry['name']}/")
         raise SystemExit(0)
-
-    # Named instance: register, check collision, set up deregister on exit
-    _instance_name = getattr(args, 'name', None)
-    if _instance_name:
-        from registry import is_name_available, register as _register, deregister as _deregister, get_instance as _get_inst_reg
-        if not is_name_available(_instance_name):
-            existing = _get_inst_reg(_instance_name)
-            pid = existing["pid"] if existing else "?"
-            print(f"Instance '{_instance_name}' is already running (PID {pid})", file=sys.stderr)
-            raise SystemExit(1)
-
-        import atexit
-        def _deregister_on_exit():
-            _deregister(_instance_name)
-        atexit.register(_deregister_on_exit)
 
     # Interactive REPL mode: no task arg → show banner, set up session once, loop
     if not args.task and not args.dry_run:
