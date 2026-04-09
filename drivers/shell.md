@@ -26,6 +26,11 @@ PATTERNS:
 - Disk usage: du -sh /path/*
 - Process text: awk, sed, sort, uniq, wc, cut, tr
 
+ERROR RECOVERY:
+- Malformed JSON: use grep/awk instead of jq when data may be corrupted
+- Command fails: read the error, fix the approach, retry
+- Missing tools: check with `which tool` before using; fall back to alternatives
+
 PITFALLS:
 - Quoting: use single quotes for literal strings, double for variable expansion
 - Glob expansion: quote patterns when passing to grep/find: grep 'TODO' *.py
