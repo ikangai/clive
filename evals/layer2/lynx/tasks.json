@@ -1,33 +1,33 @@
 [
   {
-    "id": "lynx_fetch_page_001",
+    "id": "lynx_fetch_wikipedia_001",
     "layer": 2,
     "tool": "browser",
     "mode": "interactive",
-    "task": "Fetch the page at http://example.com using lynx -dump and write the main heading (the h1 text) to /tmp/clive/result.txt.",
+    "task": "Fetch the page at https://en.wikipedia.org/wiki/Terminal_emulator using lynx -dump and write the first heading (h1 text) to /tmp/clive/result.txt.",
     "initial_state": {},
     "success_criteria": {
       "type": "deterministic",
-      "check": "grep -qi 'example domain' /tmp/clive/result.txt"
+      "check": "grep -qi 'terminal emulator' /tmp/clive/result.txt"
     },
     "min_turns": 2,
     "max_turns": 8,
-    "timeout_seconds": 30
+    "timeout_seconds": 45
   },
   {
     "id": "lynx_extract_links_002",
     "layer": 2,
     "tool": "browser",
     "mode": "interactive",
-    "task": "Extract all links from http://example.com and write them to /tmp/clive/result.txt, one URL per line.",
+    "task": "Extract all links from https://news.ycombinator.com/ and write them to /tmp/clive/result.txt, one URL per line.",
     "initial_state": {},
     "success_criteria": {
       "type": "deterministic",
-      "check": "grep -q 'iana.org' /tmp/clive/result.txt"
+      "check": "grep -q 'ycombinator' /tmp/clive/result.txt || grep -q 'http' /tmp/clive/result.txt"
     },
     "min_turns": 2,
     "max_turns": 8,
-    "timeout_seconds": 30
+    "timeout_seconds": 45
   },
   {
     "id": "lynx_json_api_003",
@@ -49,7 +49,7 @@
     "layer": 2,
     "tool": "browser",
     "mode": "interactive",
-    "task": "Check the HTTP headers of http://example.com using curl -sI. Write the Content-Type header value to /tmp/clive/result.txt.",
+    "task": "Check the HTTP headers of https://www.google.com using curl -sI. Write the Content-Type header value to /tmp/clive/result.txt.",
     "initial_state": {},
     "success_criteria": {
       "type": "deterministic",

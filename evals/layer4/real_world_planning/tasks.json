@@ -1,0 +1,205 @@
+[
+  {
+    "id": "l4_rw_office_morning_001",
+    "layer": 4,
+    "tool": "planning",
+    "task": "Morning office routine: check unread emails in neomutt, check today's calendar events, fetch weather for Munich, and compile a morning briefing email to kiu@ikangai.com.",
+    "expected": {
+      "min_subtasks": 3,
+      "max_subtasks": 5,
+      "has_parallel": true,
+      "has_dependencies": true
+    },
+    "min_turns": 1,
+    "max_turns": 1
+  },
+  {
+    "id": "l4_rw_client_onboarding_002",
+    "layer": 4,
+    "tool": "planning",
+    "task": "Onboard a new client: create their contact in the CRM, set up a project directory with documentation templates, create a welcome email draft, and generate an initial project timeline.",
+    "expected": {
+      "min_subtasks": 3,
+      "max_subtasks": 5,
+      "has_dependencies": true
+    },
+    "min_turns": 1,
+    "max_turns": 1
+  },
+  {
+    "id": "l4_rw_sprint_close_003",
+    "layer": 4,
+    "tool": "planning",
+    "task": "Close a sprint: gather completed tasks from git log, calculate velocity (story points completed), generate a sprint report, create the next sprint's task board from remaining backlog, and email the retrospective agenda to the team.",
+    "expected": {
+      "min_subtasks": 3,
+      "max_subtasks": 6,
+      "has_dependencies": true
+    },
+    "min_turns": 1,
+    "max_turns": 1
+  },
+  {
+    "id": "l4_rw_tax_prep_004",
+    "layer": 4,
+    "tool": "planning",
+    "task": "Prepare quarterly tax filing: categorize all transactions from the bank CSV, calculate VAT (input vs output), generate a P&L statement, create the tax summary, and export in the format required by the accountant.",
+    "expected": {
+      "min_subtasks": 3,
+      "max_subtasks": 5,
+      "has_dependencies": true
+    },
+    "min_turns": 1,
+    "max_turns": 1
+  },
+  {
+    "id": "l4_rw_server_migration_005",
+    "layer": 4,
+    "tool": "planning",
+    "task": "Plan a server migration: inventory current services on ssh.ikangai.com, create a migration checklist, write docker-compose for the new setup, create backup of current data, and generate a rollback plan.",
+    "expected": {
+      "min_subtasks": 3,
+      "max_subtasks": 6,
+      "has_parallel": true,
+      "has_dependencies": true
+    },
+    "min_turns": 1,
+    "max_turns": 1
+  },
+  {
+    "id": "l4_rw_blog_publish_006",
+    "layer": 4,
+    "tool": "planning",
+    "task": "Write and publish a blog post: research the topic (terminal AI agents) using web sources, draft the post in markdown, generate an SEO-optimized title and meta description, create social media announcements (tweet + LinkedIn), and save all artifacts.",
+    "expected": {
+      "min_subtasks": 3,
+      "max_subtasks": 5,
+      "has_parallel": true,
+      "has_dependencies": true
+    },
+    "min_turns": 1,
+    "max_turns": 1
+  },
+  {
+    "id": "l4_rw_investor_update_007",
+    "layer": 4,
+    "tool": "planning",
+    "task": "Create a monthly investor update: pull revenue data from financials, compile key metrics (MRR, churn, runway), fetch competitor news from HN/GitHub, write a narrative summary, and format as a professional update document.",
+    "expected": {
+      "min_subtasks": 3,
+      "max_subtasks": 6,
+      "has_parallel": true,
+      "has_dependencies": true
+    },
+    "min_turns": 1,
+    "max_turns": 1
+  },
+  {
+    "id": "l4_rw_security_incident_008",
+    "layer": 4,
+    "tool": "planning",
+    "task": "Respond to a security alert: check SSL certificates for all domains, scan open ports locally and remotely, review recent SSH login attempts, check for unauthorized file changes in /tmp/clive/, and generate a security incident report.",
+    "expected": {
+      "min_subtasks": 3,
+      "max_subtasks": 6,
+      "has_parallel": true,
+      "has_dependencies": true
+    },
+    "min_turns": 1,
+    "max_turns": 1
+  },
+  {
+    "id": "l4_rw_hiring_pipeline_009",
+    "layer": 4,
+    "tool": "planning",
+    "task": "Set up a hiring pipeline: create a job description document for a DevOps engineer, draft the email outreach template, set up a candidate tracking spreadsheet, create interview question templates, and schedule the first review meeting via calendar invite.",
+    "expected": {
+      "min_subtasks": 3,
+      "max_subtasks": 6,
+      "has_dependencies": true
+    },
+    "min_turns": 1,
+    "max_turns": 1
+  },
+  {
+    "id": "l4_rw_product_launch_010",
+    "layer": 4,
+    "tool": "planning",
+    "task": "Prepare for product launch: finalize release notes from git log, create a press release document, draft announcement tweets and LinkedIn post, prepare the launch day checklist, and create a monitoring dashboard script for launch day.",
+    "expected": {
+      "min_subtasks": 4,
+      "max_subtasks": 6,
+      "has_parallel": true,
+      "has_dependencies": true
+    },
+    "min_turns": 1,
+    "max_turns": 1
+  },
+  {
+    "id": "l4_rw_quarterly_review_011",
+    "layer": 4,
+    "tool": "planning",
+    "task": "Prepare quarterly business review: compile revenue data, analyze client retention rates, generate a competitive landscape analysis from web research, create a strategic priorities document, and prepare presentation slides (text-based).",
+    "expected": {
+      "min_subtasks": 3,
+      "max_subtasks": 6,
+      "has_parallel": true,
+      "has_dependencies": true
+    },
+    "min_turns": 1,
+    "max_turns": 1
+  },
+  {
+    "id": "l4_rw_disaster_recovery_012",
+    "layer": 4,
+    "tool": "planning",
+    "task": "Create a disaster recovery plan: document all critical services and their data locations, create backup verification scripts, write a step-by-step recovery runbook, set up monitoring alerts, and test the backup restore process.",
+    "expected": {
+      "min_subtasks": 4,
+      "max_subtasks": 6,
+      "has_dependencies": true
+    },
+    "min_turns": 1,
+    "max_turns": 1
+  },
+  {
+    "id": "l4_rw_remote_collab_013",
+    "layer": 4,
+    "tool": "planning",
+    "task": "Set up remote collaboration: create a shared project workspace on ssh.ikangai.com, configure git bare repo for team access, set up automated deployment from main branch, create project documentation, and send access instructions to kiu@ikangai.com.",
+    "expected": {
+      "min_subtasks": 3,
+      "max_subtasks": 6,
+      "has_dependencies": true
+    },
+    "min_turns": 1,
+    "max_turns": 1
+  },
+  {
+    "id": "l4_rw_cost_optimization_014",
+    "layer": 4,
+    "tool": "planning",
+    "task": "Optimize infrastructure costs: analyze current resource usage (disk, bandwidth from logs), identify idle resources, compare pricing from different providers (fetch pricing pages), create a cost optimization report with recommendations.",
+    "expected": {
+      "min_subtasks": 3,
+      "max_subtasks": 5,
+      "has_parallel": true,
+      "has_dependencies": true
+    },
+    "min_turns": 1,
+    "max_turns": 1
+  },
+  {
+    "id": "l4_rw_end_of_day_015",
+    "layer": 4,
+    "tool": "planning",
+    "task": "End of day wrap-up: commit any pending work in git, update the task tracker with today's progress, send a daily summary email to kiu@ikangai.com, schedule tomorrow's priority tasks, and set up any needed reminders.",
+    "expected": {
+      "min_subtasks": 3,
+      "max_subtasks": 5,
+      "has_dependencies": true
+    },
+    "min_turns": 1,
+    "max_turns": 1
+  }
+]

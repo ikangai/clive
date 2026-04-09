@@ -1,0 +1,152 @@
+[
+  {
+    "id": "search_github_repos_001",
+    "layer": 2,
+    "tool": "browser",
+    "mode": "script",
+    "task": "Search GitHub for the most starred Python CLI frameworks using the API: curl -s 'https://api.github.com/search/repositories?q=cli+framework+language:python&sort=stars&per_page=5'. Write repo names and star counts to /tmp/clive/result.txt.",
+    "initial_state": {},
+    "success_criteria": {
+      "type": "deterministic",
+      "check": "test -f /tmp/clive/result.txt && test $(wc -l < /tmp/clive/result.txt | tr -d ' ') -ge 5 && grep -qE '[0-9]+' /tmp/clive/result.txt"
+    },
+    "min_turns": 1,
+    "max_turns": 5,
+    "timeout_seconds": 30
+  },
+  {
+    "id": "search_npm_package_002",
+    "layer": 2,
+    "tool": "browser",
+    "mode": "script",
+    "task": "Search for npm packages related to 'terminal' using the registry API: curl -s 'https://registry.npmjs.org/-/v1/search?text=terminal&size=5'. Extract package names and descriptions. Write to /tmp/clive/result.txt.",
+    "initial_state": {},
+    "success_criteria": {
+      "type": "deterministic",
+      "check": "test -f /tmp/clive/result.txt && test $(wc -l < /tmp/clive/result.txt | tr -d ' ') -ge 3"
+    },
+    "min_turns": 1,
+    "max_turns": 5,
+    "timeout_seconds": 30
+  },
+  {
+    "id": "search_pypi_package_003",
+    "layer": 2,
+    "tool": "browser",
+    "mode": "script",
+    "task": "Look up a Python package on PyPI: curl -s https://pypi.org/pypi/textual/json. Extract: name, version, author, summary, and license. Write to /tmp/clive/result.txt.",
+    "initial_state": {},
+    "success_criteria": {
+      "type": "deterministic",
+      "check": "grep -qi 'textual' /tmp/clive/result.txt && grep -qE '[0-9]+\\.[0-9]+' /tmp/clive/result.txt"
+    },
+    "min_turns": 1,
+    "max_turns": 5,
+    "timeout_seconds": 30
+  },
+  {
+    "id": "search_ip_geolocation_004",
+    "layer": 2,
+    "tool": "browser",
+    "mode": "script",
+    "task": "Get geolocation info for the public IP using: curl -s https://ipinfo.io/json. Extract: IP, city, region, country, org. Write to /tmp/clive/result.txt.",
+    "initial_state": {},
+    "success_criteria": {
+      "type": "deterministic",
+      "check": "test -f /tmp/clive/result.txt && grep -qE '[0-9]+\\.[0-9]+\\.[0-9]+\\.[0-9]+' /tmp/clive/result.txt"
+    },
+    "min_turns": 1,
+    "max_turns": 5,
+    "timeout_seconds": 30
+  },
+  {
+    "id": "search_domain_info_005",
+    "layer": 2,
+    "tool": "browser",
+    "mode": "script",
+    "task": "Look up domain information for ikangai.com: DNS records (dig), WHOIS registrar, and HTTP headers. Compile a domain report to /tmp/clive/result.txt.",
+    "initial_state": {},
+    "success_criteria": {
+      "type": "deterministic",
+      "check": "test -f /tmp/clive/result.txt && grep -qi 'ikangai' /tmp/clive/result.txt"
+    },
+    "min_turns": 1,
+    "max_turns": 5,
+    "timeout_seconds": 30
+  },
+  {
+    "id": "search_cve_lookup_006",
+    "layer": 2,
+    "tool": "browser",
+    "mode": "interactive",
+    "task": "Look up recent CVEs (security vulnerabilities) using the NIST NVD API: curl -s 'https://services.nvd.nist.gov/rest/json/cves/2.0?keywordSearch=python&resultsPerPage=3'. Extract CVE IDs and descriptions. Write to /tmp/clive/result.txt.",
+    "initial_state": {},
+    "success_criteria": {
+      "type": "deterministic",
+      "check": "test -f /tmp/clive/result.txt && test -s /tmp/clive/result.txt"
+    },
+    "min_turns": 2,
+    "max_turns": 10,
+    "timeout_seconds": 60
+  },
+  {
+    "id": "search_brew_info_007",
+    "layer": 2,
+    "tool": "shell",
+    "mode": "script",
+    "task": "Check if Homebrew is installed. If yes, search for 'tmux' (brew info tmux) and write the installed version, dependencies, and description to /tmp/clive/result.txt. If not, write 'HOMEBREW_NOT_AVAILABLE'.",
+    "initial_state": {},
+    "success_criteria": {
+      "type": "deterministic",
+      "check": "test -f /tmp/clive/result.txt && grep -qEi 'tmux|HOMEBREW' /tmp/clive/result.txt"
+    },
+    "min_turns": 1,
+    "max_turns": 5,
+    "timeout_seconds": 30
+  },
+  {
+    "id": "search_command_help_008",
+    "layer": 2,
+    "tool": "shell",
+    "mode": "script",
+    "task": "Generate a cheat sheet for 5 commonly used commands: curl, jq, awk, sed, grep. For each, show the 3 most useful options with examples. Write to /tmp/clive/result.txt.",
+    "initial_state": {},
+    "success_criteria": {
+      "type": "deterministic",
+      "check": "grep -q 'curl' /tmp/clive/result.txt && grep -q 'jq' /tmp/clive/result.txt && grep -q 'awk' /tmp/clive/result.txt && grep -q 'sed' /tmp/clive/result.txt && grep -q 'grep' /tmp/clive/result.txt"
+    },
+    "min_turns": 1,
+    "max_turns": 5,
+    "timeout_seconds": 30
+  },
+  {
+    "id": "search_timezone_info_009",
+    "layer": 2,
+    "tool": "browser",
+    "mode": "script",
+    "task": "Fetch the current time in multiple timezones using http://worldtimeapi.org/api/timezone/Europe/Berlin and http://worldtimeapi.org/api/timezone/America/New_York. Show the time difference and both current times. Write to /tmp/clive/result.txt.",
+    "initial_state": {},
+    "success_criteria": {
+      "type": "deterministic",
+      "check": "test -f /tmp/clive/result.txt && grep -qE '[0-9]{4}' /tmp/clive/result.txt"
+    },
+    "min_turns": 1,
+    "max_turns": 5,
+    "timeout_seconds": 30
+  },
+  {
+    "id": "search_license_checker_010",
+    "layer": 2,
+    "tool": "shell",
+    "mode": "script",
+    "task": "Identify the license of the current git repository by reading LICENSE or LICENSE.md file. Also check if there's a license field in pyproject.toml or package.json. Write the license type to /tmp/clive/result.txt.",
+    "initial_state": {},
+    "success_criteria": {
+      "type": "deterministic",
+      "check": "test -f /tmp/clive/result.txt && test -s /tmp/clive/result.txt"
+    },
+    "min_turns": 1,
+    "max_turns": 5,
+    "timeout_seconds": 30
+  }
+]

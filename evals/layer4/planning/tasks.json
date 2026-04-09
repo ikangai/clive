@@ -3,7 +3,7 @@
     "id": "l4_parallel_synthesis_001",
     "layer": 4,
     "tool": "planning",
-    "task": "Fetch the current weather for London and Paris, then compare them and write a summary.",
+    "task": "Fetch the current weather for Munich and Berlin from the Open-Meteo API, then compare them and write a summary.",
     "expected": {
       "min_subtasks": 2,
       "max_subtasks": 4,
@@ -29,7 +29,7 @@
     "id": "l4_dependency_chain_003",
     "layer": 4,
     "tool": "planning",
-    "task": "Download a CSV file from https://example.com/data.csv, then filter rows where score > 80, then create a chart of the results.",
+    "task": "Download posts from https://jsonplaceholder.typicode.com/posts?_limit=10, filter posts where userId > 5, then create a summary report of the results.",
     "expected": {
       "min_subtasks": 2,
       "max_subtasks": 4,
@@ -42,7 +42,7 @@
     "id": "l4_multi_pane_004",
     "layer": 4,
     "tool": "planning",
-    "task": "Browse example.com to find contact info, and simultaneously search the local filesystem for any existing contact records, then merge the results.",
+    "task": "Browse the Wikipedia page for tmux to find who created it, and simultaneously search the local filesystem for any tmux configuration files, then merge the results into a report.",
     "expected": {
       "min_subtasks": 2,
       "max_subtasks": 4,

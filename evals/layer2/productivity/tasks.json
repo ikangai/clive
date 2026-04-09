@@ -1,0 +1,158 @@
+[
+  {
+    "id": "prod_todo_manager_001",
+    "layer": 2,
+    "tool": "shell",
+    "mode": "script",
+    "task": "Create a todo.txt file manager script at /tmp/clive/todo.sh with subcommands: add <task>, list, done <id>, priority <id> <A-C>, search <keyword>. Test all commands. Write the final todo list to /tmp/clive/result.txt.",
+    "initial_state": {},
+    "success_criteria": {
+      "type": "deterministic",
+      "check": "test -x /tmp/clive/todo.sh && test -f /tmp/clive/result.txt && test -s /tmp/clive/result.txt"
+    },
+    "min_turns": 1,
+    "max_turns": 5,
+    "timeout_seconds": 30
+  },
+  {
+    "id": "prod_pomodoro_timer_002",
+    "layer": 2,
+    "tool": "shell",
+    "mode": "script",
+    "task": "Write a pomodoro timer script at /tmp/clive/pomodoro.sh that tracks work sessions: 25 min work, 5 min break. It should log sessions to /tmp/clive/pomodoro.log. For testing, use 1-second intervals instead. Run 2 'sessions' and write the log to /tmp/clive/result.txt.",
+    "initial_state": {},
+    "success_criteria": {
+      "type": "deterministic",
+      "check": "test -x /tmp/clive/pomodoro.sh && test -f /tmp/clive/result.txt && grep -qEi 'work|break|session' /tmp/clive/result.txt"
+    },
+    "min_turns": 1,
+    "max_turns": 5,
+    "timeout_seconds": 30
+  },
+  {
+    "id": "prod_habit_tracker_003",
+    "layer": 2,
+    "tool": "shell",
+    "mode": "script",
+    "task": "Write a habit tracker at /tmp/clive/habits.sh. Track daily habits from /tmp/clive/habits.json. Subcommands: check <habit> (mark done today), status (show today's habits), streak <habit> (show consecutive days). Write status report to /tmp/clive/result.txt.",
+    "initial_state": {
+      "setup": "echo '{\"habits\":[\"Exercise\",\"Read\",\"Code\",\"Meditate\"],\"log\":{\"2026-04-07\":[\"Exercise\",\"Code\"],\"2026-04-08\":[\"Exercise\",\"Read\",\"Code\"]}}' > /tmp/clive/habits.json"
+    },
+    "success_criteria": {
+      "type": "deterministic",
+      "check": "test -x /tmp/clive/habits.sh && test -f /tmp/clive/result.txt && grep -qi 'exercise\\|read\\|code' /tmp/clive/result.txt"
+    },
+    "min_turns": 1,
+    "max_turns": 5,
+    "timeout_seconds": 30
+  },
+  {
+    "id": "prod_journal_entry_004",
+    "layer": 2,
+    "tool": "shell",
+    "mode": "script",
+    "task": "Write a journaling script at /tmp/clive/journal.sh. Subcommands: new (create today's entry from template), list (show all entries), search <term>, export (combine all entries into one file). Create an entry for today. Write to /tmp/clive/result.txt.",
+    "initial_state": {},
+    "success_criteria": {
+      "type": "deterministic",
+      "check": "test -x /tmp/clive/journal.sh && test -f /tmp/clive/result.txt && grep -q '2026-04-09' /tmp/clive/result.txt"
+    },
+    "min_turns": 1,
+    "max_turns": 5,
+    "timeout_seconds": 30
+  },
+  {
+    "id": "prod_time_tracker_005",
+    "layer": 2,
+    "tool": "shell",
+    "mode": "script",
+    "task": "Write a time tracking CLI at /tmp/clive/tt.sh. Subcommands: start <project> <task>, stop, status, report (daily summary). Track to /tmp/clive/timetrack.csv. Start and stop a task, then generate a report. Write to /tmp/clive/result.txt.",
+    "initial_state": {},
+    "success_criteria": {
+      "type": "deterministic",
+      "check": "test -x /tmp/clive/tt.sh && test -f /tmp/clive/result.txt && test -s /tmp/clive/result.txt"
+    },
+    "min_turns": 1,
+    "max_turns": 5,
+    "timeout_seconds": 30
+  },
+  {
+    "id": "prod_bookmark_manager_006",
+    "layer": 2,
+    "tool": "shell",
+    "mode": "script",
+    "task": "Write a URL bookmark manager at /tmp/clive/bookmarks.sh. Subcommands: add <url> <tags>, list, search <tag>, export (as HTML bookmarks file). Add 5 bookmarks with tags, search by tag, and export. Write results to /tmp/clive/result.txt.",
+    "initial_state": {},
+    "success_criteria": {
+      "type": "deterministic",
+      "check": "test -x /tmp/clive/bookmarks.sh && test -f /tmp/clive/result.txt && grep -q 'http' /tmp/clive/result.txt"
+    },
+    "min_turns": 1,
+    "max_turns": 5,
+    "timeout_seconds": 30
+  },
+  {
+    "id": "prod_password_gen_007",
+    "layer": 2,
+    "tool": "shell",
+    "mode": "script",
+    "task": "Write a password generator at /tmp/clive/pwgen.sh that generates passwords with configurable: length (default 16), include uppercase, lowercase, numbers, symbols. Generate 5 passwords of different lengths. Write to /tmp/clive/result.txt.",
+    "initial_state": {},
+    "success_criteria": {
+      "type": "deterministic",
+      "check": "test -x /tmp/clive/pwgen.sh && test -f /tmp/clive/result.txt && test $(wc -l < /tmp/clive/result.txt | tr -d ' ') -ge 5"
+    },
+    "min_turns": 1,
+    "max_turns": 5,
+    "timeout_seconds": 30
+  },
+  {
+    "id": "prod_note_taking_008",
+    "layer": 2,
+    "tool": "shell",
+    "mode": "script",
+    "task": "Write a note-taking system at /tmp/clive/notes.sh. Subcommands: new <title> (create timestamped note), list (show all notes), view <id>, tag <id> <tag>, search <term>. Create 3 notes with different tags. Write the list to /tmp/clive/result.txt.",
+    "initial_state": {},
+    "success_criteria": {
+      "type": "deterministic",
+      "check": "test -x /tmp/clive/notes.sh && test -f /tmp/clive/result.txt && test $(wc -l < /tmp/clive/result.txt | tr -d ' ') -ge 3"
+    },
+    "min_turns": 1,
+    "max_turns": 5,
+    "timeout_seconds": 30
+  },
+  {
+    "id": "prod_file_organizer_009",
+    "layer": 2,
+    "tool": "shell",
+    "mode": "script",
+    "task": "Write a file organizer script at /tmp/clive/organize.sh that sorts files in /tmp/clive/messy/ into subdirectories by type: images/, documents/, data/, scripts/. Categorize by extension. Run it and write the organization summary to /tmp/clive/result.txt.",
+    "initial_state": {
+      "setup": "mkdir -p /tmp/clive/messy && touch /tmp/clive/messy/photo.jpg /tmp/clive/messy/report.pdf /tmp/clive/messy/data.csv /tmp/clive/messy/script.sh /tmp/clive/messy/notes.txt /tmp/clive/messy/logo.png /tmp/clive/messy/config.json /tmp/clive/messy/backup.tar.gz"
+    },
+    "success_criteria": {
+      "type": "deterministic",
+      "check": "test -x /tmp/clive/organize.sh && (test -d /tmp/clive/messy/images || test -d /tmp/clive/messy/documents) && test -f /tmp/clive/result.txt"
+    },
+    "min_turns": 1,
+    "max_turns": 5,
+    "timeout_seconds": 30
+  },
+  {
+    "id": "prod_daily_planner_010",
+    "layer": 2,
+    "tool": "shell",
+    "mode": "script",
+    "task": "Generate a daily planner for 2026-04-09. Pull: tasks from /tmp/clive/tasks.csv, meetings from /tmp/clive/meetings.csv, and deadlines from /tmp/clive/deadlines.csv. Create a time-blocked schedule. Write to /tmp/clive/result.txt.",
+    "initial_state": {
+      "setup": "echo 'task,priority,est_hours' > /tmp/clive/tasks.csv && echo 'Write evals,P0,3' >> /tmp/clive/tasks.csv && echo 'Code review,P1,1' >> /tmp/clive/tasks.csv && echo 'Update docs,P2,2' >> /tmp/clive/tasks.csv && echo 'title,time,duration_min' > /tmp/clive/meetings.csv && echo 'Standup,09:30,15' >> /tmp/clive/meetings.csv && echo 'Sprint planning,14:00,60' >> /tmp/clive/meetings.csv && echo 'task,deadline' > /tmp/clive/deadlines.csv && echo 'Eval PR,2026-04-10' >> /tmp/clive/deadlines.csv"
+    },
+    "success_criteria": {
+      "type": "deterministic",
+      "check": "test -f /tmp/clive/result.txt && grep -qi 'standup\\|sprint\\|eval' /tmp/clive/result.txt && grep -qE '[0-9]{2}:[0-9]{2}' /tmp/clive/result.txt"
+    },
+    "min_turns": 1,
+    "max_turns": 5,
+    "timeout_seconds": 30
+  }
+]
