@@ -1266,6 +1266,13 @@ if __name__ == "__main__":
 
         # Enable readline for arrow keys, history, and special chars
         import readline
+        # macOS libedit: don't steal Option key (needed for @ on German keyboards etc.)
+        if "libedit" in (readline.__doc__ or ""):
+            readline.parse_and_bind("bind -e")
+            readline.parse_and_bind("bind '\\e[A' ed-search-prev-history")
+            readline.parse_and_bind("bind '\\e[B' ed-search-next-history")
+        else:
+            readline.parse_and_bind("set enable-meta-key off")
         history_file = os.path.expanduser("~/.clive/history")
         os.makedirs(os.path.dirname(history_file), exist_ok=True)
         try:
