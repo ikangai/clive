@@ -1,0 +1,237 @@
+[
+  {
+    "id": "devops_docker_build_001",
+    "layer": 2,
+    "tool": "shell",
+    "mode": "script",
+    "task": "Write a Dockerfile at /tmp/clive/Dockerfile for a Python Flask app. Include: base image python:3.12-slim, copy requirements.txt, install deps, copy app code, expose port 8080, CMD to run app.py. Write the Dockerfile content to /tmp/clive/result.txt.",
+    "initial_state": {
+      "setup": "echo 'flask>=3.0' > /tmp/clive/requirements.txt && echo 'from flask import Flask\\napp = Flask(__name__)\\n\\n@app.route(\"/\")\\ndef hello():\\n    return \"Hello from clive\"\\n\\nif __name__ == \"__main__\":\\n    app.run(host=\"0.0.0.0\", port=8080)' > /tmp/clive/app.py"
+    },
+    "success_criteria": {
+      "type": "deterministic",
+      "check": "test -f /tmp/clive/Dockerfile && grep -q 'python:3.12' /tmp/clive/Dockerfile && grep -q 'EXPOSE 8080' /tmp/clive/Dockerfile"
+    },
+    "min_turns": 1,
+    "max_turns": 5,
+    "timeout_seconds": 30
+  },
+  {
+    "id": "devops_compose_file_002",
+    "layer": 2,
+    "tool": "shell",
+    "mode": "script",
+    "task": "Write a docker-compose.yml at /tmp/clive/ with: app service (build from Dockerfile, port 8080:8080), postgres service (postgres:16, port 5432, env vars for DB), and redis service (redis:7, port 6379). Write the YAML to /tmp/clive/result.txt.",
+    "initial_state": {},
+    "success_criteria": {
+      "type": "deterministic",
+      "check": "test -f /tmp/clive/docker-compose.yml && grep -q 'postgres' /tmp/clive/docker-compose.yml && grep -q 'redis' /tmp/clive/docker-compose.yml"
+    },
+    "min_turns": 1,
+    "max_turns": 5,
+    "timeout_seconds": 30
+  },
+  {
+    "id": "devops_nginx_config_003",
+    "layer": 2,
+    "tool": "shell",
+    "mode": "script",
+    "task": "Write an nginx reverse proxy config at /tmp/clive/nginx.conf that: proxies / to localhost:8080, serves static files from /var/www/static, enables gzip, sets security headers (X-Frame-Options, CSP), and configures SSL with certificates at /etc/ssl/. Write to /tmp/clive/result.txt.",
+    "initial_state": {},
+    "success_criteria": {
+      "type": "deterministic",
+      "check": "test -f /tmp/clive/nginx.conf && grep -q 'proxy_pass' /tmp/clive/nginx.conf && grep -q 'ssl' /tmp/clive/nginx.conf"
+    },
+    "min_turns": 1,
+    "max_turns": 5,
+    "timeout_seconds": 30
+  },
+  {
+    "id": "devops_github_actions_004",
+    "layer": 2,
+    "tool": "shell",
+    "mode": "script",
+    "task": "Write a GitHub Actions CI workflow at /tmp/clive/.github/workflows/ci.yml for a Python project. Include: test on push/PR, matrix (Python 3.11, 3.12), install deps, run pytest, upload coverage. Write the YAML to /tmp/clive/result.txt.",
+    "initial_state": {},
+    "success_criteria": {
+      "type": "deterministic",
+      "check": "test -f /tmp/clive/.github/workflows/ci.yml && grep -q 'pytest' /tmp/clive/.github/workflows/ci.yml && grep -q 'matrix' /tmp/clive/.github/workflows/ci.yml"
+    },
+    "min_turns": 1,
+    "max_turns": 5,
+    "timeout_seconds": 30
+  },
+  {
+    "id": "devops_makefile_005",
+    "layer": 2,
+    "tool": "shell",
+    "mode": "script",
+    "task": "Write a comprehensive Makefile at /tmp/clive/Makefile with targets: install (pip install), test (pytest), lint (flake8), format (black), build (docker build), deploy (scp to ssh.ikangai.com), clean, and help (list all targets). Write the Makefile content to /tmp/clive/result.txt.",
+    "initial_state": {},
+    "success_criteria": {
+      "type": "deterministic",
+      "check": "test -f /tmp/clive/Makefile && grep -q 'install' /tmp/clive/Makefile && grep -q 'test' /tmp/clive/Makefile && grep -q 'deploy' /tmp/clive/Makefile"
+    },
+    "min_turns": 1,
+    "max_turns": 5,
+    "timeout_seconds": 30
+  },
+  {
+    "id": "devops_systemd_service_006",
+    "layer": 2,
+    "tool": "shell",
+    "mode": "script",
+    "task": "Write a systemd service file at /tmp/clive/clive.service for running clive as a daemon. Include: description, user, working directory, exec start command, restart on failure, environment file, and logging to journal. Write to /tmp/clive/result.txt.",
+    "initial_state": {},
+    "success_criteria": {
+      "type": "deterministic",
+      "check": "test -f /tmp/clive/clive.service && grep -q '\\[Unit\\]' /tmp/clive/clive.service && grep -q '\\[Service\\]' /tmp/clive/clive.service && grep -q 'Restart' /tmp/clive/clive.service"
+    },
+    "min_turns": 1,
+    "max_turns": 5,
+    "timeout_seconds": 30
+  },
+  {
+    "id": "devops_terraform_plan_007",
+    "layer": 2,
+    "tool": "shell",
+    "mode": "script",
+    "task": "Write a Terraform config at /tmp/clive/main.tf for a basic AWS setup: VPC, subnet, security group (allow 22, 80, 443), and an EC2 instance (t3.medium, Ubuntu). Write the .tf content to /tmp/clive/result.txt.",
+    "initial_state": {},
+    "success_criteria": {
+      "type": "deterministic",
+      "check": "test -f /tmp/clive/main.tf && grep -q 'aws_instance' /tmp/clive/main.tf && grep -q 'aws_vpc' /tmp/clive/main.tf"
+    },
+    "min_turns": 1,
+    "max_turns": 5,
+    "timeout_seconds": 30
+  },
+  {
+    "id": "devops_ansible_playbook_008",
+    "layer": 2,
+    "tool": "shell",
+    "mode": "script",
+    "task": "Write an Ansible playbook at /tmp/clive/setup.yml that provisions a server: install packages (nginx, python3, git), create a deploy user, set up SSH keys, configure firewall (ufw allow 22,80,443), and deploy the app from git. Write the YAML to /tmp/clive/result.txt.",
+    "initial_state": {},
+    "success_criteria": {
+      "type": "deterministic",
+      "check": "test -f /tmp/clive/setup.yml && grep -q 'hosts' /tmp/clive/setup.yml && grep -q 'tasks' /tmp/clive/setup.yml && grep -q 'nginx' /tmp/clive/setup.yml"
+    },
+    "min_turns": 1,
+    "max_turns": 5,
+    "timeout_seconds": 30
+  },
+  {
+    "id": "devops_k8s_deployment_009",
+    "layer": 2,
+    "tool": "shell",
+    "mode": "script",
+    "task": "Write Kubernetes manifests at /tmp/clive/k8s/: deployment.yaml (3 replicas, resource limits, health checks), service.yaml (ClusterIP port 80), and configmap.yaml (app config). Write combined content to /tmp/clive/result.txt.",
+    "initial_state": {
+      "setup": "mkdir -p /tmp/clive/k8s"
+    },
+    "success_criteria": {
+      "type": "deterministic",
+      "check": "test -f /tmp/clive/k8s/deployment.yaml && grep -q 'replicas' /tmp/clive/k8s/deployment.yaml && test -f /tmp/clive/k8s/service.yaml"
+    },
+    "min_turns": 1,
+    "max_turns": 5,
+    "timeout_seconds": 30
+  },
+  {
+    "id": "devops_monitoring_stack_010",
+    "layer": 2,
+    "tool": "shell",
+    "mode": "script",
+    "task": "Write a docker-compose.yml for a monitoring stack at /tmp/clive/monitoring/: Prometheus (port 9090, with a scrape config for the app), Grafana (port 3000), and AlertManager (port 9093). Include a basic prometheus.yml config. Write to /tmp/clive/result.txt.",
+    "initial_state": {
+      "setup": "mkdir -p /tmp/clive/monitoring"
+    },
+    "success_criteria": {
+      "type": "deterministic",
+      "check": "test -f /tmp/clive/monitoring/docker-compose.yml && grep -q 'prometheus' /tmp/clive/monitoring/docker-compose.yml && grep -q 'grafana' /tmp/clive/monitoring/docker-compose.yml"
+    },
+    "min_turns": 1,
+    "max_turns": 5,
+    "timeout_seconds": 30
+  },
+  {
+    "id": "devops_env_management_011",
+    "layer": 2,
+    "tool": "shell",
+    "mode": "script",
+    "task": "Write a script at /tmp/clive/envman.sh that manages multiple environments (dev, staging, prod). It should: switch between .env files, validate required env vars exist, diff two environments, and generate a .env.example with no secret values. Test all features. Write to /tmp/clive/result.txt.",
+    "initial_state": {
+      "setup": "echo 'DB_HOST=localhost\\nDB_PORT=5432\\nSECRET_KEY=dev_secret_123\\nDEBUG=true' > /tmp/clive/.env.dev && echo 'DB_HOST=db.ikangai.com\\nDB_PORT=5432\\nSECRET_KEY=prod_secret_xyz\\nDEBUG=false' > /tmp/clive/.env.prod"
+    },
+    "success_criteria": {
+      "type": "deterministic",
+      "check": "test -x /tmp/clive/envman.sh && test -f /tmp/clive/result.txt"
+    },
+    "min_turns": 1,
+    "max_turns": 5,
+    "timeout_seconds": 30
+  },
+  {
+    "id": "devops_git_workflow_012",
+    "layer": 2,
+    "tool": "shell",
+    "mode": "script",
+    "task": "Write a git workflow helper script at /tmp/clive/gitflow.sh with subcommands: 'feature <name>' (create feature branch), 'hotfix <name>' (create from main), 'release <version>' (create release branch, update version), 'status' (show branch info). Test in a test repo. Write results to /tmp/clive/result.txt.",
+    "initial_state": {
+      "setup": "mkdir -p /tmp/clive/test_repo && cd /tmp/clive/test_repo && git init && echo 'v1.0.0' > VERSION && git add -A && git commit -m 'initial' 2>/dev/null"
+    },
+    "success_criteria": {
+      "type": "deterministic",
+      "check": "test -x /tmp/clive/gitflow.sh && test -f /tmp/clive/result.txt"
+    },
+    "min_turns": 1,
+    "max_turns": 5,
+    "timeout_seconds": 30
+  },
+  {
+    "id": "devops_loadtest_013",
+    "layer": 2,
+    "tool": "shell",
+    "mode": "script",
+    "task": "Write a simple load testing script at /tmp/clive/loadtest.sh that sends N concurrent requests to a URL using curl and background jobs. Measure: total time, requests per second, success rate. Test with 20 requests to https://httpbin.org/get. Write results to /tmp/clive/result.txt.",
+    "initial_state": {},
+    "success_criteria": {
+      "type": "deterministic",
+      "check": "test -x /tmp/clive/loadtest.sh && test -f /tmp/clive/result.txt && grep -qEi 'request|time|success' /tmp/clive/result.txt"
+    },
+    "min_turns": 1,
+    "max_turns": 5,
+    "timeout_seconds": 60
+  },
+  {
+    "id": "devops_secrets_manager_014",
+    "layer": 2,
+    "tool": "shell",
+    "mode": "script",
+    "task": "Write a secrets management script at /tmp/clive/secrets.sh that stores secrets encrypted (using openssl enc). Subcommands: 'set <name> <value>' (encrypt and store), 'get <name>' (decrypt and display), 'list' (show secret names without values), 'rotate <name>' (re-encrypt with new key). Test with a DB password. Write to /tmp/clive/result.txt.",
+    "initial_state": {},
+    "success_criteria": {
+      "type": "deterministic",
+      "check": "test -x /tmp/clive/secrets.sh && test -f /tmp/clive/result.txt"
+    },
+    "min_turns": 1,
+    "max_turns": 8,
+    "timeout_seconds": 45
+  },
+  {
+    "id": "devops_incident_runbook_015",
+    "layer": 2,
+    "tool": "shell",
+    "mode": "script",
+    "task": "Write an incident response runbook script at /tmp/clive/runbook.sh that automates common checks: service health (curl endpoints), disk space, memory, recent error logs, database connectivity. Output a structured incident report. Test it. Write to /tmp/clive/result.txt.",
+    "initial_state": {},
+    "success_criteria": {
+      "type": "deterministic",
+      "check": "test -x /tmp/clive/runbook.sh && test -f /tmp/clive/result.txt && grep -qEi 'disk|memory|health' /tmp/clive/result.txt"
+    },
+    "min_turns": 1,
+    "max_turns": 5,
+    "timeout_seconds": 30
+  }
+]

@@ -1,0 +1,158 @@
+[
+  {
+    "id": "media_image_info_001",
+    "layer": 2,
+    "tool": "shell",
+    "mode": "script",
+    "task": "Extract metadata from /tmp/clive/photo.jpg using exiftool or identify (ImageMagick). Write dimensions, file size, and format to /tmp/clive/result.txt. If neither tool is available, write 'TOOLS_NOT_AVAILABLE'.",
+    "initial_state": {
+      "setup": "convert -size 800x600 xc:blue /tmp/clive/photo.jpg 2>/dev/null || echo 'no imagemagick' > /tmp/clive/photo.jpg"
+    },
+    "success_criteria": {
+      "type": "deterministic",
+      "check": "test -f /tmp/clive/result.txt && test -s /tmp/clive/result.txt"
+    },
+    "min_turns": 1,
+    "max_turns": 5,
+    "timeout_seconds": 30
+  },
+  {
+    "id": "media_audio_info_002",
+    "layer": 2,
+    "tool": "shell",
+    "mode": "script",
+    "task": "Check if ffprobe is available. If yes, extract audio file info (duration, bitrate, codec) from a test file. If not, write what tools would be needed. Write to /tmp/clive/result.txt.",
+    "initial_state": {},
+    "success_criteria": {
+      "type": "deterministic",
+      "check": "test -f /tmp/clive/result.txt && test -s /tmp/clive/result.txt"
+    },
+    "min_turns": 1,
+    "max_turns": 5,
+    "timeout_seconds": 30
+  },
+  {
+    "id": "media_youtube_info_003",
+    "layer": 2,
+    "tool": "shell",
+    "mode": "script",
+    "task": "Use the tools/youtube.sh helper script (or yt-dlp --dump-json if available) to get metadata for a YouTube video: https://www.youtube.com/watch?v=dQw4w9WgXcQ. Extract title, duration, and view count. Write to /tmp/clive/result.txt. If tools unavailable, write 'TOOLS_NOT_AVAILABLE'.",
+    "initial_state": {},
+    "success_criteria": {
+      "type": "deterministic",
+      "check": "test -f /tmp/clive/result.txt && test -s /tmp/clive/result.txt"
+    },
+    "min_turns": 1,
+    "max_turns": 5,
+    "timeout_seconds": 45
+  },
+  {
+    "id": "media_podcast_feed_004",
+    "layer": 2,
+    "tool": "browser",
+    "mode": "interactive",
+    "task": "Fetch a podcast RSS feed from https://feeds.simplecast.com/54nAGcIl (The Changelog) and extract the 5 most recent episode titles and their publication dates. Write to /tmp/clive/result.txt.",
+    "initial_state": {},
+    "success_criteria": {
+      "type": "deterministic",
+      "check": "test -f /tmp/clive/result.txt && test $(wc -l < /tmp/clive/result.txt | tr -d ' ') -ge 5"
+    },
+    "min_turns": 2,
+    "max_turns": 10,
+    "timeout_seconds": 45
+  },
+  {
+    "id": "media_svg_generate_005",
+    "layer": 2,
+    "tool": "shell",
+    "mode": "script",
+    "task": "Generate an SVG chart at /tmp/clive/chart.svg showing a simple bar chart with 4 bars for quarterly revenue: Q1=45000, Q2=52000, Q3=48000, Q4=61000. Include labels and a title. Write 'DONE' to /tmp/clive/result.txt.",
+    "initial_state": {},
+    "success_criteria": {
+      "type": "deterministic",
+      "check": "test -f /tmp/clive/chart.svg && grep -q '<svg' /tmp/clive/chart.svg && grep -q 'rect' /tmp/clive/chart.svg"
+    },
+    "min_turns": 1,
+    "max_turns": 5,
+    "timeout_seconds": 30
+  },
+  {
+    "id": "media_qr_code_006",
+    "layer": 2,
+    "tool": "shell",
+    "mode": "script",
+    "task": "Generate a QR code for the URL 'https://ikangai.com' using qrencode (or a Python library). Save as /tmp/clive/qr.png. If tools unavailable, generate an ASCII QR code to /tmp/clive/result.txt.",
+    "initial_state": {},
+    "success_criteria": {
+      "type": "deterministic",
+      "check": "test -f /tmp/clive/qr.png || (test -f /tmp/clive/result.txt && test -s /tmp/clive/result.txt)"
+    },
+    "min_turns": 1,
+    "max_turns": 5,
+    "timeout_seconds": 30
+  },
+  {
+    "id": "media_ascii_art_007",
+    "layer": 2,
+    "tool": "shell",
+    "mode": "script",
+    "task": "Generate ASCII art text saying 'CLIVE' using figlet or toilet. If neither is available, create it manually with block characters. Write to /tmp/clive/result.txt.",
+    "initial_state": {},
+    "success_criteria": {
+      "type": "deterministic",
+      "check": "test -f /tmp/clive/result.txt && grep -qi 'CLIVE\\|clive' /tmp/clive/result.txt && test $(wc -l < /tmp/clive/result.txt | tr -d ' ') -ge 3"
+    },
+    "min_turns": 1,
+    "max_turns": 5,
+    "timeout_seconds": 30
+  },
+  {
+    "id": "media_image_resize_batch_008",
+    "layer": 2,
+    "tool": "shell",
+    "mode": "script",
+    "task": "Write a batch image processing script at /tmp/clive/batch_resize.sh that would resize all .jpg files in a directory to 800px width using ImageMagick (mogrify or convert). If ImageMagick isn't available, write the script that would do it and note 'IMAGEMAGICK_REQUIRED'. Write the script content to /tmp/clive/result.txt.",
+    "initial_state": {},
+    "success_criteria": {
+      "type": "deterministic",
+      "check": "test -x /tmp/clive/batch_resize.sh && test -f /tmp/clive/result.txt && grep -qi 'convert\\|mogrify\\|800\\|resize' /tmp/clive/result.txt"
+    },
+    "min_turns": 1,
+    "max_turns": 5,
+    "timeout_seconds": 30
+  },
+  {
+    "id": "media_markdown_to_html_009",
+    "layer": 2,
+    "tool": "shell",
+    "mode": "script",
+    "task": "Convert the markdown file at /tmp/clive/doc.md to HTML. Use pandoc if available, otherwise write a sed/awk-based converter that handles headers, bold, italic, links, and code blocks. Write HTML to /tmp/clive/result.html.",
+    "initial_state": {
+      "setup": "cat > /tmp/clive/doc.md << 'MD'\n# Project Report\n\n## Summary\n\nThis is a **bold** statement and *italic* text.\n\nVisit [ikangai](https://ikangai.com) for more info.\n\n```python\nprint(\"hello world\")\n```\n\n## Conclusion\n\nDone.\nMD"
+    },
+    "success_criteria": {
+      "type": "deterministic",
+      "check": "test -f /tmp/clive/result.html && grep -q '<h1>' /tmp/clive/result.html"
+    },
+    "min_turns": 1,
+    "max_turns": 5,
+    "timeout_seconds": 30
+  },
+  {
+    "id": "media_playlist_generate_010",
+    "layer": 2,
+    "tool": "shell",
+    "mode": "script",
+    "task": "Generate an M3U playlist file at /tmp/clive/playlist.m3u from a list of audio files. Include: 3 tracks with metadata (title, duration). Write the playlist content to /tmp/clive/result.txt.",
+    "initial_state": {
+      "setup": "echo 'track1.mp3,Morning Jazz,240' > /tmp/clive/tracks.csv && echo 'track2.mp3,Coffee Break,180' >> /tmp/clive/tracks.csv && echo 'track3.mp3,Evening Chill,320' >> /tmp/clive/tracks.csv"
+    },
+    "success_criteria": {
+      "type": "deterministic",
+      "check": "test -f /tmp/clive/playlist.m3u && grep -q '#EXTM3U' /tmp/clive/playlist.m3u && grep -q '#EXTINF' /tmp/clive/playlist.m3u"
+    },
+    "min_turns": 1,
+    "max_turns": 5,
+    "timeout_seconds": 30
+  }
+]

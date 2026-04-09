@@ -1,0 +1,85 @@
+[
+  {
+    "id": "trans_detect_language_001",
+    "layer": 2,
+    "tool": "shell",
+    "mode": "script",
+    "task": "Detect the language of each line in /tmp/clive/multilang.txt based on common patterns (character sets, stop words). Write the detected language per line to /tmp/clive/result.txt.",
+    "initial_state": {
+      "setup": "echo 'Good morning, how are you today?' > /tmp/clive/multilang.txt && echo 'Guten Morgen, wie geht es Ihnen?' >> /tmp/clive/multilang.txt && echo 'Bonjour, comment allez-vous?' >> /tmp/clive/multilang.txt && echo 'Buenos días, ¿cómo está usted?' >> /tmp/clive/multilang.txt"
+    },
+    "success_criteria": {
+      "type": "deterministic",
+      "check": "test -f /tmp/clive/result.txt && grep -qEi 'english|german|french|spanish' /tmp/clive/result.txt"
+    },
+    "min_turns": 1,
+    "max_turns": 5,
+    "timeout_seconds": 30
+  },
+  {
+    "id": "trans_i18n_extract_002",
+    "layer": 2,
+    "tool": "shell",
+    "mode": "script",
+    "task": "Extract all translatable strings from /tmp/clive/app.py (strings in gettext calls like _('...') or gettext('...')). Write them to /tmp/clive/result.txt, one per line.",
+    "initial_state": {
+      "setup": "cat > /tmp/clive/app.py << 'PY'\nfrom gettext import gettext as _\n\ndef login_page():\n    title = _('Welcome back')\n    prompt = _('Enter your email address')\n    button = _('Sign In')\n    footer = _('Forgot your password?')\n    version = 'v2.0'  # not translatable\nPY"
+    },
+    "success_criteria": {
+      "type": "deterministic",
+      "check": "grep -q 'Welcome back' /tmp/clive/result.txt && grep -q 'Sign In' /tmp/clive/result.txt && test $(wc -l < /tmp/clive/result.txt | tr -d ' ') -eq 4"
+    },
+    "min_turns": 1,
+    "max_turns": 5,
+    "timeout_seconds": 30
+  },
+  {
+    "id": "trans_po_file_003",
+    "layer": 2,
+    "tool": "shell",
+    "mode": "script",
+    "task": "Generate a PO translation file at /tmp/clive/messages.po for German translations. Include the 4 strings from /tmp/clive/strings.txt with German translations. Follow standard PO file format with headers.",
+    "initial_state": {
+      "setup": "echo 'Welcome back' > /tmp/clive/strings.txt && echo 'Enter your email address' >> /tmp/clive/strings.txt && echo 'Sign In' >> /tmp/clive/strings.txt && echo 'Forgot your password?' >> /tmp/clive/strings.txt"
+    },
+    "success_criteria": {
+      "type": "deterministic",
+      "check": "test -f /tmp/clive/messages.po && grep -q 'msgid' /tmp/clive/messages.po && grep -q 'msgstr' /tmp/clive/messages.po && grep -qi 'willkommen\\|anmelden\\|passwort' /tmp/clive/messages.po"
+    },
+    "min_turns": 1,
+    "max_turns": 5,
+    "timeout_seconds": 30
+  },
+  {
+    "id": "trans_json_i18n_004",
+    "layer": 2,
+    "tool": "shell",
+    "mode": "script",
+    "task": "Create an i18n JSON file at /tmp/clive/de.json with German translations for UI strings. Read the English source from /tmp/clive/en.json and produce the German equivalent. Write the JSON to /tmp/clive/result.json.",
+    "initial_state": {
+      "setup": "echo '{\"nav.home\":\"Home\",\"nav.about\":\"About Us\",\"nav.contact\":\"Contact\",\"footer.copyright\":\"All rights reserved\",\"form.submit\":\"Submit\",\"form.cancel\":\"Cancel\",\"error.required\":\"This field is required\",\"error.email\":\"Please enter a valid email\"}' > /tmp/clive/en.json"
+    },
+    "success_criteria": {
+      "type": "deterministic",
+      "check": "python3 -c \"import json; d=json.load(open('/tmp/clive/result.json')); assert len(d)==8; assert 'nav.home' in d\""
+    },
+    "min_turns": 1,
+    "max_turns": 5,
+    "timeout_seconds": 30
+  },
+  {
+    "id": "trans_locale_format_005",
+    "layer": 2,
+    "tool": "shell",
+    "mode": "script",
+    "task": "Format data according to German locale conventions. Given: number 1234567.89, date 2026-04-09, currency 3115.42 EUR. Write formatted versions (1.234.567,89 / 09.04.2026 / 3.115,42 €) to /tmp/clive/result.txt.",
+    "initial_state": {},
+    "success_criteria": {
+      "type": "deterministic",
+      "check": "grep -q '1.234.567,89' /tmp/clive/result.txt && grep -q '09.04.2026' /tmp/clive/result.txt && grep -qE '3.115,42.*€' /tmp/clive/result.txt"
+    },
+    "min_turns": 1,
+    "max_turns": 5,
+    "timeout_seconds": 30
+  }
+]
