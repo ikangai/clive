@@ -1,3 +1,7 @@
+---
+preferred_mode: script
+use_interactive_when: almost never
+---
 # Documentation Driver
 
 ENVIRONMENT: bash shell for document access and generation.
@@ -25,5 +29,5 @@ PITFALLS:
 - pandoc needs texlive for PDF output: use -t html as fallback
 - tldr not always installed: fall back to man
 
-COMPLETION: Use <cmd type="task_complete">summary</cmd> when done.
+COMPLETION: When done, say DONE: <one-line summary of what was accomplished>.
 Write results to /tmp/clive/.

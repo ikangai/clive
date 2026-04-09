@@ -1,3 +1,7 @@
+---
+preferred_mode: script
+use_interactive_when: exploring unfamiliar datasets where next step depends on what you find
+---
 # Data Processing Driver
 
 ENVIRONMENT: bash shell optimized for data transformation.
@@ -29,5 +33,5 @@ PITFALLS:
 - Encoding: use iconv for non-UTF-8 input
 - Empty fields: awk treats empty as 0 in numeric context
 
-COMPLETION: Use <cmd type="task_complete">summary</cmd> when done.
+COMPLETION: When done, say DONE: <one-line summary of what was accomplished>.
 Write results to /tmp/clive/ for other subtasks.

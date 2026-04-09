@@ -1,3 +1,7 @@
+---
+preferred_mode: script
+use_interactive_when: almost never
+---
 # Media Driver
 
 ENVIRONMENT: bash shell for audio/video/image processing.
@@ -28,5 +32,5 @@ PITFALLS:
 - Large files: check disk space with df -h before processing
 - Codec issues: use -c:v libx264 -c:a aac for maximum compatibility
 
-COMPLETION: Use <cmd type="task_complete">summary</cmd> when done.
+COMPLETION: When done, say DONE: <one-line summary of what was accomplished>.
 Write results to /tmp/clive/.

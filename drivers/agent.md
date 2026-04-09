@@ -1,3 +1,7 @@
+---
+preferred_mode: interactive
+use_interactive_when: always — this is a conversation with another agent
+---
 # Agent Driver (clive-to-clive peer conversation)
 
 ENVIRONMENT: connected to a remote clive instance via SSH.
@@ -23,16 +27,16 @@ RULES:
 
 SENDING THE INITIAL TASK:
   Type the task description as a single line, press Enter.
-  <cmd type="wait">10</cmd>
+  sleep 10
 
 RESPONDING TO QUESTIONS:
   Read the QUESTION line. Type your answer as a single line, press Enter.
-  <cmd type="wait">10</cmd>
+  sleep 10
 
 LEGACY PROTOCOL (backward compatibility):
   DONE: {"status": "success", "result": "..."}  — older clive instances
   DONE: {"status": "error", "reason": "..."}     — older error format
 
 COMPLETION:
-  Use <cmd type="task_complete">summary from CONTEXT</cmd> after TURN: done.
+  When done: DONE: <summary from CONTEXT>
   Include key results. If FILE: lines appeared, note files for transfer.

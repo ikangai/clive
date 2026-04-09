@@ -1,3 +1,7 @@
+---
+preferred_mode: script
+use_interactive_when: debugging, exploring unknown output, or multi-step investigation
+---
 # Shell Driver (bash)
 
 ENVIRONMENT: bash shell with PS1="[AGENT_READY] $ "
@@ -29,5 +33,5 @@ PITFALLS:
 - Binary files: use file cmd to check type before cat
 - Permissions: if "Permission denied", check with ls -la, try with sudo only if appropriate
 
-COMPLETION: Use <cmd type="task_complete">summary</cmd> when goal is achieved.
+COMPLETION: When done, say DONE: <one-line summary of what was accomplished>.
 Write results to /tmp/clive/ files for other subtasks to consume.

@@ -1,3 +1,7 @@
+---
+preferred_mode: script
+use_interactive_when: discovering unknown content, following links, or exploring sites
+---
 # Browser Driver (lynx/curl/wget)
 
 ENVIRONMENT: bash shell configured for web access.
@@ -32,4 +36,4 @@ PITFALLS:
 - Rate limiting: add sleep 1 between rapid API calls
 
 OUTPUT: Save extracted data to /tmp/clive/ for other subtasks.
-COMPLETION: Use <cmd type="task_complete">summary</cmd> when goal is achieved.
+COMPLETION: When done, say DONE: <one-line summary of what was accomplished>.

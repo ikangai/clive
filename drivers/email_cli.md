@@ -1,3 +1,7 @@
+---
+preferred_mode: script
+use_interactive_when: browsing or exploring the inbox interactively
+---
 # Email Driver (neomutt / msmtp)
 
 ENVIRONMENT: bash shell with email tools. Pane starts at a shell prompt.
@@ -13,10 +17,17 @@ PRIMARY TOOLS:
   # On error: msmtp prints error to stderr
   For multi-line body, use $'line1\nline2' or a heredoc.
 
-## READING EMAIL (launch neomutt first)
+## READING EMAIL — SCRIPTED (preferred for batch read/summarize)
+  Config: ~/.clive/config/email.toml has address, imap_server, imap_port, password
+  Write a Python script using imaplib + email.message to fetch messages programmatically.
+  Login: use address as username, password as password, imap_server:imap_port for SSL connection.
+  Pattern: read toml config → IMAP SSL connect → select INBOX → fetch latest N → parse → output
+  This is FASTER and more reliable than TUI navigation. Use for: read N emails, search, summarize.
+
+## READING EMAIL — INTERACTIVE (only when you need to explore/browse)
   1. Type: neomutt
   2. Wait: index screen appears (list of messages: date, sender, subject)
-  3. If "strstrstrstrstrstrstrstrstrstrstrstrstrstr tstrstrstrstrstrstrstrstrstrstrstrstrstrstr/TLS" error → config issue, report and stop
+  3. If TLS/connection error → config issue, report and stop
   4. Navigate the index to find relevant messages
 
 NEOMUTT INDEX SCREEN (what you see after launch):
@@ -31,9 +42,9 @@ NEOMUTT KEYS:
 
 PATTERNS:
 - Send quick email: bash send_reply.sh "to" "subject" "body"
-- Read latest 5: neomutt → index shows latest at bottom → read last 5 with o, q back
-- Search by sender: neomutt → /~f sender → Enter
-- Search by subject: neomutt → /~s keyword → Enter
+- Read latest N / summarize: Python script with imaplib (see SCRIPTED section above)
+- Search by sender/subject: Python script with IMAP SEARCH command
+- Browse/explore inbox interactively: neomutt (TUI)
 - Reply to email: open message (o) → r → type reply → y to send → q back
 - Exit neomutt: q from index (may ask "Strstrstrstrstrstrstrstrstrstrstrstrstrstr?" → press n)
 
@@ -45,5 +56,5 @@ PITFALLS:
 - Large inbox: use l (limit) then ~d<1w to show only last week
 - If neomutt hangs on connect: Ctrl-C, report connection error, stop
 
-COMPLETION: Use <cmd type="task_complete">summary</cmd> when done.
+COMPLETION: When done, say DONE: <one-line summary of what was accomplished>.
 Write results to /tmp/clive/ for other subtasks.
