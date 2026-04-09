@@ -384,13 +384,20 @@ def _run_inner(task, toolset_spec, output_format, max_tokens, session_dir, _clea
 
         if cr.mode == "unconfigured":
             tool_key = cr.tool or ""
+            unconfigured_list = session_ctx.get("unconfigured", [])
+            # Validate: only run setup if the tool is actually unconfigured
+            if tool_key not in unconfigured_list:
+                # Classifier hallucinated — tool isn't in this toolset or is already configured
+                step(f"Unavailable: {tool_key}")
+                detail(f"{tool_key} is not in the current toolset. Use -t with a profile that includes it.")
+                return f"{tool_key} is not available in the current toolset."
             config_schema = find_config_schema(tool_key)
             if config_schema:
                 run_setup(tool_key, config_schema)
                 from config import is_configured
                 if is_configured(config_schema):
                     session_ctx["unconfigured"] = [
-                        t for t in session_ctx.get("unconfigured", []) if t != tool_key
+                        t for t in unconfigured_list if t != tool_key
                     ]
                 return f"{tool_key} setup complete." if is_configured(config_schema) else f"{tool_key} setup cancelled."
             else:
