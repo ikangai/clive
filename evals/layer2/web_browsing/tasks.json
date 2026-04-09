@@ -1,0 +1,302 @@
+[
+  {
+    "id": "web_wikipedia_extract_001",
+    "layer": 2,
+    "tool": "browser",
+    "mode": "interactive",
+    "task": "Use lynx -dump to fetch the Wikipedia article at https://en.wikipedia.org/wiki/Tmux and extract the first sentence of the article. Write it to /tmp/clive/result.txt.",
+    "initial_state": {},
+    "success_criteria": {
+      "type": "deterministic",
+      "check": "grep -qi 'terminal multiplexer' /tmp/clive/result.txt"
+    },
+    "min_turns": 2,
+    "max_turns": 8,
+    "timeout_seconds": 45
+  },
+  {
+    "id": "web_github_api_stars_002",
+    "layer": 2,
+    "tool": "browser",
+    "mode": "script",
+    "task": "Fetch the GitHub API endpoint https://api.github.com/repos/tmux/tmux using curl -s, extract the stargazers_count field using jq, and write just the number to /tmp/clive/result.txt.",
+    "initial_state": {},
+    "success_criteria": {
+      "type": "deterministic",
+      "check": "grep -qE '^[0-9]+$' /tmp/clive/result.txt && test $(cat /tmp/clive/result.txt) -gt 100"
+    },
+    "min_turns": 1,
+    "max_turns": 5,
+    "timeout_seconds": 30
+  },
+  {
+    "id": "web_hacker_news_titles_003",
+    "layer": 2,
+    "tool": "browser",
+    "mode": "interactive",
+    "task": "Fetch the Hacker News front page at https://news.ycombinator.com/ using lynx -dump and extract the first 5 story titles. Write them to /tmp/clive/result.txt, one per line.",
+    "initial_state": {},
+    "success_criteria": {
+      "type": "deterministic",
+      "check": "test -f /tmp/clive/result.txt && test $(wc -l < /tmp/clive/result.txt | tr -d ' ') -ge 5"
+    },
+    "min_turns": 2,
+    "max_turns": 10,
+    "timeout_seconds": 45
+  },
+  {
+    "id": "web_weather_api_004",
+    "layer": 2,
+    "tool": "browser",
+    "mode": "script",
+    "task": "Fetch the current weather for Munich using the Open-Meteo API: curl -s 'https://api.open-meteo.com/v1/forecast?latitude=48.14&longitude=11.58&current_weather=true'. Extract the current temperature and write it as a number to /tmp/clive/result.txt.",
+    "initial_state": {},
+    "success_criteria": {
+      "type": "deterministic",
+      "check": "grep -qE '^-?[0-9]+\\.?[0-9]*$' /tmp/clive/result.txt"
+    },
+    "min_turns": 1,
+    "max_turns": 5,
+    "timeout_seconds": 30
+  },
+  {
+    "id": "web_ip_lookup_005",
+    "layer": 2,
+    "tool": "browser",
+    "mode": "script",
+    "task": "Fetch your public IP address using curl -s https://ifconfig.me and write it to /tmp/clive/result.txt.",
+    "initial_state": {},
+    "success_criteria": {
+      "type": "deterministic",
+      "check": "grep -qE '^[0-9]+\\.[0-9]+\\.[0-9]+\\.[0-9]+$' /tmp/clive/result.txt"
+    },
+    "min_turns": 1,
+    "max_turns": 3,
+    "timeout_seconds": 30
+  },
+  {
+    "id": "web_ssl_cert_check_006",
+    "layer": 2,
+    "tool": "browser",
+    "mode": "script",
+    "task": "Check the SSL certificate expiry date of https://www.google.com using: echo | openssl s_client -connect www.google.com:443 2>/dev/null | openssl x509 -noout -enddate. Write the expiry date to /tmp/clive/result.txt.",
+    "initial_state": {},
+    "success_criteria": {
+      "type": "deterministic",
+      "check": "grep -qE 'notAfter|[0-9]{4}' /tmp/clive/result.txt"
+    },
+    "min_turns": 1,
+    "max_turns": 5,
+    "timeout_seconds": 30
+  },
+  {
+    "id": "web_dns_lookup_007",
+    "layer": 2,
+    "tool": "browser",
+    "mode": "script",
+    "task": "Look up the DNS A records for ikangai.com using dig or nslookup and write all IP addresses to /tmp/clive/result.txt, one per line.",
+    "initial_state": {},
+    "success_criteria": {
+      "type": "deterministic",
+      "check": "test -f /tmp/clive/result.txt && grep -qE '[0-9]+\\.[0-9]+\\.[0-9]+\\.[0-9]+' /tmp/clive/result.txt"
+    },
+    "min_turns": 1,
+    "max_turns": 5,
+    "timeout_seconds": 30
+  },
+  {
+    "id": "web_rss_feed_parse_008",
+    "layer": 2,
+    "tool": "browser",
+    "mode": "interactive",
+    "task": "Fetch the BBC News RSS feed at https://feeds.bbci.co.uk/news/rss.xml using curl -s and extract all article titles (inside <title> tags). Write the first 10 titles to /tmp/clive/result.txt, one per line.",
+    "initial_state": {},
+    "success_criteria": {
+      "type": "deterministic",
+      "check": "test -f /tmp/clive/result.txt && test $(wc -l < /tmp/clive/result.txt | tr -d ' ') -ge 5"
+    },
+    "min_turns": 2,
+    "max_turns": 10,
+    "timeout_seconds": 45
+  },
+  {
+    "id": "web_download_checksum_009",
+    "layer": 2,
+    "tool": "browser",
+    "mode": "script",
+    "task": "Download the robots.txt file from https://www.google.com/robots.txt using curl -s and compute its MD5 hash. Write just the hash to /tmp/clive/result.txt.",
+    "initial_state": {},
+    "success_criteria": {
+      "type": "deterministic",
+      "check": "grep -qE '^[a-f0-9]{32}$' /tmp/clive/result.txt"
+    },
+    "min_turns": 1,
+    "max_turns": 5,
+    "timeout_seconds": 30
+  },
+  {
+    "id": "web_response_time_010",
+    "layer": 2,
+    "tool": "browser",
+    "mode": "script",
+    "task": "Measure the HTTP response time of https://httpbin.org/get using curl -s -o /dev/null -w '%{time_total}'. Write the time in seconds to /tmp/clive/result.txt.",
+    "initial_state": {},
+    "success_criteria": {
+      "type": "deterministic",
+      "check": "grep -qE '^[0-9]+\\.[0-9]+$' /tmp/clive/result.txt"
+    },
+    "min_turns": 1,
+    "max_turns": 5,
+    "timeout_seconds": 30
+  },
+  {
+    "id": "web_country_api_011",
+    "layer": 2,
+    "tool": "browser",
+    "mode": "script",
+    "task": "Fetch information about Germany from https://restcountries.com/v3.1/name/germany using curl -s, extract the population number using jq '.[0].population', and write it to /tmp/clive/result.txt.",
+    "initial_state": {},
+    "success_criteria": {
+      "type": "deterministic",
+      "check": "grep -qE '^[0-9]{7,}$' /tmp/clive/result.txt"
+    },
+    "min_turns": 1,
+    "max_turns": 5,
+    "timeout_seconds": 30
+  },
+  {
+    "id": "web_link_checker_012",
+    "layer": 2,
+    "tool": "browser",
+    "mode": "interactive",
+    "task": "Check if the following 3 URLs return HTTP 200: https://www.google.com, https://www.github.com, https://httpbin.org/status/404. Write each URL and its status code to /tmp/clive/result.txt as 'URL STATUS_CODE', one per line.",
+    "initial_state": {},
+    "success_criteria": {
+      "type": "deterministic",
+      "check": "grep -q '200' /tmp/clive/result.txt && grep -q '404' /tmp/clive/result.txt"
+    },
+    "min_turns": 2,
+    "max_turns": 10,
+    "timeout_seconds": 60
+  },
+  {
+    "id": "web_json_transform_013",
+    "layer": 2,
+    "tool": "browser",
+    "mode": "script",
+    "task": "Fetch https://jsonplaceholder.typicode.com/users using curl -s. Extract a CSV with columns: id,name,email. Write the CSV (with header row) to /tmp/clive/result.txt.",
+    "initial_state": {},
+    "success_criteria": {
+      "type": "deterministic",
+      "check": "head -1 /tmp/clive/result.txt | grep -qi 'id' && test $(wc -l < /tmp/clive/result.txt | tr -d ' ') -ge 10"
+    },
+    "min_turns": 1,
+    "max_turns": 5,
+    "timeout_seconds": 30
+  },
+  {
+    "id": "web_exchange_rate_014",
+    "layer": 2,
+    "tool": "browser",
+    "mode": "script",
+    "task": "Fetch the latest EUR to USD exchange rate from https://open.er-api.com/v6/latest/EUR using curl -s and jq. Write just the USD rate as a decimal number to /tmp/clive/result.txt.",
+    "initial_state": {},
+    "success_criteria": {
+      "type": "deterministic",
+      "check": "grep -qE '^[0-9]+\\.[0-9]+$' /tmp/clive/result.txt"
+    },
+    "min_turns": 1,
+    "max_turns": 5,
+    "timeout_seconds": 30
+  },
+  {
+    "id": "web_sitemap_parse_015",
+    "layer": 2,
+    "tool": "browser",
+    "mode": "interactive",
+    "task": "Fetch the sitemap from https://www.sitemaps.org/sitemap.xml using curl -s and extract all <loc> URLs. Write them to /tmp/clive/result.txt, one per line.",
+    "initial_state": {},
+    "success_criteria": {
+      "type": "deterministic",
+      "check": "test -f /tmp/clive/result.txt && grep -q 'http' /tmp/clive/result.txt && test $(wc -l < /tmp/clive/result.txt | tr -d ' ') -ge 1"
+    },
+    "min_turns": 2,
+    "max_turns": 10,
+    "timeout_seconds": 45
+  },
+  {
+    "id": "web_multi_api_join_016",
+    "layer": 2,
+    "tool": "browser",
+    "mode": "interactive",
+    "task": "Fetch posts from https://jsonplaceholder.typicode.com/posts?_limit=3 and users from https://jsonplaceholder.typicode.com/users?_limit=3. Join them by userId and write each post's title with the author's name to /tmp/clive/result.txt.",
+    "initial_state": {},
+    "success_criteria": {
+      "type": "deterministic",
+      "check": "test -f /tmp/clive/result.txt && test $(wc -l < /tmp/clive/result.txt | tr -d ' ') -ge 3"
+    },
+    "min_turns": 2,
+    "max_turns": 10,
+    "timeout_seconds": 45
+  },
+  {
+    "id": "web_whois_lookup_017",
+    "layer": 2,
+    "tool": "browser",
+    "mode": "script",
+    "task": "Perform a whois lookup on ikangai.com and extract the registrar name. Write it to /tmp/clive/result.txt.",
+    "initial_state": {},
+    "success_criteria": {
+      "type": "deterministic",
+      "check": "test -f /tmp/clive/result.txt && test -s /tmp/clive/result.txt"
+    },
+    "min_turns": 1,
+    "max_turns": 5,
+    "timeout_seconds": 30
+  },
+  {
+    "id": "web_reddit_json_018",
+    "layer": 2,
+    "tool": "browser",
+    "mode": "interactive",
+    "task": "Fetch the top posts from Reddit's programming subreddit using curl -s -H 'User-Agent: clive/1.0' 'https://www.reddit.com/r/programming/top.json?limit=5'. Extract the post titles and write them to /tmp/clive/result.txt, one per line.",
+    "initial_state": {},
+    "success_criteria": {
+      "type": "deterministic",
+      "check": "test -f /tmp/clive/result.txt && test $(wc -l < /tmp/clive/result.txt | tr -d ' ') -ge 3"
+    },
+    "min_turns": 2,
+    "max_turns": 10,
+    "timeout_seconds": 45
+  },
+  {
+    "id": "web_http_methods_019",
+    "layer": 2,
+    "tool": "browser",
+    "mode": "interactive",
+    "task": "Test all HTTP methods (GET, POST, PUT, DELETE) against https://httpbin.org/{method} using curl. For each method, write the method and whether it returned 200 to /tmp/clive/result.txt.",
+    "initial_state": {},
+    "success_criteria": {
+      "type": "deterministic",
+      "check": "grep -q 'GET' /tmp/clive/result.txt && grep -q 'POST' /tmp/clive/result.txt && grep -q 'DELETE' /tmp/clive/result.txt"
+    },
+    "min_turns": 2,
+    "max_turns": 10,
+    "timeout_seconds": 60
+  },
+  {
+    "id": "web_webpage_word_count_020",
+    "layer": 2,
+    "tool": "browser",
+    "mode": "interactive",
+    "task": "Fetch https://en.wikipedia.org/wiki/Curl_(programming_language) using lynx -dump and count the total number of words on the page. Write just the word count number to /tmp/clive/result.txt.",
+    "initial_state": {},
+    "success_criteria": {
+      "type": "deterministic",
+      "check": "grep -qE '^[0-9]+$' /tmp/clive/result.txt && test $(cat /tmp/clive/result.txt) -gt 100"
+    },
+    "min_turns": 2,
+    "max_turns": 10,
+    "timeout_seconds": 45
+  }
+]
