@@ -1,0 +1,115 @@
+[
+  {
+    "id": "l3_gen_web_scraper_001",
+    "layer": 3,
+    "tool": "shell",
+    "mode": "script",
+    "task": "Generate a bash script at /tmp/clive/scraper.sh that fetches a webpage URL (first arg), extracts all links, and saves them to a file (second arg). Handle errors gracefully. Test with https://news.ycombinator.com/. Write link count to /tmp/clive/result.txt.",
+    "initial_state": {},
+    "success_criteria": {
+      "type": "deterministic",
+      "check": "test -x /tmp/clive/scraper.sh && test -f /tmp/clive/result.txt && grep -qE '^[0-9]+$' /tmp/clive/result.txt && test $(cat /tmp/clive/result.txt) -gt 5"
+    },
+    "min_turns": 1,
+    "max_turns": 8,
+    "timeout_seconds": 45
+  },
+  {
+    "id": "l3_gen_db_backup_002",
+    "layer": 3,
+    "tool": "shell",
+    "mode": "script",
+    "task": "Generate a database backup script at /tmp/clive/db_backup.sh for SQLite. It should: dump the database to SQL, compress with gzip, add timestamp to filename, keep last 5 backups (rotate older ones). Test with a small SQLite DB. Write backup info to /tmp/clive/result.txt.",
+    "initial_state": {
+      "setup": "sqlite3 /tmp/clive/test.db 'CREATE TABLE IF NOT EXISTS users (id INTEGER, name TEXT); INSERT INTO users VALUES (1, \"test\");'"
+    },
+    "success_criteria": {
+      "type": "deterministic",
+      "check": "test -x /tmp/clive/db_backup.sh && test -f /tmp/clive/result.txt && ls /tmp/clive/*.sql.gz 2>/dev/null | head -1 | grep -q '.sql.gz'"
+    },
+    "min_turns": 1,
+    "max_turns": 8,
+    "timeout_seconds": 45
+  },
+  {
+    "id": "l3_gen_api_monitor_003",
+    "layer": 3,
+    "tool": "shell",
+    "mode": "script",
+    "task": "Generate a monitoring script at /tmp/clive/api_monitor.sh that checks a list of API endpoints for response time and status code. Write results as JSON to /tmp/clive/result.json. Test with: https://httpbin.org/get, https://api.github.com, https://jsonplaceholder.typicode.com/posts/1.",
+    "initial_state": {},
+    "success_criteria": {
+      "type": "deterministic",
+      "check": "test -x /tmp/clive/api_monitor.sh && python3 -c \"import json; d=json.load(open('/tmp/clive/result.json')); assert len(d) >= 3\""
+    },
+    "min_turns": 1,
+    "max_turns": 8,
+    "timeout_seconds": 60
+  },
+  {
+    "id": "l3_gen_report_builder_004",
+    "layer": 3,
+    "tool": "shell",
+    "mode": "script",
+    "task": "Generate a Python report builder at /tmp/clive/build_report.py that reads a CSV, generates HTML with a data table, summary statistics, and a simple ASCII chart embedded as a <pre> block. Test with sample data. Write HTML to /tmp/clive/result.html.",
+    "initial_state": {
+      "setup": "echo 'month,revenue,expenses' > /tmp/clive/report_data.csv && echo 'Jan,45000,32000' >> /tmp/clive/report_data.csv && echo 'Feb,52000,35000' >> /tmp/clive/report_data.csv && echo 'Mar,48000,31000' >> /tmp/clive/report_data.csv && echo 'Apr,61000,38000' >> /tmp/clive/report_data.csv"
+    },
+    "success_criteria": {
+      "type": "deterministic",
+      "check": "test -f /tmp/clive/result.html && grep -q '<table>' /tmp/clive/result.html && grep -q 'Jan' /tmp/clive/result.html"
+    },
+    "min_turns": 1,
+    "max_turns": 8,
+    "timeout_seconds": 45
+  },
+  {
+    "id": "l3_gen_email_parser_005",
+    "layer": 3,
+    "tool": "shell",
+    "mode": "script",
+    "task": "Generate a Python script at /tmp/clive/parse_emails.py that reads raw email files from /tmp/clive/emails/, extracts: sender, subject, date, and body preview (first 100 chars). Write a JSON summary to /tmp/clive/result.json.",
+    "initial_state": {
+      "setup": "mkdir -p /tmp/clive/emails && echo 'From: kiu@ikangai.com\\nTo: martin@ikangai.com\\nSubject: Q2 Planning\\nDate: Wed, 09 Apr 2026 14:00:00 +0200\\n\\nHi Martin, let us schedule the Q2 planning session for next Wednesday.' > /tmp/clive/emails/msg1.eml && echo 'From: sarah@techstart.de\\nTo: martin@ikangai.com\\nSubject: Invoice INV-042\\nDate: Tue, 08 Apr 2026 10:30:00 +0200\\n\\nPlease find attached the invoice for March consulting work.' > /tmp/clive/emails/msg2.eml"
+    },
+    "success_criteria": {
+      "type": "deterministic",
+      "check": "python3 -c \"import json; d=json.load(open('/tmp/clive/result.json')); assert len(d)==2; assert any('kiu' in str(e) for e in d)\""
+    },
+    "min_turns": 1,
+    "max_turns": 8,
+    "timeout_seconds": 45
+  },
+  {
+    "id": "l3_gen_changelog_006",
+    "layer": 3,
+    "tool": "shell",
+    "mode": "script",
+    "task": "Generate a script at /tmp/clive/gen_changelog.sh that reads git log from the current repo, groups commits by type (feat/fix/refactor/docs/chore), and generates a markdown CHANGELOG. Test it and write output to /tmp/clive/result.md.",
+    "initial_state": {},
+    "success_criteria": {
+      "type": "deterministic",
+      "check": "test -x /tmp/clive/gen_changelog.sh && test -f /tmp/clive/result.md && grep -qEi 'feat|fix|refactor' /tmp/clive/result.md"
+    },
+    "min_turns": 1,
+    "max_turns": 8,
+    "timeout_seconds": 45
+  },
+  {
+    "id": "l3_gen_invoice_gen_007",
+    "layer": 3,
+    "tool": "shell",
+    "mode": "script",
+    "task": "Generate a Python invoice generator at /tmp/clive/gen_invoice.py that reads line items from a JSON file, calculates subtotal/VAT/total, and outputs a formatted text invoice. Test with 3 items. Write invoice to /tmp/clive/result.txt.",
+    "initial_state": {
+      "setup": "echo '[{\"description\":\"Consulting\",\"quantity\":20,\"unit_price\":150},{\"description\":\"Development\",\"quantity\":40,\"unit_price\":120},{\"description\":\"Testing\",\"quantity\":10,\"unit_price\":100}]' > /tmp/clive/items.json"
+    },
+    "success_criteria": {
+      "type": "deterministic",
+      "check": "test -f /tmp/clive/result.txt && grep -qEi 'total|VAT|subtotal' /tmp/clive/result.txt && grep -q 'Consulting' /tmp/clive/result.txt"
+    },
+    "min_turns": 1,
+    "max_turns": 8,
+    "timeout_seconds": 45
+  }
+]

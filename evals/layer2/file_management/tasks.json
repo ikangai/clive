@@ -1,0 +1,223 @@
+[
+  {
+    "id": "fm_find_duplicates_001",
+    "layer": 2,
+    "tool": "shell",
+    "mode": "script",
+    "task": "Find all duplicate files (same content) in /tmp/clive/files/ by comparing MD5 hashes. Write groups of duplicates to /tmp/clive/result.txt.",
+    "initial_state": {
+      "setup": "mkdir -p /tmp/clive/files && echo 'content A' > /tmp/clive/files/file1.txt && echo 'content A' > /tmp/clive/files/copy1.txt && echo 'content B' > /tmp/clive/files/file2.txt && echo 'content A' > /tmp/clive/files/copy2.txt && echo 'content C' > /tmp/clive/files/file3.txt"
+    },
+    "success_criteria": {
+      "type": "deterministic",
+      "check": "test -f /tmp/clive/result.txt && grep -q 'file1\\|copy1\\|copy2' /tmp/clive/result.txt"
+    },
+    "min_turns": 1,
+    "max_turns": 5,
+    "timeout_seconds": 30
+  },
+  {
+    "id": "fm_batch_rename_002",
+    "layer": 2,
+    "tool": "shell",
+    "mode": "script",
+    "task": "Batch rename all files in /tmp/clive/photos/: convert from 'IMG_YYYYMMDD_HHMMSS.jpg' format to 'YYYY-MM-DD_photo_NNN.jpg' format. Write the rename mapping to /tmp/clive/result.txt.",
+    "initial_state": {
+      "setup": "mkdir -p /tmp/clive/photos && touch /tmp/clive/photos/IMG_20260401_103045.jpg /tmp/clive/photos/IMG_20260402_142530.jpg /tmp/clive/photos/IMG_20260403_091500.jpg"
+    },
+    "success_criteria": {
+      "type": "deterministic",
+      "check": "test -f /tmp/clive/result.txt && ls /tmp/clive/photos/2026-04-*.jpg 2>/dev/null | head -1 | grep -q '2026'"
+    },
+    "min_turns": 1,
+    "max_turns": 5,
+    "timeout_seconds": 30
+  },
+  {
+    "id": "fm_disk_usage_report_003",
+    "layer": 2,
+    "tool": "shell",
+    "mode": "script",
+    "task": "Analyze disk usage of /tmp/clive/ recursively. Show: top 10 largest files, total size per subdirectory, and files over 1KB. Write the report to /tmp/clive/result.txt.",
+    "initial_state": {
+      "setup": "mkdir -p /tmp/clive/project/src /tmp/clive/project/data && dd if=/dev/zero of=/tmp/clive/project/data/big.dat bs=1024 count=5 2>/dev/null && echo 'small' > /tmp/clive/project/src/app.py"
+    },
+    "success_criteria": {
+      "type": "deterministic",
+      "check": "test -f /tmp/clive/result.txt && grep -qE '[0-9]+.*[KMG]?B?\\s' /tmp/clive/result.txt"
+    },
+    "min_turns": 1,
+    "max_turns": 5,
+    "timeout_seconds": 30
+  },
+  {
+    "id": "fm_archive_old_files_004",
+    "layer": 2,
+    "tool": "shell",
+    "mode": "script",
+    "task": "Write a script that archives files older than 30 days from /tmp/clive/logs/ into a dated tar.gz, then deletes the originals. Report archived file count and total size saved. Write to /tmp/clive/result.txt.",
+    "initial_state": {
+      "setup": "mkdir -p /tmp/clive/logs && for i in 1 2 3; do touch -t 202602010000 /tmp/clive/logs/old_${i}.log; done && echo 'recent' > /tmp/clive/logs/new.log"
+    },
+    "success_criteria": {
+      "type": "deterministic",
+      "check": "test -f /tmp/clive/result.txt && ls /tmp/clive/logs/*.tar.gz 2>/dev/null | head -1 | grep -q 'tar.gz'"
+    },
+    "min_turns": 1,
+    "max_turns": 5,
+    "timeout_seconds": 30
+  },
+  {
+    "id": "fm_sync_directories_005",
+    "layer": 2,
+    "tool": "shell",
+    "mode": "script",
+    "task": "Sync two directories: copy new/modified files from /tmp/clive/source/ to /tmp/clive/dest/, delete files in dest that don't exist in source (mirror mode). Write a sync report (added, updated, deleted counts) to /tmp/clive/result.txt.",
+    "initial_state": {
+      "setup": "mkdir -p /tmp/clive/source /tmp/clive/dest && echo 'new content' > /tmp/clive/source/file1.txt && echo 'same' > /tmp/clive/source/file2.txt && echo 'same' > /tmp/clive/dest/file2.txt && echo 'to delete' > /tmp/clive/dest/old_file.txt"
+    },
+    "success_criteria": {
+      "type": "deterministic",
+      "check": "test -f /tmp/clive/dest/file1.txt && ! test -f /tmp/clive/dest/old_file.txt && test -f /tmp/clive/result.txt"
+    },
+    "min_turns": 1,
+    "max_turns": 5,
+    "timeout_seconds": 30
+  },
+  {
+    "id": "fm_secure_delete_006",
+    "layer": 2,
+    "tool": "shell",
+    "mode": "script",
+    "task": "Write a script that securely deletes sensitive files: overwrite with random data 3 times before deletion. Test with /tmp/clive/sensitive.txt. Write confirmation to /tmp/clive/result.txt.",
+    "initial_state": {
+      "setup": "echo 'SECRET_API_KEY=sk_live_abc123' > /tmp/clive/sensitive.txt"
+    },
+    "success_criteria": {
+      "type": "deterministic",
+      "check": "! test -f /tmp/clive/sensitive.txt && test -f /tmp/clive/result.txt && grep -qEi 'deleted|removed|wiped' /tmp/clive/result.txt"
+    },
+    "min_turns": 1,
+    "max_turns": 5,
+    "timeout_seconds": 30
+  },
+  {
+    "id": "fm_tree_to_json_007",
+    "layer": 2,
+    "tool": "shell",
+    "mode": "script",
+    "task": "Convert the directory tree of /tmp/clive/project/ into a JSON representation showing the hierarchy, file sizes, and types. Write to /tmp/clive/result.json.",
+    "initial_state": {
+      "setup": "mkdir -p /tmp/clive/project/src /tmp/clive/project/tests /tmp/clive/project/docs && echo 'app' > /tmp/clive/project/src/main.py && echo 'test' > /tmp/clive/project/tests/test_main.py && echo '# Readme' > /tmp/clive/project/docs/README.md"
+    },
+    "success_criteria": {
+      "type": "deterministic",
+      "check": "python3 -c \"import json; d=json.load(open('/tmp/clive/result.json')); assert 'src' in str(d)\""
+    },
+    "min_turns": 1,
+    "max_turns": 5,
+    "timeout_seconds": 30
+  },
+  {
+    "id": "fm_watch_changes_008",
+    "layer": 2,
+    "tool": "shell",
+    "mode": "script",
+    "task": "Write a script at /tmp/clive/watch_changes.sh that creates checksums of all files in a directory, then detects changes on next run by comparing with saved checksums. Test by modifying a file between runs. Write change report to /tmp/clive/result.txt.",
+    "initial_state": {
+      "setup": "mkdir -p /tmp/clive/watched && echo 'v1' > /tmp/clive/watched/config.txt && echo 'data' > /tmp/clive/watched/data.csv"
+    },
+    "success_criteria": {
+      "type": "deterministic",
+      "check": "test -x /tmp/clive/watch_changes.sh && test -f /tmp/clive/result.txt"
+    },
+    "min_turns": 1,
+    "max_turns": 5,
+    "timeout_seconds": 30
+  },
+  {
+    "id": "fm_split_large_file_009",
+    "layer": 2,
+    "tool": "shell",
+    "mode": "script",
+    "task": "Split /tmp/clive/large.csv into smaller files of 5 lines each (including header in each). Write the count of output files to /tmp/clive/result.txt.",
+    "initial_state": {
+      "setup": "echo 'id,name,value' > /tmp/clive/large.csv && for i in $(seq 1 20); do echo \"$i,item_$i,$((RANDOM%1000))\"; done >> /tmp/clive/large.csv"
+    },
+    "success_criteria": {
+      "type": "deterministic",
+      "check": "test -f /tmp/clive/result.txt && grep -qE '[0-9]+' /tmp/clive/result.txt"
+    },
+    "min_turns": 1,
+    "max_turns": 5,
+    "timeout_seconds": 30
+  },
+  {
+    "id": "fm_compress_compare_010",
+    "layer": 2,
+    "tool": "shell",
+    "mode": "script",
+    "task": "Compress /tmp/clive/testdata/ with gzip, bzip2, and xz (where available). Compare compressed sizes and write a comparison table showing original size, compressed size, and ratio for each method to /tmp/clive/result.txt.",
+    "initial_state": {
+      "setup": "mkdir -p /tmp/clive/testdata && for i in $(seq 1 100); do echo \"Line $i: $(cat /dev/urandom | LC_ALL=C tr -dc 'a-zA-Z0-9' | head -c 80)\"; done > /tmp/clive/testdata/data.txt"
+    },
+    "success_criteria": {
+      "type": "deterministic",
+      "check": "test -f /tmp/clive/result.txt && grep -qEi 'gzip|bzip2|xz' /tmp/clive/result.txt && grep -qE '[0-9]+' /tmp/clive/result.txt"
+    },
+    "min_turns": 1,
+    "max_turns": 5,
+    "timeout_seconds": 30
+  },
+  {
+    "id": "fm_permission_audit_011",
+    "layer": 2,
+    "tool": "shell",
+    "mode": "script",
+    "task": "Audit file permissions in /tmp/clive/: find world-writable files, SUID/SGID files, and files with no owner read permission. Write the security audit report to /tmp/clive/result.txt.",
+    "initial_state": {
+      "setup": "mkdir -p /tmp/clive/audit_test && echo 'normal' > /tmp/clive/audit_test/normal.txt && echo 'wide open' > /tmp/clive/audit_test/open.txt && chmod 777 /tmp/clive/audit_test/open.txt && echo 'restricted' > /tmp/clive/audit_test/restricted.txt && chmod 000 /tmp/clive/audit_test/restricted.txt 2>/dev/null"
+    },
+    "success_criteria": {
+      "type": "deterministic",
+      "check": "test -f /tmp/clive/result.txt && grep -qEi 'world|writable|permission|777' /tmp/clive/result.txt"
+    },
+    "min_turns": 1,
+    "max_turns": 5,
+    "timeout_seconds": 30
+  },
+  {
+    "id": "fm_link_checker_012",
+    "layer": 2,
+    "tool": "shell",
+    "mode": "script",
+    "task": "Find all symbolic links in /tmp/clive/ and check if they point to valid targets. Report broken symlinks. Write the report to /tmp/clive/result.txt.",
+    "initial_state": {
+      "setup": "mkdir -p /tmp/clive/links && echo 'target' > /tmp/clive/links/real.txt && ln -sf /tmp/clive/links/real.txt /tmp/clive/links/valid_link && ln -sf /tmp/clive/links/nonexistent.txt /tmp/clive/links/broken_link"
+    },
+    "success_criteria": {
+      "type": "deterministic",
+      "check": "test -f /tmp/clive/result.txt && grep -qi 'broken' /tmp/clive/result.txt"
+    },
+    "min_turns": 1,
+    "max_turns": 5,
+    "timeout_seconds": 30
+  },
+  {
+    "id": "fm_file_age_report_013",
+    "layer": 2,
+    "tool": "shell",
+    "mode": "script",
+    "task": "Generate a file age report for /tmp/clive/: group files by age bucket (today, this week, this month, older). Show count and total size per bucket. Write to /tmp/clive/result.txt.",
+    "initial_state": {
+      "setup": "mkdir -p /tmp/clive/aged && echo 'today' > /tmp/clive/aged/today.txt && touch -t 202604010000 /tmp/clive/aged/this_week.txt && touch -t 202603010000 /tmp/clive/aged/this_month.txt && touch -t 202601010000 /tmp/clive/aged/old.txt"
+    },
+    "success_criteria": {
+      "type": "deterministic",
+      "check": "test -f /tmp/clive/result.txt && grep -qEi 'today|week|month|old' /tmp/clive/result.txt"
+    },
+    "min_turns": 1,
+    "max_turns": 5,
+    "timeout_seconds": 30
+  }
+]

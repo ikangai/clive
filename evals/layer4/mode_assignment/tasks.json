@@ -16,7 +16,7 @@
     "id": "l4_mode_interactive_002",
     "layer": 4,
     "tool": "planning",
-    "task": "Browse the Wikipedia page for 'tmux' and find who created it and when.",
+    "task": "Browse the Wikipedia page for 'tmux' at https://en.wikipedia.org/wiki/Tmux and find who created it and when.",
     "expected": {
       "min_subtasks": 1,
       "max_subtasks": 2,
@@ -42,7 +42,7 @@
     "id": "l4_mode_mixed_004",
     "layer": 4,
     "tool": "planning",
-    "task": "Count all .py files in the current directory recursively (save count to a file), and also browse example.com to find what it's about.",
+    "task": "Count all .py files in the current directory recursively (save count to a file), and also browse https://news.ycombinator.com/ to find the top story.",
     "expected": {
       "min_subtasks": 2,
       "max_subtasks": 3,
@@ -60,6 +60,138 @@
       "min_subtasks": 1,
       "max_subtasks": 2,
       "expected_modes": [{"subtask_index": 0, "mode": "script"}]
+    },
+    "min_turns": 1,
+    "max_turns": 1
+  },
+  {
+    "id": "l4_mode_neomutt_006",
+    "layer": 4,
+    "tool": "planning",
+    "task": "Search the email inbox for messages from kiu@ikangai.com about invoices, then reply to the most recent one.",
+    "expected": {
+      "min_subtasks": 1,
+      "max_subtasks": 3,
+      "expected_modes": [{"subtask_index": 0, "mode": "interactive"}]
+    },
+    "min_turns": 1,
+    "max_turns": 1
+  },
+  {
+    "id": "l4_mode_mc_organize_007",
+    "layer": 4,
+    "tool": "planning",
+    "task": "Use Midnight Commander to organize files in /tmp/clive/messy/ — move images to /tmp/clive/images/ and documents to /tmp/clive/docs/.",
+    "expected": {
+      "min_subtasks": 1,
+      "max_subtasks": 2,
+      "expected_modes": [{"subtask_index": 0, "mode": "interactive"}]
+    },
+    "min_turns": 1,
+    "max_turns": 1
+  },
+  {
+    "id": "l4_mode_script_gen_008",
+    "layer": 4,
+    "tool": "planning",
+    "task": "Write a bash script that downloads the latest Bitcoin price from CoinGecko API and logs it with timestamp to /tmp/clive/btc.log.",
+    "expected": {
+      "min_subtasks": 1,
+      "max_subtasks": 2,
+      "expected_modes": [{"subtask_index": 0, "mode": "script"}]
+    },
+    "min_turns": 1,
+    "max_turns": 1
+  },
+  {
+    "id": "l4_mode_claude_ask_009",
+    "layer": 4,
+    "tool": "planning",
+    "task": "Ask Claude CLI to review the Python code in /tmp/clive/app.py and suggest improvements.",
+    "expected": {
+      "min_subtasks": 1,
+      "max_subtasks": 2,
+      "expected_modes": [{"subtask_index": 0, "mode": "interactive"}]
+    },
+    "min_turns": 1,
+    "max_turns": 1
+  },
+  {
+    "id": "l4_mode_remote_exec_010",
+    "layer": 4,
+    "tool": "planning",
+    "task": "SSH into ssh.ikangai.com, check disk usage, and if over 80% used, find and delete the largest files in /tmp/.",
+    "expected": {
+      "min_subtasks": 1,
+      "max_subtasks": 3,
+      "expected_modes": [{"subtask_index": 0, "mode": "interactive"}]
+    },
+    "min_turns": 1,
+    "max_turns": 1
+  },
+  {
+    "id": "l4_mode_data_pipeline_011",
+    "layer": 4,
+    "tool": "planning",
+    "task": "Download sales data from an API, clean and transform it, load into SQLite, and generate a summary query.",
+    "expected": {
+      "min_subtasks": 2,
+      "max_subtasks": 4,
+      "has_dependencies": true,
+      "expected_modes": [{"subtask_index": 0, "mode": "script"}]
+    },
+    "min_turns": 1,
+    "max_turns": 1
+  },
+  {
+    "id": "l4_mode_calendar_event_012",
+    "layer": 4,
+    "tool": "planning",
+    "task": "Create a calendar event for next Monday at 2pm, check for conflicts with existing events, and send an invite email to kiu@ikangai.com.",
+    "expected": {
+      "min_subtasks": 2,
+      "max_subtasks": 4,
+      "has_dependencies": true
+    },
+    "min_turns": 1,
+    "max_turns": 1
+  },
+  {
+    "id": "l4_mode_backup_restore_013",
+    "layer": 4,
+    "tool": "planning",
+    "task": "Create a backup of /tmp/clive/important/ as a tarball, verify its integrity with checksums, then test restoring it to /tmp/clive/restored/.",
+    "expected": {
+      "min_subtasks": 2,
+      "max_subtasks": 4,
+      "has_dependencies": true,
+      "expected_modes": [{"subtask_index": 0, "mode": "script"}]
+    },
+    "min_turns": 1,
+    "max_turns": 1
+  },
+  {
+    "id": "l4_mode_invoice_email_014",
+    "layer": 4,
+    "tool": "planning",
+    "task": "Generate an invoice for consulting work (20 hours at €150/hr), save as text file, and email it to kiu@ikangai.com using send_reply.sh.",
+    "expected": {
+      "min_subtasks": 2,
+      "max_subtasks": 3,
+      "has_dependencies": true
+    },
+    "min_turns": 1,
+    "max_turns": 1
+  },
+  {
+    "id": "l4_mode_web_scrape_analyze_015",
+    "layer": 4,
+    "tool": "planning",
+    "task": "Scrape the Hacker News front page for story titles, analyze the topics using word frequency, and create a topic summary report.",
+    "expected": {
+      "min_subtasks": 2,
+      "max_subtasks": 3,
+      "has_dependencies": true
     },
     "min_turns": 1,
     "max_turns": 1
