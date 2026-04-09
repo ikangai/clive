@@ -15,7 +15,7 @@ import getpass
 import os
 import tomllib
 
-from output import step, detail
+from output import step, detail, finish
 
 CONFIG_DIR = os.path.expanduser("~/.clive/config")
 
@@ -99,6 +99,7 @@ def run_setup(tool_name: str, config_schema: dict) -> bool:
     Returns True if user wants to retry the original task.
     """
     step(f"{tool_name} not configured. Let's set it up.")
+    finish()  # stop pulse animation before input() prompts
     fields = config_schema.get("fields", [])
     values = {}
 
