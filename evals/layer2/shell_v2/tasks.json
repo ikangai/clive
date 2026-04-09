@@ -1,0 +1,77 @@
+[
+  {
+    "id": "pane_core_read_and_transform_001",
+    "layer": 2,
+    "tool": "shell",
+    "mode": "interactive",
+    "task": "Read the file data.csv, count the number of rows (excluding header), and write just the count to /tmp/clive/result.txt",
+    "initial_state": {"filesystem": "fixtures/csv_simple/"},
+    "success_criteria": {
+      "type": "deterministic",
+      "check": "test \"$(cat /tmp/clive/result.txt | tr -d '[:space:]')\" = \"5\""
+    },
+    "min_turns": 2,
+    "max_turns": 5,
+    "timeout_seconds": 30
+  },
+  {
+    "id": "pane_core_error_recovery_002",
+    "layer": 2,
+    "tool": "shell",
+    "mode": "interactive",
+    "task": "Read the file data.json and extract the 'email' field from each entry. Write emails one per line to /tmp/clive/result.txt. Note: the file might have some malformed entries -- skip those.",
+    "initial_state": {"filesystem": "fixtures/json_with_errors/"},
+    "success_criteria": {
+      "type": "deterministic",
+      "check": "grep -c '@' /tmp/clive/result.txt | grep -q '[3-5]'"
+    },
+    "min_turns": 2,
+    "max_turns": 6,
+    "timeout_seconds": 30
+  },
+  {
+    "id": "pane_core_multi_step_003",
+    "layer": 2,
+    "tool": "shell",
+    "mode": "interactive",
+    "task": "Find the largest file in the current directory (by size), then count the number of lines in that file, and write 'FILENAME:LINECOUNT' to /tmp/clive/result.txt",
+    "initial_state": {"filesystem": "fixtures/mixed_files/"},
+    "success_criteria": {
+      "type": "deterministic",
+      "check": "grep -q ':' /tmp/clive/result.txt && test -s /tmp/clive/result.txt"
+    },
+    "min_turns": 2,
+    "max_turns": 5,
+    "timeout_seconds": 30
+  },
+  {
+    "id": "pane_core_observe_adapt_004",
+    "layer": 2,
+    "tool": "shell",
+    "mode": "interactive",
+    "task": "Check if jq is installed. If yes, use jq to extract names from data.json. If not, use python3 instead. Write names one per line to /tmp/clive/result.txt.",
+    "initial_state": {"filesystem": "fixtures/json_sum/"},
+    "success_criteria": {
+      "type": "deterministic",
+      "check": "test \"$(wc -l < /tmp/clive/result.txt | tr -d ' ')\" -ge 2"
+    },
+    "min_turns": 2,
+    "max_turns": 6,
+    "timeout_seconds": 30
+  },
+  {
+    "id": "pane_core_heredoc_write_005",
+    "layer": 2,
+    "tool": "shell",
+    "mode": "interactive",
+    "task": "Create a JSON file at /tmp/clive/config.json with the contents: {\"host\": \"localhost\", \"port\": 8080, \"debug\": true}. Then verify it's valid JSON and write 'VALID' or 'INVALID' to /tmp/clive/result.txt.",
+    "initial_state": {},
+    "success_criteria": {
+      "type": "deterministic",
+      "check": "test \"$(cat /tmp/clive/result.txt | tr -d '[:space:]')\" = \"VALID\" && python3 -c \"import json; json.load(open('/tmp/clive/config.json'))\""
+    },
+    "min_turns": 2,
+    "max_turns": 5,
+    "timeout_seconds": 30
+  }
+]

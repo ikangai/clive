@@ -1,0 +1,47 @@
+[
+  {
+    "id": "script_pure_pipeline_001",
+    "layer": 3,
+    "tool": "shell",
+    "mode": "script",
+    "task": "Read input.csv (has columns: name,department,salary). Calculate the average salary per department. Write result as CSV (department,avg_salary) to /tmp/clive/result.txt, sorted by department name.",
+    "initial_state": {"filesystem": "fixtures/salary_data/"},
+    "success_criteria": {
+      "type": "deterministic",
+      "check": "head -1 /tmp/clive/result.txt | grep -qi 'department' && test \"$(wc -l < /tmp/clive/result.txt | tr -d ' ')\" -ge 3"
+    },
+    "min_turns": 1,
+    "max_turns": 3,
+    "timeout_seconds": 30
+  },
+  {
+    "id": "script_pure_multifile_002",
+    "layer": 3,
+    "tool": "shell",
+    "mode": "script",
+    "task": "Merge all .json files in the current directory into a single JSON array. Each file contains one JSON object. Write the merged array to /tmp/clive/result.txt.",
+    "initial_state": {"filesystem": "fixtures/json_fragments/"},
+    "success_criteria": {
+      "type": "deterministic",
+      "check": "python3 -c \"import json; d=json.load(open('/tmp/clive/result.txt')); assert isinstance(d, list) and len(d) >= 3\""
+    },
+    "min_turns": 1,
+    "max_turns": 3,
+    "timeout_seconds": 30
+  },
+  {
+    "id": "script_pure_conditional_003",
+    "layer": 3,
+    "tool": "shell",
+    "mode": "script",
+    "task": "Check if the file data.xml exists. If yes, extract all <name> tag values using grep/sed and write them to /tmp/clive/result.txt. If no, write 'NO_XML_FILE' to /tmp/clive/result.txt.",
+    "initial_state": {"filesystem": "fixtures/xml_data/"},
+    "success_criteria": {
+      "type": "deterministic",
+      "check": "test -s /tmp/clive/result.txt && (grep -q 'Alice' /tmp/clive/result.txt || grep -q 'NO_XML_FILE' /tmp/clive/result.txt)"
+    },
+    "min_turns": 1,
+    "max_turns": 3,
+    "timeout_seconds": 30
+  }
+]
