@@ -1,0 +1,77 @@
+[
+  {
+    "id": "email_send_basic_001",
+    "layer": 2,
+    "tool": "shell",
+    "mode": "interactive",
+    "task": "Send an email to test@example.com with the subject 'Hello from clive' and body 'This is a test email.' using the send_reply.sh script. Write the command output to /tmp/clive/result.txt.",
+    "initial_state": {},
+    "success_criteria": {
+      "type": "deterministic",
+      "check": "grep -q 'send_reply.sh' /tmp/clive/result.txt || grep -qi 'sent' /tmp/clive/result.txt"
+    },
+    "min_turns": 1,
+    "max_turns": 5,
+    "timeout_seconds": 30
+  },
+  {
+    "id": "email_send_uses_script_002",
+    "layer": 2,
+    "tool": "shell",
+    "mode": "interactive",
+    "task": "Send an email to alice@example.com with subject 'Meeting tomorrow' and body 'Can we meet at 3pm?'. Use the send_reply.sh helper script. Capture the full command you ran to /tmp/clive/result.txt.",
+    "initial_state": {},
+    "success_criteria": {
+      "type": "deterministic",
+      "check": "grep -q 'send_reply.sh' /tmp/clive/result.txt && grep -q 'alice@example.com' /tmp/clive/result.txt"
+    },
+    "min_turns": 1,
+    "max_turns": 5,
+    "timeout_seconds": 30
+  },
+  {
+    "id": "email_no_system_mail_003",
+    "layer": 2,
+    "tool": "shell",
+    "mode": "interactive",
+    "task": "Send an email to bob@example.com about project updates. Do NOT use the system 'mail' or 'sendmail' commands — use the configured email tools. Write what command you used to /tmp/clive/result.txt.",
+    "initial_state": {},
+    "success_criteria": {
+      "type": "deterministic",
+      "check": "! grep -qE '^(mail |sendmail |/usr/sbin/sendmail)' /tmp/clive/result.txt && test -s /tmp/clive/result.txt"
+    },
+    "min_turns": 1,
+    "max_turns": 5,
+    "timeout_seconds": 30
+  },
+  {
+    "id": "email_launch_neomutt_004",
+    "layer": 2,
+    "tool": "shell",
+    "mode": "interactive",
+    "task": "Launch neomutt to check the inbox. If it connects successfully, write 'CONNECTED' to /tmp/clive/result.txt. If it fails to connect, write the error message to /tmp/clive/result.txt. After checking, quit neomutt with q.",
+    "initial_state": {},
+    "success_criteria": {
+      "type": "deterministic",
+      "check": "test -s /tmp/clive/result.txt && grep -qiE 'CONNECTED|error|refused|timeout|cannot' /tmp/clive/result.txt"
+    },
+    "min_turns": 2,
+    "max_turns": 8,
+    "timeout_seconds": 45
+  },
+  {
+    "id": "email_send_with_special_chars_005",
+    "layer": 2,
+    "tool": "shell",
+    "mode": "interactive",
+    "task": "Send an email to user@example.com with subject 'Re: Q&A session' and body 'What\\'s the plan for tomorrow?' using send_reply.sh. Write the command you used to /tmp/clive/result.txt.",
+    "initial_state": {},
+    "success_criteria": {
+      "type": "deterministic",
+      "check": "grep -q 'send_reply.sh' /tmp/clive/result.txt && grep -q 'user@example.com' /tmp/clive/result.txt"
+    },
+    "min_turns": 1,
+    "max_turns": 5,
+    "timeout_seconds": 30
+  }
+]
