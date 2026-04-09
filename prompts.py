@@ -143,8 +143,6 @@ Respond with a JSON object and nothing else:
 """
 
 
-
-
 def build_classifier_prompt(
     available_panes: list[str],
     installed_commands: list[str],
