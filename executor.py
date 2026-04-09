@@ -918,6 +918,101 @@ def _trim_messages(messages: list[dict], max_user_turns: int = 4) -> list[dict]:
     return system + first_pair + recent
 
 
+# ─── V2 Interactive Worker ────────────────────────────────────────────────────
+
+def run_subtask_interactive(
+    subtask: Subtask,
+    pane_info: PaneInfo,
+    dep_context: str,
+    on_event=None,
+    session_dir: str = "/tmp/clive",
+) -> SubtaskResult:
+    """Execute a subtask via the read-think-type loop.
+
+    The LLM reads the pane screen, outputs a shell command as plain text,
+    and the executor types it into the pane. No XML protocol, no side channels.
+    The pane scrollback IS the session store.
+    """
+    from command_extract import extract_command, extract_done
+    from prompts import build_interactive_prompt_v2
+
+    client = get_client()
+    total_pt = total_ct = 0
+
+    system_prompt = build_interactive_prompt_v2(
+        subtask_description=subtask.description,
+        pane_name=subtask.pane,
+        app_type=pane_info.app_type,
+        tool_description=pane_info.description,
+        dependency_context=dep_context,
+        session_dir=session_dir,
+    )
+
+    messages = [
+        {"role": "system", "content": system_prompt},
+        {"role": "user", "content": f"Begin. Goal: {subtask.description}"},
+    ]
+
+    prev_screen = None
+
+    for turn in range(1, subtask.max_turns + 1):
+        if _cancel_event.is_set():
+            return SubtaskResult(
+                subtask_id=subtask.id, status=SubtaskStatus.FAILED,
+                summary="Cancelled", output_snippet="",
+                turns_used=turn - 1, prompt_tokens=total_pt, completion_tokens=total_ct,
+            )
+
+        screen = capture_pane(pane_info)
+        diff = compute_screen_diff(prev_screen, screen)
+        prev_screen = screen
+
+        messages.append({"role": "user", "content": diff})
+        messages = _trim_messages(messages)
+
+        reply, pt, ct = chat(client, messages)
+        total_pt += pt
+        total_ct += ct
+        messages.append({"role": "assistant", "content": reply})
+
+        _emit(on_event, "turn", subtask.id, turn, reply[:80])
+        _emit(on_event, "tokens", subtask.id, pt, ct)
+
+        # Check completion
+        done = extract_done(reply)
+        if done is not None:
+            return SubtaskResult(
+                subtask_id=subtask.id, status=SubtaskStatus.COMPLETED,
+                summary=done, output_snippet=screen[-500:],
+                turns_used=turn, prompt_tokens=total_pt, completion_tokens=total_ct,
+            )
+
+        # Extract and execute command
+        cmd = extract_command(reply)
+        if not cmd:
+            continue  # no command, next turn observes screen
+
+        violation = _check_command_safety(cmd)
+        if violation:
+            log.warning(violation)
+            messages.append({"role": "user", "content": f"[BLOCKED] {violation}. Try a different approach."})
+            continue
+
+        wrapped, marker = wrap_command(cmd, subtask.id)
+        pane_info.pane.send_keys(wrapped, enter=True)
+        screen, method = wait_for_ready(pane_info, marker=marker)
+        prev_screen = screen  # update for next diff
+
+    # Exhausted turns
+    final_screen = capture_pane(pane_info)
+    return SubtaskResult(
+        subtask_id=subtask.id, status=SubtaskStatus.FAILED,
+        summary=f"Exhausted {subtask.max_turns} turns without completing",
+        output_snippet=final_screen[-500:],
+        turns_used=subtask.max_turns, prompt_tokens=total_pt, completion_tokens=total_ct,
+    )
+
+
 # ─── Per-Subtask Worker ───────────────────────────────────────────────────────
 
 def run_subtask(
