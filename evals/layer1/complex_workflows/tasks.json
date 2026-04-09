@@ -1,0 +1,160 @@
+[
+  {
+    "id": "l1_daily_report_001",
+    "layer": 1,
+    "tool": "shell",
+    "mode": "interactive",
+    "task": "Create a daily operations report: check disk usage, list running services (processes), check the last 5 git commits, and write a combined summary report to /tmp/clive/result.txt with sections for each area.",
+    "initial_state": {},
+    "success_criteria": {
+      "type": "deterministic",
+      "check": "test -f /tmp/clive/result.txt && grep -qEi 'disk|git|process' /tmp/clive/result.txt && test $(wc -l < /tmp/clive/result.txt | tr -d ' ') -ge 10"
+    },
+    "min_turns": 3,
+    "max_turns": 15,
+    "timeout_seconds": 120
+  },
+  {
+    "id": "l1_multi_api_dashboard_002",
+    "layer": 1,
+    "tool": "shell",
+    "mode": "interactive",
+    "task": "Build a dashboard: fetch weather from Open-Meteo for Munich, get GitHub trending repos (from API), and check public IP address. Compile all data into a formatted text dashboard at /tmp/clive/result.txt.",
+    "initial_state": {},
+    "success_criteria": {
+      "type": "deterministic",
+      "check": "test -f /tmp/clive/result.txt && grep -qEi 'weather|temperature|temp' /tmp/clive/result.txt && grep -qEi 'github|repo' /tmp/clive/result.txt"
+    },
+    "min_turns": 3,
+    "max_turns": 15,
+    "timeout_seconds": 120
+  },
+  {
+    "id": "l1_project_setup_003",
+    "layer": 1,
+    "tool": "shell",
+    "mode": "interactive",
+    "task": "Set up a new Python project at /tmp/clive/new_app/: create directory structure (src, tests, docs), initialize git repo, create pyproject.toml with project metadata, write a hello world main.py, create a test file, and generate a README. Write the tree structure to /tmp/clive/result.txt.",
+    "initial_state": {},
+    "success_criteria": {
+      "type": "deterministic",
+      "check": "test -d /tmp/clive/new_app/src && test -f /tmp/clive/new_app/pyproject.toml && test -d /tmp/clive/new_app/.git && test -f /tmp/clive/result.txt"
+    },
+    "min_turns": 4,
+    "max_turns": 15,
+    "timeout_seconds": 120
+  },
+  {
+    "id": "l1_data_pipeline_004",
+    "layer": 1,
+    "tool": "shell",
+    "mode": "interactive",
+    "task": "Build and run a data pipeline: download posts from JSONPlaceholder API, transform to CSV, filter by userId=1, compute statistics (count, average title length), and write a markdown report to /tmp/clive/result.md.",
+    "initial_state": {},
+    "success_criteria": {
+      "type": "deterministic",
+      "check": "test -f /tmp/clive/result.md && grep -qEi 'count|average|stat' /tmp/clive/result.md"
+    },
+    "min_turns": 3,
+    "max_turns": 15,
+    "timeout_seconds": 120
+  },
+  {
+    "id": "l1_security_check_005",
+    "layer": 1,
+    "tool": "shell",
+    "mode": "interactive",
+    "task": "Run a security audit on the local system: check for world-writable files in /tmp/clive, list open network ports, verify SSH key permissions, check for known vulnerable packages (check versions). Write a security report to /tmp/clive/result.txt.",
+    "initial_state": {},
+    "success_criteria": {
+      "type": "deterministic",
+      "check": "test -f /tmp/clive/result.txt && grep -qEi 'port|permission|security|ssh' /tmp/clive/result.txt"
+    },
+    "min_turns": 3,
+    "max_turns": 15,
+    "timeout_seconds": 120
+  },
+  {
+    "id": "l1_invoice_workflow_006",
+    "layer": 1,
+    "tool": "shell",
+    "mode": "interactive",
+    "task": "Complete invoice workflow: parse the invoice at /tmp/clive/invoice.txt, validate the amounts, calculate VAT at 19%, create a payment record, and generate an email draft to kiu@ikangai.com confirming the payment. Save all outputs under /tmp/clive/.",
+    "initial_state": {
+      "setup": "cat > /tmp/clive/invoice.txt << 'INV'\nINVOICE #INV-2026-099\nFrom: CloudServe GmbH\nTo: ikangai UG\n\nConsulting Services: €5,000.00\nCloud Infrastructure: €2,500.00\nSubtotal: €7,500.00\nVAT (19%): €1,425.00\nTotal: €8,925.00\nINV"
+    },
+    "success_criteria": {
+      "type": "deterministic",
+      "check": "test -f /tmp/clive/result.txt && grep -qE '8925|8,925' /tmp/clive/result.txt"
+    },
+    "min_turns": 4,
+    "max_turns": 15,
+    "timeout_seconds": 120
+  },
+  {
+    "id": "l1_code_review_007",
+    "layer": 1,
+    "tool": "shell",
+    "mode": "interactive",
+    "task": "Review Python code at /tmp/clive/code.py: check for syntax errors, run a linter (pylint or flake8 if available, else manual check), identify potential bugs, and write a code review document to /tmp/clive/result.txt with issues found and suggestions.",
+    "initial_state": {
+      "setup": "cat > /tmp/clive/code.py << 'PY'\nimport os\nimport sys\n\ndef process_data(data):\n    result = []\n    for item in data:\n        if item['status'] == 'active':\n            result.append(item['value'] / item['count'])\n    return result\n\ndef read_file(path):\n    f = open(path)\n    content = f.read()\n    return content\n\ndef parse_config(text):\n    config = eval(text)\n    return config\nPY"
+    },
+    "success_criteria": {
+      "type": "deterministic",
+      "check": "test -f /tmp/clive/result.txt && grep -qEi 'eval|division|file.*close|security|bug|issue' /tmp/clive/result.txt"
+    },
+    "min_turns": 3,
+    "max_turns": 15,
+    "timeout_seconds": 120
+  },
+  {
+    "id": "l1_log_investigation_008",
+    "layer": 1,
+    "tool": "shell",
+    "mode": "interactive",
+    "task": "Investigate an incident from /tmp/clive/app.log: find all ERROR entries, identify the root cause (the first ERROR), determine the impact (how many subsequent errors), and write an incident report to /tmp/clive/result.txt.",
+    "initial_state": {
+      "setup": "echo '2026-04-09T10:00:00 INFO Server started on port 8080' > /tmp/clive/app.log && echo '2026-04-09T10:01:00 INFO Request processed: GET /api/users' >> /tmp/clive/app.log && echo '2026-04-09T10:02:00 ERROR Database connection pool exhausted' >> /tmp/clive/app.log && echo '2026-04-09T10:02:01 ERROR Failed to process request: no available connections' >> /tmp/clive/app.log && echo '2026-04-09T10:02:02 ERROR Request timeout on /api/users' >> /tmp/clive/app.log && echo '2026-04-09T10:02:03 WARN Connection attempt 1 of 3' >> /tmp/clive/app.log && echo '2026-04-09T10:02:05 ERROR Connection retry failed' >> /tmp/clive/app.log && echo '2026-04-09T10:03:00 INFO Database connection restored' >> /tmp/clive/app.log && echo '2026-04-09T10:03:01 INFO Normal operations resumed' >> /tmp/clive/app.log"
+    },
+    "success_criteria": {
+      "type": "deterministic",
+      "check": "grep -qi 'connection pool\\|root cause\\|database' /tmp/clive/result.txt && grep -qE '[0-9]' /tmp/clive/result.txt"
+    },
+    "min_turns": 3,
+    "max_turns": 15,
+    "timeout_seconds": 120
+  },
+  {
+    "id": "l1_competitive_analysis_009",
+    "layer": 1,
+    "tool": "shell",
+    "mode": "interactive",
+    "task": "Perform competitive analysis: fetch GitHub repo stats for tmux/tmux and screen (GNU Screen), compare star counts, recent commit activity, and open issues. Compile a comparison table and recommendation into /tmp/clive/result.txt.",
+    "initial_state": {},
+    "success_criteria": {
+      "type": "deterministic",
+      "check": "test -f /tmp/clive/result.txt && grep -qi 'tmux' /tmp/clive/result.txt && grep -qEi 'star|commit|recommend' /tmp/clive/result.txt"
+    },
+    "min_turns": 3,
+    "max_turns": 15,
+    "timeout_seconds": 120
+  },
+  {
+    "id": "l1_env_migration_010",
+    "layer": 1,
+    "tool": "shell",
+    "mode": "interactive",
+    "task": "Migrate environment configuration: read config from /tmp/clive/old_config.ini (INI format), validate all values, convert to TOML format at /tmp/clive/new_config.toml, generate a migration report documenting what changed. Write report to /tmp/clive/result.txt.",
+    "initial_state": {
+      "setup": "cat > /tmp/clive/old_config.ini << 'INI'\n[database]\nhost = db.ikangai.com\nport = 5432\nname = clive_prod\nuser = clive_app\nssl = true\n\n[server]\nhost = 0.0.0.0\nport = 8080\nworkers = 4\ndebug = false\n\n[logging]\nlevel = info\nformat = json\npath = /var/log/clive.log\nINI"
+    },
+    "success_criteria": {
+      "type": "deterministic",
+      "check": "test -f /tmp/clive/new_config.toml && test -f /tmp/clive/result.txt && grep -q 'ikangai.com' /tmp/clive/new_config.toml"
+    },
+    "min_turns": 3,
+    "max_turns": 15,
+    "timeout_seconds": 120
+  }
+]

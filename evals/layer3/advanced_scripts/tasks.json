@@ -1,0 +1,247 @@
+[
+  {
+    "id": "l3_adv_api_wrapper_001",
+    "layer": 3,
+    "tool": "shell",
+    "mode": "script",
+    "task": "Write a bash script at /tmp/clive/weather.sh that wraps the Open-Meteo API. It should accept a city name, look up coordinates, fetch the current weather, and print a formatted report (temperature, wind speed, condition). Test with 'München'. Write output to /tmp/clive/result.txt.",
+    "initial_state": {},
+    "success_criteria": {
+      "type": "deterministic",
+      "check": "test -x /tmp/clive/weather.sh && test -f /tmp/clive/result.txt && grep -qEi 'temperature|temp|°' /tmp/clive/result.txt"
+    },
+    "min_turns": 1,
+    "max_turns": 8,
+    "timeout_seconds": 45
+  },
+  {
+    "id": "l3_adv_csv_processor_002",
+    "layer": 3,
+    "tool": "shell",
+    "mode": "script",
+    "task": "Write a Python script at /tmp/clive/process.py that reads /tmp/clive/input.csv, groups rows by 'category', computes sum and average of 'amount' per category, and writes a summary CSV to /tmp/clive/result.csv. No external dependencies.",
+    "initial_state": {
+      "setup": "echo 'id,category,amount,date' > /tmp/clive/input.csv && echo '1,A,100,2026-04-01' >> /tmp/clive/input.csv && echo '2,B,200,2026-04-01' >> /tmp/clive/input.csv && echo '3,A,150,2026-04-02' >> /tmp/clive/input.csv && echo '4,C,300,2026-04-02' >> /tmp/clive/input.csv && echo '5,B,250,2026-04-03' >> /tmp/clive/input.csv && echo '6,A,175,2026-04-03' >> /tmp/clive/input.csv"
+    },
+    "success_criteria": {
+      "type": "deterministic",
+      "check": "test -f /tmp/clive/result.csv && python3 -c \"import csv; rows=list(csv.DictReader(open('/tmp/clive/result.csv'))); assert len(rows)==3\""
+    },
+    "min_turns": 1,
+    "max_turns": 5,
+    "timeout_seconds": 30
+  },
+  {
+    "id": "l3_adv_error_handling_003",
+    "layer": 3,
+    "tool": "shell",
+    "mode": "script",
+    "task": "Write a robust bash script at /tmp/clive/safe_download.sh that downloads a URL (first arg) to a destination (second arg). Handle: missing args (print usage), unreachable host (retry 3 times), disk full, and existing file (prompt overwrite). Test with https://httpbin.org/get. Write status to /tmp/clive/result.txt.",
+    "initial_state": {},
+    "success_criteria": {
+      "type": "deterministic",
+      "check": "test -x /tmp/clive/safe_download.sh && test -f /tmp/clive/result.txt && grep -qEi 'success|downloaded|saved' /tmp/clive/result.txt"
+    },
+    "min_turns": 1,
+    "max_turns": 5,
+    "timeout_seconds": 45
+  },
+  {
+    "id": "l3_adv_database_setup_004",
+    "layer": 3,
+    "tool": "shell",
+    "mode": "script",
+    "task": "Write a bash script at /tmp/clive/db_setup.sh that creates a SQLite database at /tmp/clive/app.db with tables: users (id, name, email, created_at), tasks (id, user_id, title, status, created_at). Insert 5 sample records into each table. Query the database to verify. Write the query results to /tmp/clive/result.txt.",
+    "initial_state": {},
+    "success_criteria": {
+      "type": "deterministic",
+      "check": "test -x /tmp/clive/db_setup.sh && test -f /tmp/clive/app.db && test -f /tmp/clive/result.txt && test $(wc -l < /tmp/clive/result.txt | tr -d ' ') -ge 5"
+    },
+    "min_turns": 1,
+    "max_turns": 5,
+    "timeout_seconds": 30
+  },
+  {
+    "id": "l3_adv_report_generator_005",
+    "layer": 3,
+    "tool": "shell",
+    "mode": "script",
+    "task": "Write a Python script at /tmp/clive/report.py that generates an HTML report from /tmp/clive/data.csv. Include: a summary table, total/average statistics, and color-coded rows (red for values below threshold 100). Write HTML to /tmp/clive/result.html.",
+    "initial_state": {
+      "setup": "echo 'product,region,sales' > /tmp/clive/data.csv && echo 'Widget A,North,250' >> /tmp/clive/data.csv && echo 'Widget A,South,80' >> /tmp/clive/data.csv && echo 'Widget B,North,150' >> /tmp/clive/data.csv && echo 'Widget B,South,60' >> /tmp/clive/data.csv && echo 'Widget C,North,320' >> /tmp/clive/data.csv && echo 'Widget C,South,180' >> /tmp/clive/data.csv"
+    },
+    "success_criteria": {
+      "type": "deterministic",
+      "check": "test -f /tmp/clive/result.html && grep -q '<table>' /tmp/clive/result.html && grep -q 'Widget' /tmp/clive/result.html"
+    },
+    "min_turns": 1,
+    "max_turns": 5,
+    "timeout_seconds": 30
+  },
+  {
+    "id": "l3_adv_task_scheduler_006",
+    "layer": 3,
+    "tool": "shell",
+    "mode": "script",
+    "task": "Write a bash script at /tmp/clive/scheduler.sh that reads tasks from /tmp/clive/schedule.json and executes them based on their scheduled time. For this test, execute all 'pending' tasks immediately and mark them as 'done'. Write execution log to /tmp/clive/result.txt.",
+    "initial_state": {
+      "setup": "echo '[{\"id\":1,\"command\":\"echo task1 done\",\"status\":\"pending\"},{\"id\":2,\"command\":\"echo task2 done\",\"status\":\"pending\"},{\"id\":3,\"command\":\"echo task3 done\",\"status\":\"completed\"}]' > /tmp/clive/schedule.json"
+    },
+    "success_criteria": {
+      "type": "deterministic",
+      "check": "test -x /tmp/clive/scheduler.sh && grep -q 'task1 done' /tmp/clive/result.txt && grep -q 'task2 done' /tmp/clive/result.txt"
+    },
+    "min_turns": 1,
+    "max_turns": 5,
+    "timeout_seconds": 30
+  },
+  {
+    "id": "l3_adv_rest_client_007",
+    "layer": 3,
+    "tool": "shell",
+    "mode": "script",
+    "task": "Write a bash REST client script at /tmp/clive/rest.sh that supports CRUD operations against https://jsonplaceholder.typicode.com. Subcommands: get <id>, list, create <title>, delete <id>. Test all operations and write output to /tmp/clive/result.txt.",
+    "initial_state": {},
+    "success_criteria": {
+      "type": "deterministic",
+      "check": "test -x /tmp/clive/rest.sh && test -f /tmp/clive/result.txt && grep -qE '[0-9]' /tmp/clive/result.txt"
+    },
+    "min_turns": 1,
+    "max_turns": 5,
+    "timeout_seconds": 45
+  },
+  {
+    "id": "l3_adv_migration_script_008",
+    "layer": 3,
+    "tool": "shell",
+    "mode": "script",
+    "task": "Write a data migration script at /tmp/clive/migrate.sh that converts JSON records at /tmp/clive/old_format.json to a new schema: rename 'full_name' to 'name', split into 'first_name' and 'last_name', add 'migrated_at' timestamp. Write to /tmp/clive/result.json.",
+    "initial_state": {
+      "setup": "echo '[{\"id\":1,\"full_name\":\"Kiu Chen\",\"email\":\"kiu@ikangai.com\"},{\"id\":2,\"full_name\":\"Sarah Mueller\",\"email\":\"sarah@techstart.de\"},{\"id\":3,\"full_name\":\"Tom Baker\",\"email\":\"tom@globalfin.com\"}]' > /tmp/clive/old_format.json"
+    },
+    "success_criteria": {
+      "type": "deterministic",
+      "check": "python3 -c \"import json; d=json.load(open('/tmp/clive/result.json')); assert all('first_name' in r and 'last_name' in r for r in d); assert d[0]['first_name']=='Kiu'\""
+    },
+    "min_turns": 1,
+    "max_turns": 5,
+    "timeout_seconds": 30
+  },
+  {
+    "id": "l3_adv_monitoring_daemon_009",
+    "layer": 3,
+    "tool": "shell",
+    "mode": "script",
+    "task": "Write a monitoring script at /tmp/clive/monitor.sh that checks: 1) disk usage, 2) memory usage, 3) CPU load, 4) network connectivity (ping google.com). If any metric is critical, write 'ALERT: {metric} is critical' to /tmp/clive/result.txt. Otherwise write 'ALL_HEALTHY'.",
+    "initial_state": {},
+    "success_criteria": {
+      "type": "deterministic",
+      "check": "test -x /tmp/clive/monitor.sh && test -f /tmp/clive/result.txt && grep -qE 'ALERT|ALL_HEALTHY' /tmp/clive/result.txt"
+    },
+    "min_turns": 1,
+    "max_turns": 5,
+    "timeout_seconds": 30
+  },
+  {
+    "id": "l3_adv_etl_pipeline_010",
+    "layer": 3,
+    "tool": "shell",
+    "mode": "script",
+    "task": "Write an ETL (Extract-Transform-Load) script at /tmp/clive/etl.sh. Extract: read /tmp/clive/raw_data.json. Transform: normalize email to lowercase, parse dates to ISO format, remove records with missing fields. Load: write clean data to /tmp/clive/result.json with a stats summary to /tmp/clive/result.txt.",
+    "initial_state": {
+      "setup": "echo '[{\"name\":\"KIU\",\"email\":\"Kiu@Ikangai.COM\",\"date\":\"04/01/2026\"},{\"name\":\"Sarah\",\"email\":\"sarah@techstart.de\",\"date\":\"2026-04-02\"},{\"name\":\"\",\"email\":\"bad@test.com\",\"date\":\"03-15-2026\"},{\"name\":\"Tom\",\"email\":\"Tom@GlobalFin.COM\",\"date\":\"April 5, 2026\"}]' > /tmp/clive/raw_data.json"
+    },
+    "success_criteria": {
+      "type": "deterministic",
+      "check": "python3 -c \"import json; d=json.load(open('/tmp/clive/result.json')); assert len(d)==3; assert all(r['email']==r['email'].lower() for r in d)\""
+    },
+    "min_turns": 1,
+    "max_turns": 8,
+    "timeout_seconds": 45
+  },
+  {
+    "id": "l3_adv_git_hooks_011",
+    "layer": 3,
+    "tool": "shell",
+    "mode": "script",
+    "task": "Write a pre-commit hook script at /tmp/clive/pre-commit.sh that: 1) checks for Python syntax errors (python3 -m py_compile), 2) checks for TODO/FIXME markers, 3) checks for files over 1MB. Test it against sample files. Write test results to /tmp/clive/result.txt.",
+    "initial_state": {
+      "setup": "echo 'print(\"valid\")' > /tmp/clive/good.py && echo 'print(\"has TODO: fix this\")' > /tmp/clive/todo.py && echo 'def broken(:' > /tmp/clive/bad.py"
+    },
+    "success_criteria": {
+      "type": "deterministic",
+      "check": "test -x /tmp/clive/pre-commit.sh && test -f /tmp/clive/result.txt && grep -qEi 'syntax|TODO|pass|fail' /tmp/clive/result.txt"
+    },
+    "min_turns": 1,
+    "max_turns": 5,
+    "timeout_seconds": 30
+  },
+  {
+    "id": "l3_adv_notification_system_012",
+    "layer": 3,
+    "tool": "shell",
+    "mode": "script",
+    "task": "Write a notification dispatcher script at /tmp/clive/notify.sh that reads notification rules from /tmp/clive/rules.json and recent events from /tmp/clive/events.log. Match events to rules and generate notifications. Write notifications to /tmp/clive/result.txt.",
+    "initial_state": {
+      "setup": "echo '[{\"pattern\":\"ERROR\",\"action\":\"email kiu@ikangai.com\",\"severity\":\"high\"},{\"pattern\":\"WARN\",\"action\":\"log to /tmp/clive/warnings.log\",\"severity\":\"medium\"}]' > /tmp/clive/rules.json && echo '2026-04-09 10:00 INFO System started' > /tmp/clive/events.log && echo '2026-04-09 10:15 ERROR Database connection failed' >> /tmp/clive/events.log && echo '2026-04-09 10:20 WARN High memory usage' >> /tmp/clive/events.log && echo '2026-04-09 10:25 ERROR Disk space critical' >> /tmp/clive/events.log"
+    },
+    "success_criteria": {
+      "type": "deterministic",
+      "check": "test -x /tmp/clive/notify.sh && test -f /tmp/clive/result.txt && grep -qi 'email\\|kiu@ikangai.com' /tmp/clive/result.txt && grep -qEi 'ERROR|WARN' /tmp/clive/result.txt"
+    },
+    "min_turns": 1,
+    "max_turns": 5,
+    "timeout_seconds": 30
+  },
+  {
+    "id": "l3_adv_template_engine_013",
+    "layer": 3,
+    "tool": "shell",
+    "mode": "script",
+    "task": "Write a simple template engine script at /tmp/clive/template.sh that reads a template file with {{variable}} placeholders and a JSON data file, then renders the template. Test with an invoice template and data. Write rendered output to /tmp/clive/result.txt.",
+    "initial_state": {
+      "setup": "echo 'Invoice #{{invoice_number}}\\nDate: {{date}}\\nTo: {{client_name}}\\nAmount: €{{amount}}\\nDue: {{due_date}}' > /tmp/clive/template.tpl && echo '{\"invoice_number\":\"INV-2026-042\",\"date\":\"2026-04-09\",\"client_name\":\"Acme Corp\",\"amount\":\"3,115.42\",\"due_date\":\"2026-04-23\"}' > /tmp/clive/data.json"
+    },
+    "success_criteria": {
+      "type": "deterministic",
+      "check": "test -x /tmp/clive/template.sh && grep -q 'INV-2026-042' /tmp/clive/result.txt && grep -q 'Acme Corp' /tmp/clive/result.txt && grep -q '3,115.42' /tmp/clive/result.txt"
+    },
+    "min_turns": 1,
+    "max_turns": 5,
+    "timeout_seconds": 30
+  },
+  {
+    "id": "l3_adv_ci_pipeline_014",
+    "layer": 3,
+    "tool": "shell",
+    "mode": "script",
+    "task": "Write a local CI pipeline script at /tmp/clive/ci.sh that: 1) runs linting (shellcheck or python3 -m py_compile on all scripts), 2) runs tests (echo-based test assertions), 3) builds a distributable (tar.gz), 4) generates a report. Write the CI report to /tmp/clive/result.txt with pass/fail per stage.",
+    "initial_state": {
+      "setup": "mkdir -p /tmp/clive/ci_project/src && echo '#!/bin/bash\\necho hello' > /tmp/clive/ci_project/src/app.sh && chmod +x /tmp/clive/ci_project/src/app.sh && echo 'print(\"test\")' > /tmp/clive/ci_project/src/lib.py"
+    },
+    "success_criteria": {
+      "type": "deterministic",
+      "check": "test -x /tmp/clive/ci.sh && test -f /tmp/clive/result.txt && grep -qEi 'pass|fail|lint|test|build' /tmp/clive/result.txt"
+    },
+    "min_turns": 1,
+    "max_turns": 5,
+    "timeout_seconds": 30
+  },
+  {
+    "id": "l3_adv_config_manager_015",
+    "layer": 3,
+    "tool": "shell",
+    "mode": "script",
+    "task": "Write a config management script at /tmp/clive/config.sh that supports: 'get <key>' to read a config value, 'set <key> <value>' to update it, 'list' to show all, 'diff <file1> <file2>' to compare configs. Use a JSON config file. Test all operations. Write results to /tmp/clive/result.txt.",
+    "initial_state": {
+      "setup": "echo '{\"host\":\"localhost\",\"port\":8080,\"debug\":false,\"db_url\":\"postgresql://db.ikangai.com:5432/clive\"}' > /tmp/clive/app.conf.json"
+    },
+    "success_criteria": {
+      "type": "deterministic",
+      "check": "test -x /tmp/clive/config.sh && test -f /tmp/clive/result.txt && grep -q 'localhost' /tmp/clive/result.txt"
+    },
+    "min_turns": 1,
+    "max_turns": 5,
+    "timeout_seconds": 30
+  }
+]
