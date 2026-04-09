@@ -1,0 +1,322 @@
+[
+  {
+    "id": "bash_backup_script_001",
+    "layer": 2,
+    "tool": "shell",
+    "mode": "script",
+    "task": "Write a bash script at /tmp/clive/backup.sh that creates a timestamped backup of /tmp/clive/data/ to /tmp/clive/backups/. The backup should be a tar.gz file named backup_YYYYMMDD_HHMMSS.tar.gz. Make it executable and run it. Write the backup filename to /tmp/clive/result.txt.",
+    "initial_state": {
+      "setup": "mkdir -p /tmp/clive/data /tmp/clive/backups && echo 'important data' > /tmp/clive/data/file1.txt && echo 'more data' > /tmp/clive/data/file2.txt"
+    },
+    "success_criteria": {
+      "type": "deterministic",
+      "check": "test -x /tmp/clive/backup.sh && ls /tmp/clive/backups/backup_*.tar.gz 2>/dev/null | head -1 | grep -q 'tar.gz'"
+    },
+    "min_turns": 1,
+    "max_turns": 5,
+    "timeout_seconds": 30
+  },
+  {
+    "id": "bash_log_rotate_002",
+    "layer": 2,
+    "tool": "shell",
+    "mode": "script",
+    "task": "Write a bash script at /tmp/clive/logrotate.sh that rotates log files in /tmp/clive/logs/: rename app.log to app.log.1 (shift existing .1 to .2, etc.), keep max 3 rotations, and create a fresh empty app.log. Run it and write the listing of /tmp/clive/logs/ to /tmp/clive/result.txt.",
+    "initial_state": {
+      "setup": "mkdir -p /tmp/clive/logs && echo 'line 1' > /tmp/clive/logs/app.log && echo 'old line' > /tmp/clive/logs/app.log.1"
+    },
+    "success_criteria": {
+      "type": "deterministic",
+      "check": "test -x /tmp/clive/logrotate.sh && test -f /tmp/clive/logs/app.log && test ! -s /tmp/clive/logs/app.log && test -f /tmp/clive/logs/app.log.1"
+    },
+    "min_turns": 1,
+    "max_turns": 5,
+    "timeout_seconds": 30
+  },
+  {
+    "id": "bash_disk_monitor_003",
+    "layer": 2,
+    "tool": "shell",
+    "mode": "script",
+    "task": "Write a bash script at /tmp/clive/disk_check.sh that checks disk usage of all mounted filesystems. If any filesystem is over 80% usage, write 'WARNING: {mount_point} at {usage}%' to /tmp/clive/result.txt. If all are OK, write 'ALL_OK'. Run it.",
+    "initial_state": {},
+    "success_criteria": {
+      "type": "deterministic",
+      "check": "test -x /tmp/clive/disk_check.sh && test -f /tmp/clive/result.txt && grep -qE 'WARNING|ALL_OK' /tmp/clive/result.txt"
+    },
+    "min_turns": 1,
+    "max_turns": 5,
+    "timeout_seconds": 30
+  },
+  {
+    "id": "bash_file_watcher_004",
+    "layer": 2,
+    "tool": "shell",
+    "mode": "script",
+    "task": "Write a bash script at /tmp/clive/watch.sh that monitors /tmp/clive/inbox/ for new files. When a new .csv file appears, move it to /tmp/clive/processed/ and log the action. Test it by creating a test file. Write the processed file path to /tmp/clive/result.txt.",
+    "initial_state": {
+      "setup": "mkdir -p /tmp/clive/inbox /tmp/clive/processed"
+    },
+    "success_criteria": {
+      "type": "deterministic",
+      "check": "test -x /tmp/clive/watch.sh && test -f /tmp/clive/result.txt && grep -q 'processed' /tmp/clive/result.txt"
+    },
+    "min_turns": 1,
+    "max_turns": 8,
+    "timeout_seconds": 45
+  },
+  {
+    "id": "bash_csv_transform_005",
+    "layer": 2,
+    "tool": "shell",
+    "mode": "script",
+    "task": "Write a bash script at /tmp/clive/transform.sh that reads /tmp/clive/input.csv, filters rows where the 'amount' column is > 100, adds a new column 'tax' (19% of amount), and writes the result to /tmp/clive/result.csv.",
+    "initial_state": {
+      "setup": "echo 'id,name,amount' > /tmp/clive/input.csv && echo '1,Widget A,50' >> /tmp/clive/input.csv && echo '2,Widget B,150' >> /tmp/clive/input.csv && echo '3,Widget C,200' >> /tmp/clive/input.csv && echo '4,Widget D,75' >> /tmp/clive/input.csv && echo '5,Widget E,300' >> /tmp/clive/input.csv"
+    },
+    "success_criteria": {
+      "type": "deterministic",
+      "check": "test -x /tmp/clive/transform.sh && test -f /tmp/clive/result.csv && test $(wc -l < /tmp/clive/result.csv | tr -d ' ') -eq 4 && grep -q 'tax' /tmp/clive/result.csv"
+    },
+    "min_turns": 1,
+    "max_turns": 5,
+    "timeout_seconds": 30
+  },
+  {
+    "id": "bash_deploy_script_006",
+    "layer": 2,
+    "tool": "shell",
+    "mode": "script",
+    "task": "Write a deployment script at /tmp/clive/deploy.sh that: 1) checks if git repo is clean, 2) runs tests (echo 'tests pass'), 3) creates a release tag with today's date, 4) builds a tarball of src/. Write each step's status (PASS/FAIL) to /tmp/clive/result.txt.",
+    "initial_state": {
+      "setup": "mkdir -p /tmp/clive/deploy_project/src && echo 'app code' > /tmp/clive/deploy_project/src/app.py && cd /tmp/clive/deploy_project && git init && git add -A && git commit -m 'initial' 2>/dev/null"
+    },
+    "success_criteria": {
+      "type": "deterministic",
+      "check": "test -x /tmp/clive/deploy.sh && test -f /tmp/clive/result.txt && grep -qE 'PASS|FAIL' /tmp/clive/result.txt"
+    },
+    "min_turns": 1,
+    "max_turns": 5,
+    "timeout_seconds": 30
+  },
+  {
+    "id": "bash_health_check_007",
+    "layer": 2,
+    "tool": "shell",
+    "mode": "script",
+    "task": "Write a service health check script at /tmp/clive/healthcheck.sh that checks if these endpoints respond with HTTP 200: https://www.google.com, https://api.github.com, https://httpbin.org/get. Write a status report (service: UP/DOWN) to /tmp/clive/result.txt.",
+    "initial_state": {},
+    "success_criteria": {
+      "type": "deterministic",
+      "check": "test -x /tmp/clive/healthcheck.sh && test -f /tmp/clive/result.txt && grep -qE 'UP|DOWN' /tmp/clive/result.txt && test $(wc -l < /tmp/clive/result.txt | tr -d ' ') -ge 3"
+    },
+    "min_turns": 1,
+    "max_turns": 5,
+    "timeout_seconds": 45
+  },
+  {
+    "id": "bash_cron_generator_008",
+    "layer": 2,
+    "tool": "shell",
+    "mode": "script",
+    "task": "Write a bash script at /tmp/clive/gen_cron.sh that generates a crontab file at /tmp/clive/crontab.txt with these jobs: 1) backup at 2am daily, 2) health check every 5 minutes, 3) log rotation weekly on Sunday at midnight, 4) report generation on the 1st of each month at 6am. Write the crontab content to /tmp/clive/result.txt.",
+    "initial_state": {},
+    "success_criteria": {
+      "type": "deterministic",
+      "check": "test -f /tmp/clive/result.txt && test $(wc -l < /tmp/clive/result.txt | tr -d ' ') -ge 4 && grep -qE '\\*/5|0 2|0 0.*0|0 6.*1' /tmp/clive/result.txt"
+    },
+    "min_turns": 1,
+    "max_turns": 5,
+    "timeout_seconds": 30
+  },
+  {
+    "id": "bash_parallel_download_009",
+    "layer": 2,
+    "tool": "shell",
+    "mode": "script",
+    "task": "Write a bash script at /tmp/clive/parallel_dl.sh that downloads 5 URLs in parallel (using background jobs and wait) from a URL list file. Write the total download time and number of successful downloads to /tmp/clive/result.txt.",
+    "initial_state": {
+      "setup": "echo 'https://httpbin.org/get?n=1' > /tmp/clive/urls.txt && echo 'https://httpbin.org/get?n=2' >> /tmp/clive/urls.txt && echo 'https://httpbin.org/get?n=3' >> /tmp/clive/urls.txt && echo 'https://httpbin.org/get?n=4' >> /tmp/clive/urls.txt && echo 'https://httpbin.org/get?n=5' >> /tmp/clive/urls.txt"
+    },
+    "success_criteria": {
+      "type": "deterministic",
+      "check": "test -x /tmp/clive/parallel_dl.sh && test -f /tmp/clive/result.txt && grep -qE '[0-9]' /tmp/clive/result.txt"
+    },
+    "min_turns": 1,
+    "max_turns": 5,
+    "timeout_seconds": 60
+  },
+  {
+    "id": "bash_env_setup_010",
+    "layer": 2,
+    "tool": "shell",
+    "mode": "script",
+    "task": "Write a bash script at /tmp/clive/setup_env.sh that creates a project structure: directories (src, tests, docs, config), a .env file with default values, a Makefile with common targets (build, test, clean), and a README.md. Run it in /tmp/clive/new_project/. Write the tree output to /tmp/clive/result.txt.",
+    "initial_state": {
+      "setup": "mkdir -p /tmp/clive/new_project"
+    },
+    "success_criteria": {
+      "type": "deterministic",
+      "check": "test -x /tmp/clive/setup_env.sh && test -d /tmp/clive/new_project/src && test -f /tmp/clive/new_project/Makefile"
+    },
+    "min_turns": 1,
+    "max_turns": 5,
+    "timeout_seconds": 30
+  },
+  {
+    "id": "bash_git_stats_011",
+    "layer": 2,
+    "tool": "shell",
+    "mode": "script",
+    "task": "Write a bash script at /tmp/clive/git_stats.sh that analyzes the current git repository and reports: total commits, number of contributors, most active file (most commits), commits per month for the last 3 months. Write the report to /tmp/clive/result.txt.",
+    "initial_state": {},
+    "success_criteria": {
+      "type": "deterministic",
+      "check": "test -x /tmp/clive/git_stats.sh && test -f /tmp/clive/result.txt && grep -qE 'commit|contributor' /tmp/clive/result.txt"
+    },
+    "min_turns": 1,
+    "max_turns": 5,
+    "timeout_seconds": 30
+  },
+  {
+    "id": "bash_port_scanner_012",
+    "layer": 2,
+    "tool": "shell",
+    "mode": "script",
+    "task": "Write a bash script at /tmp/clive/portscan.sh that checks common ports (22, 80, 443, 8080, 3306, 5432) on localhost and reports which are open/closed. Write the results to /tmp/clive/result.txt in format 'PORT STATUS'.",
+    "initial_state": {},
+    "success_criteria": {
+      "type": "deterministic",
+      "check": "test -x /tmp/clive/portscan.sh && test -f /tmp/clive/result.txt && grep -qE '(22|80|443).*(open|closed)' /tmp/clive/result.txt"
+    },
+    "min_turns": 1,
+    "max_turns": 5,
+    "timeout_seconds": 30
+  },
+  {
+    "id": "bash_json_api_wrapper_013",
+    "layer": 2,
+    "tool": "shell",
+    "mode": "script",
+    "task": "Write a bash script at /tmp/clive/api.sh that wraps curl calls to the JSONPlaceholder API. It should accept subcommands: 'list-posts', 'get-post <id>', 'list-users'. Test all three subcommands and write outputs to /tmp/clive/result.txt.",
+    "initial_state": {},
+    "success_criteria": {
+      "type": "deterministic",
+      "check": "test -x /tmp/clive/api.sh && test -f /tmp/clive/result.txt && test -s /tmp/clive/result.txt"
+    },
+    "min_turns": 1,
+    "max_turns": 5,
+    "timeout_seconds": 45
+  },
+  {
+    "id": "bash_cleanup_old_files_014",
+    "layer": 2,
+    "tool": "shell",
+    "mode": "script",
+    "task": "Write a bash script at /tmp/clive/cleanup.sh that finds and deletes files older than 7 days in /tmp/clive/temp/. Before deleting, list what would be deleted (dry run). Accept --dry-run and --force flags. Test with --dry-run and write output to /tmp/clive/result.txt.",
+    "initial_state": {
+      "setup": "mkdir -p /tmp/clive/temp && touch -t 202603010000 /tmp/clive/temp/old_file1.tmp && touch -t 202603010000 /tmp/clive/temp/old_file2.tmp && echo 'recent' > /tmp/clive/temp/new_file.tmp"
+    },
+    "success_criteria": {
+      "type": "deterministic",
+      "check": "test -x /tmp/clive/cleanup.sh && test -f /tmp/clive/result.txt && grep -q 'old_file' /tmp/clive/result.txt"
+    },
+    "min_turns": 1,
+    "max_turns": 5,
+    "timeout_seconds": 30
+  },
+  {
+    "id": "bash_system_report_015",
+    "layer": 2,
+    "tool": "shell",
+    "mode": "script",
+    "task": "Write a bash script at /tmp/clive/sysreport.sh that generates a system info report including: hostname, OS version, CPU info, memory usage, disk usage, network interfaces, and uptime. Write the report to /tmp/clive/result.txt.",
+    "initial_state": {},
+    "success_criteria": {
+      "type": "deterministic",
+      "check": "test -x /tmp/clive/sysreport.sh && test -f /tmp/clive/result.txt && grep -qi 'memory\\|disk\\|cpu\\|uptime' /tmp/clive/result.txt"
+    },
+    "min_turns": 1,
+    "max_turns": 5,
+    "timeout_seconds": 30
+  },
+  {
+    "id": "bash_email_template_016",
+    "layer": 2,
+    "tool": "shell",
+    "mode": "script",
+    "task": "Write a bash script at /tmp/clive/mailmerge.sh that reads a CSV file (/tmp/clive/contacts.csv) and an email template (/tmp/clive/template.txt) and generates personalized emails for each contact. Write the generated emails to /tmp/clive/result.txt.",
+    "initial_state": {
+      "setup": "echo 'name,email,company' > /tmp/clive/contacts.csv && echo 'Kiu,kiu@ikangai.com,ikangai' >> /tmp/clive/contacts.csv && echo 'Sarah,sarah@techstart.de,TechStart' >> /tmp/clive/contacts.csv && echo 'Dear {{name}},\\n\\nThank you for your partnership with {{company}}.\\n\\nBest regards,\\nMartin' > /tmp/clive/template.txt"
+    },
+    "success_criteria": {
+      "type": "deterministic",
+      "check": "test -x /tmp/clive/mailmerge.sh && grep -q 'Kiu' /tmp/clive/result.txt && grep -q 'Sarah' /tmp/clive/result.txt && grep -q 'ikangai' /tmp/clive/result.txt"
+    },
+    "min_turns": 1,
+    "max_turns": 5,
+    "timeout_seconds": 30
+  },
+  {
+    "id": "bash_ssl_expiry_check_017",
+    "layer": 2,
+    "tool": "shell",
+    "mode": "script",
+    "task": "Write a bash script at /tmp/clive/ssl_check.sh that checks SSL certificate expiry dates for a list of domains (google.com, github.com, ikangai.com). Report days until expiry for each. Write the report to /tmp/clive/result.txt.",
+    "initial_state": {},
+    "success_criteria": {
+      "type": "deterministic",
+      "check": "test -x /tmp/clive/ssl_check.sh && test -f /tmp/clive/result.txt && grep -qi 'google\\|github' /tmp/clive/result.txt"
+    },
+    "min_turns": 1,
+    "max_turns": 5,
+    "timeout_seconds": 60
+  },
+  {
+    "id": "bash_data_pipeline_018",
+    "layer": 2,
+    "tool": "shell",
+    "mode": "script",
+    "task": "Write a bash data pipeline script at /tmp/clive/pipeline.sh that: 1) downloads data from https://jsonplaceholder.typicode.com/posts, 2) converts JSON to CSV, 3) filters posts by userId=1, 4) counts them. Write the pipeline output to /tmp/clive/result.txt.",
+    "initial_state": {},
+    "success_criteria": {
+      "type": "deterministic",
+      "check": "test -x /tmp/clive/pipeline.sh && test -f /tmp/clive/result.txt && grep -qE '^[0-9]+$' /tmp/clive/result.txt && test $(cat /tmp/clive/result.txt) -eq 10"
+    },
+    "min_turns": 1,
+    "max_turns": 5,
+    "timeout_seconds": 45
+  },
+  {
+    "id": "bash_process_monitor_019",
+    "layer": 2,
+    "tool": "shell",
+    "mode": "script",
+    "task": "Write a bash script at /tmp/clive/procmon.sh that lists the top 5 processes by CPU usage and top 5 by memory usage. Write the output in a formatted table to /tmp/clive/result.txt.",
+    "initial_state": {},
+    "success_criteria": {
+      "type": "deterministic",
+      "check": "test -x /tmp/clive/procmon.sh && test -f /tmp/clive/result.txt && grep -qE '[0-9]+\\.[0-9]' /tmp/clive/result.txt"
+    },
+    "min_turns": 1,
+    "max_turns": 5,
+    "timeout_seconds": 30
+  },
+  {
+    "id": "bash_config_parser_020",
+    "layer": 2,
+    "tool": "shell",
+    "mode": "script",
+    "task": "Write a bash script at /tmp/clive/cfgparse.sh that reads a TOML-like config file, extracts key=value pairs from a specified section, and outputs them as environment variable exports. Test with section [database]. Write the exports to /tmp/clive/result.txt.",
+    "initial_state": {
+      "setup": "cat > /tmp/clive/config.toml << 'CFG'\n[server]\nhost = 0.0.0.0\nport = 8080\n\n[database]\nhost = db.ikangai.com\nport = 5432\nname = clive_prod\nuser = clive\npassword = s3cret\n\n[logging]\nlevel = info\nformat = json\nCFG"
+    },
+    "success_criteria": {
+      "type": "deterministic",
+      "check": "test -x /tmp/clive/cfgparse.sh && grep -q 'export.*host.*db.ikangai.com' /tmp/clive/result.txt && grep -q 'export.*port.*5432' /tmp/clive/result.txt"
+    },
+    "min_turns": 1,
+    "max_turns": 5,
+    "timeout_seconds": 30
+  }
+]
