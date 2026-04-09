@@ -11,6 +11,28 @@ If a command fails, read the error and try a different approach."""
 
 
 _driver_cache: dict[str, str] = {}
+_driver_meta_cache: dict[str, dict] = {}
+
+
+def _parse_driver_frontmatter(content: str) -> tuple[str, dict]:
+    """Split driver content into body and frontmatter metadata.
+
+    Frontmatter is YAML-like between --- markers at the top of the file.
+    Returns (body, metadata_dict). If no frontmatter, returns (content, {}).
+    """
+    if not content.startswith("---"):
+        return content, {}
+    end = content.find("---", 3)
+    if end == -1:
+        return content, {}
+    front = content[3:end].strip()
+    body = content[end + 3:].strip()
+    meta = {}
+    for line in front.splitlines():
+        if ":" in line:
+            key, val = line.split(":", 1)
+            meta[key.strip()] = val.strip()
+    return body, meta
 
 
 def load_driver(app_type: str, drivers_dir: str | None = None) -> str:
@@ -36,12 +58,26 @@ def load_driver(app_type: str, drivers_dir: str | None = None) -> str:
     path = os.path.join(base, f"{app_type}.md")
     if os.path.exists(path):
         with open(path, "r") as f:
-            content = f.read().strip()
-        _driver_cache[cache_key] = content
-        return content
+            raw = f.read().strip()
+        body, meta = _parse_driver_frontmatter(raw)
+        _driver_cache[cache_key] = body
+        _driver_meta_cache[cache_key] = meta
+        return body
 
     _driver_cache[cache_key] = DEFAULT_DRIVER
+    _driver_meta_cache[cache_key] = {}
     return DEFAULT_DRIVER
+
+
+def load_driver_meta(app_type: str, drivers_dir: str | None = None) -> dict:
+    """Load driver frontmatter metadata (preferred_mode, use_interactive_when, etc.).
+
+    Calls load_driver() first to ensure cache is populated.
+    """
+    cache_key = f"{app_type}:{drivers_dir or 'default'}"
+    if cache_key not in _driver_meta_cache:
+        load_driver(app_type, drivers_dir)
+    return _driver_meta_cache.get(cache_key, {})
 
 
 def build_planner_prompt(tools_summary: str) -> str:
@@ -71,7 +107,7 @@ RULES:
     - "script": One-shot. The agent generates a shell script, executes it, checks the exit code. No observation during execution. Use for: deterministic pipelines, file operations, data extraction, known API calls, text processing. Faster and cheaper.
     - "interactive": Turn-by-turn. The agent reads the screen after each command and decides what to do next. Use for: exploring unknown content, debugging, multi-step workflows where the next step depends on the previous result, interactive applications.
     - "streaming": Like interactive, but with automatic intervention detection. The agent is alerted when the process prompts for input (passwords, confirmations, [y/N] prompts). Use for: package installs that may ask for confirmation, operations requiring passwords, long-running processes that may prompt for input, interactive debuggers.
-    STRONGLY prefer "script" — it is 2.5x cheaper and equally reliable. Only use "interactive" when the task explicitly requires reading unknown output, navigating an interactive application, or multi-step exploration where the next step depends on observing the previous result. Use "streaming" only when the process may prompt for passwords or confirmations.
+    Each pane above declares [prefer: mode] — follow it. The principle: if the next step does NOT depend on seeing the previous result, use "script". Use "streaming" only when the process may prompt for passwords or confirmations.
 11. Each subtask can optionally declare "produces" (filename it will write to the session dir) and "expects" (files it needs from dependencies). This helps downstream subtasks know exactly what data is available.
 
 Respond with a JSON object and nothing else:
@@ -166,6 +202,7 @@ Rules:
 - Commands execute in sequence. If any fails (non-zero exit), pipeline stops and you see the error.
 - You can ONLY send commands to pane "{pane_name}".
 - Write results to {session_dir}/. Scratchpad: {session_dir}/_scratchpad.jsonl for parallel agents.
+- PREFER SCRIPTS OVER TUI: If your goal is to extract, read, or process data from an app that also has a CLI/API/protocol interface (e.g. IMAP for email, sqlite3 for databases, curl for web), write and run a script instead of navigating the TUI. Scripts are faster, more reliable, and use fewer turns. Only use the TUI when you genuinely need interactive exploration or the app has no programmatic interface.
 """
 
 
@@ -279,6 +316,7 @@ Examples:
 - "send email to bob@x.com" (mutt missing) -> {{"mode":"unavailable","tool":"mutt","pane":"email","driver":"email_cli","cmd":null,"fallback_mode":null,"stateful":false,"message":"Email requires neomutt. Install: brew install neomutt"}}
 - "send email to bob@x.com" (email unconfigured) -> {{"mode":"unconfigured","tool":"email","pane":"email","driver":"email_cli","cmd":null,"fallback_mode":null,"stateful":false,"message":"Email needs account setup"}}
 - "ls -la | grep .py" -> {{"mode":"direct","tool":"ls","pane":"shell","driver":"shell","cmd":"ls -la | grep .py","fallback_mode":null,"stateful":false,"message":null}}
+- "read my latest 5 emails" -> {{"mode":"script","tool":"email","pane":"email","driver":"email_cli","cmd":null,"fallback_mode":"interactive","stateful":true,"message":null}}
 - "scrape 5 sites and compare them" -> {{"mode":"plan","tool":null,"pane":null,"driver":null,"cmd":null,"fallback_mode":null,"stateful":true,"message":null}}
 """
 
@@ -328,3 +366,77 @@ Be concise and factual."""
     elif output_format == "bool":
         return base + "\n\nIMPORTANT: Respond with exactly YES or NO. Nothing else. YES means the task was fully accomplished. NO means it was not."
     return base
+
+
+def build_script_prompt_v2(
+    subtask_description: str,
+    pane_name: str,
+    app_type: str,
+    tool_description: str,
+    dependency_context: str,
+    session_dir: str = "/tmp/clive",
+) -> str:
+    """Script prompt — the core. A professional writes a script, runs it once."""
+    dep_section = ""
+    if dependency_context:
+        dep_section = f"""
+Context from prior steps:
+{dependency_context}
+"""
+
+    driver = load_driver(app_type)
+
+    import platform
+    os_name = platform.system()
+    os_arch = platform.machine()
+    os_info = f"OS: {os_name} ({os_arch})"
+    if os_name == "Darwin":
+        os_info += "\nIMPORTANT: macOS with BSD coreutils. Use POSIX-compatible commands."
+
+    return f"""You are a skilled engineer writing a script for: {subtask_description}
+
+Pane: {pane_name} [{app_type}] — {tool_description}
+{os_info}
+
+{driver}
+{dep_section}
+Write a single self-contained script. Choose bash or Python — whichever fits best.
+- Bash: start with #!/bin/bash and use set -euo pipefail
+- Python: start with #!/usr/bin/env python3
+- Read input from the current working directory (relative paths)
+- Write output/results to {session_dir}/ (absolute paths)
+- Print a short preview of output + one-line summary as last line
+
+Respond with ONLY the script in a fenced code block. No prose.
+"""
+
+
+def build_interactive_prompt_v2(
+    subtask_description: str,
+    pane_name: str,
+    app_type: str,
+    tool_description: str,
+    dependency_context: str,
+    session_dir: str = "/tmp/clive",
+) -> str:
+    """Interactive prompt — the exception. For when you need to see before you act."""
+    dep_section = ""
+    if dependency_context:
+        dep_section = f"""
+Prior results:
+{dependency_context}
+"""
+
+    driver = load_driver(app_type)
+
+    return f"""You control pane "{pane_name}" [{app_type}] — {tool_description}
+
+{driver}
+
+GOAL: {subtask_description}
+{dep_section}
+You're investigating something where the next step depends on what you see.
+Type one command. Read the screen output (shown next turn). Decide what's next.
+Write results to {session_dir}/
+When done: DONE: <one-line summary>
+"""
