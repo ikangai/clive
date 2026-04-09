@@ -1,0 +1,207 @@
+[
+  {
+    "id": "l4_morning_briefing_001",
+    "layer": 4,
+    "tool": "planning",
+    "task": "Create a morning briefing: fetch weather for Munich from Open-Meteo, get top 3 HN stories, check my email inbox for unread count, and compile all into a summary document. Email it to kiu@ikangai.com.",
+    "expected": {
+      "min_subtasks": 3,
+      "max_subtasks": 6,
+      "has_parallel": true,
+      "has_dependencies": true
+    },
+    "min_turns": 1,
+    "max_turns": 1
+  },
+  {
+    "id": "l4_invoice_pipeline_002",
+    "layer": 4,
+    "tool": "planning",
+    "task": "Process incoming invoices: parse all invoice text files in /tmp/clive/invoices/, extract amounts and vendor names, create a summary CSV, calculate total outstanding, and send a report email to kiu@ikangai.com.",
+    "expected": {
+      "min_subtasks": 3,
+      "max_subtasks": 5,
+      "has_dependencies": true
+    },
+    "min_turns": 1,
+    "max_turns": 1
+  },
+  {
+    "id": "l4_competitor_research_003",
+    "layer": 4,
+    "tool": "planning",
+    "task": "Research competitor: fetch the GitHub profile of langchain-ai/langchain (stars, recent activity), check their latest blog posts via lynx, and compile a competitive analysis document.",
+    "expected": {
+      "min_subtasks": 2,
+      "max_subtasks": 4,
+      "has_parallel": true,
+      "has_dependencies": true
+    },
+    "min_turns": 1,
+    "max_turns": 1
+  },
+  {
+    "id": "l4_meeting_prep_004",
+    "layer": 4,
+    "tool": "planning",
+    "task": "Prepare for a meeting with Kiu: look up their contact info in the CRM, check recent email threads with them, fetch the latest deal status, and create a one-page meeting brief.",
+    "expected": {
+      "min_subtasks": 3,
+      "max_subtasks": 5,
+      "has_parallel": true,
+      "has_dependencies": true
+    },
+    "min_turns": 1,
+    "max_turns": 1
+  },
+  {
+    "id": "l4_release_workflow_005",
+    "layer": 4,
+    "tool": "planning",
+    "task": "Execute a release workflow: run tests on the current codebase, generate release notes from git log, create a version tag, build a tarball, and draft a release announcement tweet (under 280 chars).",
+    "expected": {
+      "min_subtasks": 4,
+      "max_subtasks": 6,
+      "has_dependencies": true
+    },
+    "min_turns": 1,
+    "max_turns": 1
+  },
+  {
+    "id": "l4_data_report_006",
+    "layer": 4,
+    "tool": "planning",
+    "task": "Create a data-driven report: download exchange rates from the ER API for EUR, fetch the latest BTC price from CoinGecko, process local sales CSV data, and combine into a financial dashboard document with charts (ASCII).",
+    "expected": {
+      "min_subtasks": 3,
+      "max_subtasks": 5,
+      "has_parallel": true,
+      "has_dependencies": true
+    },
+    "min_turns": 1,
+    "max_turns": 1
+  },
+  {
+    "id": "l4_onboarding_setup_007",
+    "layer": 4,
+    "tool": "planning",
+    "task": "Set up a new team member: create their project directory structure, generate SSH key pair, configure SSH config for the remote server, create their email account config, and write an onboarding checklist document.",
+    "expected": {
+      "min_subtasks": 4,
+      "max_subtasks": 6,
+      "has_dependencies": true
+    },
+    "min_turns": 1,
+    "max_turns": 1
+  },
+  {
+    "id": "l4_incident_response_008",
+    "layer": 4,
+    "tool": "planning",
+    "task": "Respond to an incident: check if the production server ssh.ikangai.com is reachable, check disk space and memory, review recent error logs, create an incident report, and send it to kiu@ikangai.com.",
+    "expected": {
+      "min_subtasks": 3,
+      "max_subtasks": 6,
+      "has_parallel": true,
+      "has_dependencies": true
+    },
+    "min_turns": 1,
+    "max_turns": 1
+  },
+  {
+    "id": "l4_weekly_standup_009",
+    "layer": 4,
+    "tool": "planning",
+    "task": "Generate a weekly standup report: pull completed tasks from git log (last 7 days), check open issues in the local task tracker, check calendar for upcoming deadlines, and format as a standup document.",
+    "expected": {
+      "min_subtasks": 3,
+      "max_subtasks": 5,
+      "has_parallel": true,
+      "has_dependencies": true
+    },
+    "min_turns": 1,
+    "max_turns": 1
+  },
+  {
+    "id": "l4_newsletter_compile_010",
+    "layer": 4,
+    "tool": "planning",
+    "task": "Compile a weekly tech newsletter: scrape HN top stories, fetch GitHub trending repos, get the latest posts from r/programming via Reddit JSON API, write editorial summaries for each, and format as HTML email.",
+    "expected": {
+      "min_subtasks": 3,
+      "max_subtasks": 6,
+      "has_parallel": true,
+      "has_dependencies": true
+    },
+    "min_turns": 1,
+    "max_turns": 1
+  },
+  {
+    "id": "l4_backup_verification_011",
+    "layer": 4,
+    "tool": "planning",
+    "task": "Verify backup integrity: create local backups of key directories, compute checksums, sync to remote server via rsync, verify remote checksums match, and generate a backup report.",
+    "expected": {
+      "min_subtasks": 4,
+      "max_subtasks": 6,
+      "has_dependencies": true
+    },
+    "min_turns": 1,
+    "max_turns": 1
+  },
+  {
+    "id": "l4_client_proposal_012",
+    "layer": 4,
+    "tool": "planning",
+    "task": "Create a client proposal: fetch the client's company info from their website using lynx, pull their deal data from the CRM, calculate pricing based on their requirements, and generate a formatted proposal document. Save it and email it to kiu@ikangai.com.",
+    "expected": {
+      "min_subtasks": 3,
+      "max_subtasks": 6,
+      "has_parallel": true,
+      "has_dependencies": true
+    },
+    "min_turns": 1,
+    "max_turns": 1
+  },
+  {
+    "id": "l4_security_audit_013",
+    "layer": 4,
+    "tool": "planning",
+    "task": "Run a security audit: check SSL certificates for ikangai.com and ssh.ikangai.com, scan local open ports, verify SSH key strengths, check for world-writable files in /tmp/clive/, and compile a security report.",
+    "expected": {
+      "min_subtasks": 3,
+      "max_subtasks": 6,
+      "has_parallel": true,
+      "has_dependencies": true
+    },
+    "min_turns": 1,
+    "max_turns": 1
+  },
+  {
+    "id": "l4_expense_reconcile_014",
+    "layer": 4,
+    "tool": "planning",
+    "task": "Reconcile expenses: download bank statement (from local CSV), match against submitted expense reports, flag discrepancies, generate a reconciliation report, and email it to kiu@ikangai.com.",
+    "expected": {
+      "min_subtasks": 3,
+      "max_subtasks": 5,
+      "has_dependencies": true
+    },
+    "min_turns": 1,
+    "max_turns": 1
+  },
+  {
+    "id": "l4_api_monitoring_015",
+    "layer": 4,
+    "tool": "planning",
+    "task": "Monitor API health: check response times for 5 public APIs (httpbin, jsonplaceholder, github, open-meteo, restcountries), log results, flag any with response time > 2s, and send a summary email if any are slow.",
+    "expected": {
+      "min_subtasks": 2,
+      "max_subtasks": 4,
+      "has_parallel": true,
+      "has_dependencies": true
+    },
+    "min_turns": 1,
+    "max_turns": 1
+  }
+]

@@ -1,0 +1,241 @@
+[
+  {
+    "id": "fin_exchange_rate_001",
+    "layer": 2,
+    "tool": "browser",
+    "mode": "script",
+    "task": "Fetch the current EUR/USD exchange rate from https://open.er-api.com/v6/latest/EUR using curl and jq. Also get EUR/GBP and EUR/JPY. Write all three rates to /tmp/clive/result.txt in format 'EUR/USD: X.XXXX'.",
+    "initial_state": {},
+    "success_criteria": {
+      "type": "deterministic",
+      "check": "grep -q 'EUR/USD' /tmp/clive/result.txt && grep -q 'EUR/GBP' /tmp/clive/result.txt && grep -q 'EUR/JPY' /tmp/clive/result.txt"
+    },
+    "min_turns": 1,
+    "max_turns": 5,
+    "timeout_seconds": 30
+  },
+  {
+    "id": "fin_compound_interest_002",
+    "layer": 2,
+    "tool": "shell",
+    "mode": "script",
+    "task": "Calculate compound interest: principal €10,000, annual rate 5.5%, compounded monthly, for 10 years. Write the final amount, total interest earned, and year-by-year breakdown to /tmp/clive/result.txt.",
+    "initial_state": {},
+    "success_criteria": {
+      "type": "deterministic",
+      "check": "test -f /tmp/clive/result.txt && grep -qE '17,.*[0-9]|17[0-9]{3}' /tmp/clive/result.txt"
+    },
+    "min_turns": 1,
+    "max_turns": 5,
+    "timeout_seconds": 30
+  },
+  {
+    "id": "fin_loan_amortization_003",
+    "layer": 2,
+    "tool": "shell",
+    "mode": "script",
+    "task": "Generate a loan amortization schedule for: principal €200,000, annual interest 3.5%, term 30 years, monthly payments. Show the first 12 months with columns: month, payment, principal, interest, balance. Write to /tmp/clive/result.txt.",
+    "initial_state": {},
+    "success_criteria": {
+      "type": "deterministic",
+      "check": "test -f /tmp/clive/result.txt && test $(wc -l < /tmp/clive/result.txt | tr -d ' ') -ge 12 && grep -qE '[0-9]+\\.[0-9]{2}' /tmp/clive/result.txt"
+    },
+    "min_turns": 1,
+    "max_turns": 8,
+    "timeout_seconds": 45
+  },
+  {
+    "id": "fin_profit_loss_004",
+    "layer": 2,
+    "tool": "shell",
+    "mode": "script",
+    "task": "Create a Profit & Loss statement from /tmp/clive/transactions.csv. Categories: Revenue, COGS, Operating Expenses, Other Income. Calculate Gross Profit, Operating Income, and Net Income. Write to /tmp/clive/result.txt.",
+    "initial_state": {
+      "setup": "echo 'date,category,description,amount' > /tmp/clive/transactions.csv && echo '2026-01-15,Revenue,Product Sales,85000' >> /tmp/clive/transactions.csv && echo '2026-01-20,Revenue,Consulting,25000' >> /tmp/clive/transactions.csv && echo '2026-01-25,COGS,Server Costs,-12000' >> /tmp/clive/transactions.csv && echo '2026-02-01,Operating Expenses,Salaries,-45000' >> /tmp/clive/transactions.csv && echo '2026-02-05,Operating Expenses,Rent,-3500' >> /tmp/clive/transactions.csv && echo '2026-02-10,Revenue,Product Sales,78000' >> /tmp/clive/transactions.csv && echo '2026-02-15,COGS,Server Costs,-12000' >> /tmp/clive/transactions.csv && echo '2026-02-20,Operating Expenses,Salaries,-45000' >> /tmp/clive/transactions.csv && echo '2026-03-01,Other Income,Interest,500' >> /tmp/clive/transactions.csv"
+    },
+    "success_criteria": {
+      "type": "deterministic",
+      "check": "grep -qi 'revenue' /tmp/clive/result.txt && grep -qi 'net\\|profit\\|income' /tmp/clive/result.txt"
+    },
+    "min_turns": 1,
+    "max_turns": 5,
+    "timeout_seconds": 30
+  },
+  {
+    "id": "fin_tax_calculator_005",
+    "layer": 2,
+    "tool": "shell",
+    "mode": "script",
+    "task": "Write a German income tax calculator (Einkommensteuer) as a bash script. It should accept gross annual income and calculate: income tax using progressive rates (14%-45%), solidarity surcharge (5.5% of tax), and net income. Test with €75,000 gross. Write results to /tmp/clive/result.txt.",
+    "initial_state": {},
+    "success_criteria": {
+      "type": "deterministic",
+      "check": "test -f /tmp/clive/result.txt && grep -qE '[0-9]+' /tmp/clive/result.txt && grep -qEi 'tax|steuer|net' /tmp/clive/result.txt"
+    },
+    "min_turns": 1,
+    "max_turns": 8,
+    "timeout_seconds": 45
+  },
+  {
+    "id": "fin_stock_price_006",
+    "layer": 2,
+    "tool": "browser",
+    "mode": "script",
+    "task": "Fetch current stock data for ticker AAPL from a free API (e.g., https://query1.finance.yahoo.com/v8/finance/chart/AAPL?interval=1d&range=5d). Extract the last closing price. Write it to /tmp/clive/result.txt.",
+    "initial_state": {},
+    "success_criteria": {
+      "type": "deterministic",
+      "check": "test -f /tmp/clive/result.txt && grep -qE '^[0-9]+\\.?[0-9]*$' /tmp/clive/result.txt"
+    },
+    "min_turns": 1,
+    "max_turns": 5,
+    "timeout_seconds": 30
+  },
+  {
+    "id": "fin_currency_convert_007",
+    "layer": 2,
+    "tool": "shell",
+    "mode": "script",
+    "task": "Write a currency conversion script at /tmp/clive/convert.sh that uses the Open Exchange Rates API (https://open.er-api.com/v6/latest/EUR). Convert €5,000 to USD, GBP, and JPY. Write conversions to /tmp/clive/result.txt.",
+    "initial_state": {},
+    "success_criteria": {
+      "type": "deterministic",
+      "check": "test -x /tmp/clive/convert.sh && grep -q 'USD' /tmp/clive/result.txt && grep -q 'GBP' /tmp/clive/result.txt && grep -q 'JPY' /tmp/clive/result.txt"
+    },
+    "min_turns": 1,
+    "max_turns": 5,
+    "timeout_seconds": 30
+  },
+  {
+    "id": "fin_cashflow_forecast_008",
+    "layer": 2,
+    "tool": "shell",
+    "mode": "script",
+    "task": "Generate a 6-month cash flow forecast from /tmp/clive/cashflow.csv. Project forward using average monthly values. Flag months where projected balance goes below €10,000. Write to /tmp/clive/result.txt.",
+    "initial_state": {
+      "setup": "echo 'month,inflow,outflow,balance' > /tmp/clive/cashflow.csv && echo 'Jan,45000,38000,57000' >> /tmp/clive/cashflow.csv && echo 'Feb,42000,40000,59000' >> /tmp/clive/cashflow.csv && echo 'Mar,48000,52000,55000' >> /tmp/clive/cashflow.csv"
+    },
+    "success_criteria": {
+      "type": "deterministic",
+      "check": "grep -qE 'Apr|May|Jun' /tmp/clive/result.txt && grep -qE '[0-9]{4,}' /tmp/clive/result.txt"
+    },
+    "min_turns": 1,
+    "max_turns": 5,
+    "timeout_seconds": 30
+  },
+  {
+    "id": "fin_invoice_aging_009",
+    "layer": 2,
+    "tool": "shell",
+    "mode": "script",
+    "task": "Create an accounts receivable aging report from /tmp/clive/invoices.csv. Bucket by age: current (0-30 days), 31-60, 61-90, 90+. Show total per bucket. Reference date: 2026-04-09. Write to /tmp/clive/result.txt.",
+    "initial_state": {
+      "setup": "echo 'invoice_id,client,amount,due_date,status' > /tmp/clive/invoices.csv && echo 'INV-001,Acme,5000,2026-04-05,unpaid' >> /tmp/clive/invoices.csv && echo 'INV-002,Beta,3000,2026-03-15,unpaid' >> /tmp/clive/invoices.csv && echo 'INV-003,Gamma,8000,2026-02-01,unpaid' >> /tmp/clive/invoices.csv && echo 'INV-004,Delta,2500,2026-01-10,unpaid' >> /tmp/clive/invoices.csv && echo 'INV-005,Echo,6000,2026-03-28,unpaid' >> /tmp/clive/invoices.csv && echo 'INV-006,Foxtrot,4000,2026-04-01,paid' >> /tmp/clive/invoices.csv"
+    },
+    "success_criteria": {
+      "type": "deterministic",
+      "check": "grep -qE '0-30|current' /tmp/clive/result.txt && grep -qE '90|overdue' /tmp/clive/result.txt"
+    },
+    "min_turns": 1,
+    "max_turns": 5,
+    "timeout_seconds": 30
+  },
+  {
+    "id": "fin_vat_report_010",
+    "layer": 2,
+    "tool": "shell",
+    "mode": "script",
+    "task": "Generate a German VAT (Umsatzsteuer) report from /tmp/clive/transactions.csv. Calculate input VAT (Vorsteuer) from expenses and output VAT (Umsatzsteuer) from revenue at 19%. Compute the VAT payable/refundable. Write to /tmp/clive/result.txt.",
+    "initial_state": {
+      "setup": "echo 'date,type,description,net_amount,vat_rate' > /tmp/clive/transactions.csv && echo '2026-04-01,revenue,Consulting,10000,19' >> /tmp/clive/transactions.csv && echo '2026-04-02,expense,Office supplies,-500,19' >> /tmp/clive/transactions.csv && echo '2026-04-03,revenue,Software license,5000,19' >> /tmp/clive/transactions.csv && echo '2026-04-04,expense,Cloud hosting,-2000,19' >> /tmp/clive/transactions.csv && echo '2026-04-05,revenue,Training,3000,19' >> /tmp/clive/transactions.csv && echo '2026-04-06,expense,Travel,-800,7' >> /tmp/clive/transactions.csv"
+    },
+    "success_criteria": {
+      "type": "deterministic",
+      "check": "grep -qEi 'VAT|Umsatzsteuer|Vorsteuer' /tmp/clive/result.txt && grep -qE '[0-9]+\\.[0-9]{2}' /tmp/clive/result.txt"
+    },
+    "min_turns": 1,
+    "max_turns": 5,
+    "timeout_seconds": 30
+  },
+  {
+    "id": "fin_budget_tracker_011",
+    "layer": 2,
+    "tool": "shell",
+    "mode": "script",
+    "task": "Track daily expenses from /tmp/clive/daily_expenses.csv against monthly budget limits in /tmp/clive/budgets.json. Show remaining budget per category and days left in the month. Flag categories over 80% spent. Write to /tmp/clive/result.txt.",
+    "initial_state": {
+      "setup": "echo '{\"Food\":600,\"Transport\":200,\"Entertainment\":150,\"Shopping\":300}' > /tmp/clive/budgets.json && echo 'date,category,amount,description' > /tmp/clive/daily_expenses.csv && echo '2026-04-01,Food,35,Groceries' >> /tmp/clive/daily_expenses.csv && echo '2026-04-02,Transport,45,Taxi' >> /tmp/clive/daily_expenses.csv && echo '2026-04-03,Food,28,Lunch' >> /tmp/clive/daily_expenses.csv && echo '2026-04-04,Entertainment,80,Concert' >> /tmp/clive/daily_expenses.csv && echo '2026-04-05,Food,52,Dinner' >> /tmp/clive/daily_expenses.csv && echo '2026-04-06,Shopping,250,Electronics' >> /tmp/clive/daily_expenses.csv && echo '2026-04-07,Transport,120,Train' >> /tmp/clive/daily_expenses.csv && echo '2026-04-08,Food,65,Restaurant' >> /tmp/clive/daily_expenses.csv"
+    },
+    "success_criteria": {
+      "type": "deterministic",
+      "check": "grep -qi 'Food' /tmp/clive/result.txt && grep -qi 'Transport' /tmp/clive/result.txt && grep -qE '[0-9]+' /tmp/clive/result.txt"
+    },
+    "min_turns": 1,
+    "max_turns": 5,
+    "timeout_seconds": 30
+  },
+  {
+    "id": "fin_roi_calculator_012",
+    "layer": 2,
+    "tool": "shell",
+    "mode": "script",
+    "task": "Calculate ROI for multiple projects from /tmp/clive/projects.csv. Compute: ROI%, payback period (months), and rank projects by ROI. Write analysis to /tmp/clive/result.txt.",
+    "initial_state": {
+      "setup": "echo 'project,investment,monthly_return,months_active' > /tmp/clive/projects.csv && echo 'Platform v2,150000,12000,18' >> /tmp/clive/projects.csv && echo 'Mobile App,80000,8000,12' >> /tmp/clive/projects.csv && echo 'AI Integration,50000,15000,6' >> /tmp/clive/projects.csv && echo 'Marketing Campaign,30000,5000,8' >> /tmp/clive/projects.csv"
+    },
+    "success_criteria": {
+      "type": "deterministic",
+      "check": "grep -qi 'ROI\\|return' /tmp/clive/result.txt && grep -qE '[0-9]+%' /tmp/clive/result.txt"
+    },
+    "min_turns": 1,
+    "max_turns": 5,
+    "timeout_seconds": 30
+  },
+  {
+    "id": "fin_crypto_portfolio_013",
+    "layer": 2,
+    "tool": "browser",
+    "mode": "script",
+    "task": "Fetch current Bitcoin and Ethereum prices from https://api.coingecko.com/api/v3/simple/price?ids=bitcoin,ethereum&vs_currencies=eur. Calculate portfolio value: 0.5 BTC and 5 ETH. Write individual values and total to /tmp/clive/result.txt in EUR.",
+    "initial_state": {},
+    "success_criteria": {
+      "type": "deterministic",
+      "check": "test -f /tmp/clive/result.txt && grep -qEi 'bitcoin|BTC' /tmp/clive/result.txt && grep -qEi 'ethereum|ETH' /tmp/clive/result.txt && grep -qE '[0-9]+' /tmp/clive/result.txt"
+    },
+    "min_turns": 1,
+    "max_turns": 5,
+    "timeout_seconds": 30
+  },
+  {
+    "id": "fin_sepa_xml_014",
+    "layer": 2,
+    "tool": "shell",
+    "mode": "script",
+    "task": "Generate a SEPA Credit Transfer XML (pain.001) for a payment: debtor ikangai UG (IBAN DE89 3704 0044 0532 0130 00), creditor CloudServe GmbH (IBAN DE02 1001 0010 0987 6543 21), amount €3,115.42, reference INV-2026-0042. Write the XML to /tmp/clive/result.xml.",
+    "initial_state": {},
+    "success_criteria": {
+      "type": "deterministic",
+      "check": "test -f /tmp/clive/result.xml && grep -q 'pain.001' /tmp/clive/result.xml && grep -q '3115.42' /tmp/clive/result.xml && grep -q 'ikangai' /tmp/clive/result.xml"
+    },
+    "min_turns": 1,
+    "max_turns": 8,
+    "timeout_seconds": 45
+  },
+  {
+    "id": "fin_expense_categorize_015",
+    "layer": 2,
+    "tool": "shell",
+    "mode": "script",
+    "task": "Auto-categorize bank transactions from /tmp/clive/bank_transactions.csv based on description keywords. Categories: Travel (airline, hotel, train), Food (restaurant, grocery, cafe), Software (subscription, license, cloud), Office (rent, supplies). Write categorized transactions to /tmp/clive/result.csv.",
+    "initial_state": {
+      "setup": "echo 'date,description,amount' > /tmp/clive/bank_transactions.csv && echo '2026-04-01,Lufthansa Flight MUC-BER,-189.00' >> /tmp/clive/bank_transactions.csv && echo '2026-04-02,Restaurant Augustiner,-45.50' >> /tmp/clive/bank_transactions.csv && echo '2026-04-03,AWS Cloud Subscription,-2400.00' >> /tmp/clive/bank_transactions.csv && echo '2026-04-04,Office Supplies Store,-78.90' >> /tmp/clive/bank_transactions.csv && echo '2026-04-05,Hotel Marriott Berlin,-195.00' >> /tmp/clive/bank_transactions.csv && echo '2026-04-06,Rewe Grocery,-32.50' >> /tmp/clive/bank_transactions.csv && echo '2026-04-07,GitHub License,-44.00' >> /tmp/clive/bank_transactions.csv && echo '2026-04-08,DB Train München-Berlin,-89.00' >> /tmp/clive/bank_transactions.csv"
+    },
+    "success_criteria": {
+      "type": "deterministic",
+      "check": "test -f /tmp/clive/result.csv && grep -qi 'travel' /tmp/clive/result.csv && grep -qi 'food' /tmp/clive/result.csv && grep -qi 'software' /tmp/clive/result.csv"
+    },
+    "min_turns": 1,
+    "max_turns": 5,
+    "timeout_seconds": 30
+  }
+]
