@@ -72,6 +72,7 @@ HELP_TEXT = """\
   [#c9c9d6]/undo[/]                 Roll back last self-modification
   [#c9c9d6]/safe-mode[/]            Disable self-modification
   [#c9c9d6]/evolve[/] [#6b7280]<driver>[/]     Evolve a driver (shell, browser, all)
+  [#c9c9d6]/dashboard[/]            Show running clive instances
   [#c9c9d6]/help[/]                 Show this help
 
 [#d97706]Profiles:[/]   {profiles}
@@ -333,6 +334,11 @@ class CliveApp(App):
                 out.write("[yellow]Usage: /evolve <driver> (shell, browser, all)[/yellow]")
             return
 
+        elif cmd == "/dashboard":
+            from dashboard import render_lines
+            for line in render_lines():
+                out.write(line)
+
         else:
             out.write(f"[#ef4444]Unknown command: {cmd}[/] — try /help")
 
@@ -457,7 +463,7 @@ class CliveApp(App):
         lines.append("  - LLM providers: " + ", ".join(LLM_PROVIDERS))
         lines.append("")
 
-        lines.append("TUI SLASH COMMANDS: /help, /profile, /provider, /model, /tools, /install, /status, /cancel, /clear")
+        lines.append("TUI SLASH COMMANDS: /help, /profile, /provider, /model, /tools, /install, /status, /cancel, /clear, /dashboard")
 
         return "\n".join(lines)
 

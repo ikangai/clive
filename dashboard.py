@@ -41,48 +41,54 @@ def _load_remote_agents(agents_yaml_path: str | None = None) -> list[dict]:
         return []
 
 
-def render_snapshot(registry_dir: Path | None = None,
-                    agents_yaml_path: str | None = None) -> None:
+def render_lines(registry_dir: Path | None = None,
+                  agents_yaml_path: str | None = None) -> list[str]:
+    """Return dashboard content as a list of strings (for TUI embedding)."""
+    lines = []
     instances = list_instances(registry_dir=registry_dir)
     remote_agents = _load_remote_agents(agents_yaml_path)
 
     if not instances and not remote_agents:
-        print("No instances running.")
-        return
+        lines.append("No instances running.")
+        return lines
 
     if instances:
-        # Header
-        print()
-        print(" CLIVE INSTANCES")
-        print(" " + "─" * 55)
-        print(f"  {'NAME':<14}{'PID':<8}{'TOOLSET':<17}{'STATUS':<10}{'UPTIME':<10}")
-
+        lines.append("")
+        lines.append(" CLIVE INSTANCES")
+        lines.append(" " + "─" * 55)
+        lines.append(f"  {'NAME':<14}{'PID':<8}{'TOOLSET':<17}{'STATUS':<10}{'UPTIME':<10}")
         for inst in instances:
             name = inst.get("name", "?")
             pid = inst.get("pid", "?")
             toolset = inst.get("toolset", "?")
-            status = "idle"  # TODO: tmux pane peek for TURN: state (deferred to v2)
+            status = "idle"
             uptime = _format_uptime(inst.get("started_at", time.time()))
-            print(f"  {name:<14}{pid:<8}{toolset:<17}{status:<10}{uptime:<10}")
+            lines.append(f"  {name:<14}{pid:<8}{toolset:<17}{status:<10}{uptime:<10}")
 
     if remote_agents:
-        print()
-        print(" REMOTE AGENTS")
-        print(" " + "─" * 55)
-        print(f"  {'NAME':<14}{'HOST':<25}{'TOOLSET':<17}")
+        lines.append("")
+        lines.append(" REMOTE AGENTS")
+        lines.append(" " + "─" * 55)
+        lines.append(f"  {'NAME':<14}{'HOST':<25}{'TOOLSET':<17}")
         for agent in remote_agents:
             name = agent.get("name", "?")
             host = agent.get("host", "?")
             toolset = agent.get("toolset", "?")
-            print(f"  {name:<14}{host:<25}{toolset:<17}")
+            lines.append(f"  {name:<14}{host:<25}{toolset:<17}")
 
-    # Summary footer
-    print()
+    lines.append("")
     n_local = len(instances)
     n_remote = len(remote_agents)
-    parts = []
-    parts.append(f"{n_local} instance{'s' if n_local != 1 else ''}")
+    parts = [f"{n_local} instance{'s' if n_local != 1 else ''}"]
     if n_remote:
         parts.append(f"{n_remote} remote")
-    print(f" {' · '.join(parts)}")
-    print()
+    lines.append(f" {' · '.join(parts)}")
+    return lines
+
+
+def render_snapshot(registry_dir: Path | None = None,
+                    agents_yaml_path: str | None = None) -> None:
+    """Print dashboard to stdout (for `clive --dashboard`)."""
+    for line in render_lines(registry_dir=registry_dir,
+                             agents_yaml_path=agents_yaml_path):
+        print(line)
