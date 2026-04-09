@@ -54,7 +54,7 @@ from executor import execute_plan
 from models import SubtaskStatus, Plan, Subtask
 from llm import get_client, chat
 from prompts import build_summarizer_prompt, build_classifier_prompt
-from config import get_unconfigured, run_setup, find_config_schema
+from config import get_unconfigured, run_setup, find_config_schema, is_configured
 from models import ClassifierResult
 
 
@@ -443,57 +443,44 @@ def _run_inner(task, toolset_spec, output_format, max_tokens, session_dir, _clea
         # The classifier is a hint — the session state is the source of truth.
         if cr.mode in ("unavailable", "unconfigured"):
             tool_key = cr.tool or ""
-            from config import is_configured as _is_cfg
 
-            # 1. Tool pane already exists in session?
-            if tool_key in panes:
-                schema = find_config_schema(tool_key)
-                if schema and not _is_cfg(schema):
-                    # Pane exists but needs config → run setup
-                    run_setup(tool_key, schema)
-                    if _is_cfg(schema):
+            def _try_activate_tool(tool_key):
+                """Check if tool is ready as pane or command. Returns ClassifierResult or None."""
+                if tool_key in panes:
+                    schema = find_config_schema(tool_key)
+                    if schema and not is_configured(schema):
+                        run_setup(tool_key, schema)
+                        if not is_configured(schema):
+                            return "cancelled"
                         session_ctx["unconfigured"] = [
                             t for t in session_ctx.get("unconfigured", []) if t != tool_key
                         ]
-                        cr = ClassifierResult(mode="interactive", tool=tool_key, pane=tool_key)
-                        target_pane = tool_key
-                    else:
-                        return f"{tool_key} setup cancelled."
-                else:
-                    # Pane exists and configured — classifier is wrong
-                    cr = ClassifierResult(mode="interactive", tool=tool_key, pane=tool_key)
-                    target_pane = tool_key
+                    return ClassifierResult(mode="interactive", tool=tool_key, pane=tool_key)
+                if any(c["name"] == tool_key for c in session_ctx.get("available_cmds", [])):
+                    return ClassifierResult(mode="script", tool=tool_key, pane=first_pane)
+                return None
 
-            # 2. Tool is an available command?
-            elif any(c["name"] == tool_key for c in session_ctx.get("available_cmds", [])):
-                cr = ClassifierResult(mode="script", tool=tool_key, pane=first_pane)
-
-            # 3. Tool belongs to a known category? → auto-expand
+            # 1. Already in session?
+            activated = _try_activate_tool(tool_key)
+            if activated == "cancelled":
+                return f"{tool_key} setup cancelled."
+            if activated:
+                cr = activated
+                target_pane = cr.pane if cr.pane and cr.pane in panes else first_pane
             else:
+                # 2. Known category? → auto-expand, then try again
                 cat = find_category(tool_key)
                 if cat and cat not in session_ctx.get("categories", set()):
                     step(f"Expanding toolset: +{cat}")
                     _expand_toolset(cat, session_ctx)
-                    # After expand, check again
-                    if tool_key in panes:
-                        schema = find_config_schema(tool_key)
-                        if schema and not _is_cfg(schema):
-                            run_setup(tool_key, schema)
-                            if _is_cfg(schema):
-                                session_ctx["unconfigured"] = [
-                                    t for t in session_ctx.get("unconfigured", []) if t != tool_key
-                                ]
-                                cr = ClassifierResult(mode="interactive", tool=tool_key, pane=tool_key)
-                                target_pane = tool_key
-                            else:
-                                return f"{tool_key} setup cancelled."
-                        else:
-                            cr = ClassifierResult(mode="interactive", tool=tool_key, pane=tool_key)
-                            target_pane = tool_key
-                    elif any(c["name"] == tool_key for c in session_ctx.get("available_cmds", [])):
-                        cr = ClassifierResult(mode="script", tool=tool_key, pane=first_pane)
+                    activated = _try_activate_tool(tool_key)
+                    if activated == "cancelled":
+                        return f"{tool_key} setup cancelled."
+                    if activated:
+                        cr = activated
+                        target_pane = cr.pane if cr.pane and cr.pane in panes else first_pane
 
-            # 4. Still unavailable after all checks
+            # 3. Still unavailable after all checks
             if cr.mode in ("unavailable", "unconfigured"):
                 step(f"Unavailable: {cr.tool}")
                 msg = cr.message or f"{cr.tool} is not available"
@@ -921,7 +908,6 @@ if __name__ == "__main__":
         for p in resolved["panes"]:
             cfg = p.get("config")
             if cfg:
-                from config import is_configured
                 configured = is_configured(cfg)
                 icon = "\u2713" if configured else "\u26a0"
                 status = "configured" if configured else "needs setup"
@@ -949,7 +935,6 @@ if __name__ == "__main__":
         raise SystemExit(0)
 
     if args.setup:
-        from config import run_setup, is_configured, find_config_schema
         tool_name = args.setup
         config_schema = find_config_schema(tool_name)
         if not config_schema:
