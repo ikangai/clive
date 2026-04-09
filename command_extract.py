@@ -7,8 +7,8 @@ or bare lines.
 """
 import re
 
-_FENCED_RE = re.compile(
-    r'```(?:bash|sh)?\s*\n(.*?)```', re.DOTALL
+_FENCED_SHELL_RE = re.compile(
+    r'```(?:bash|sh)\s*\n(.*?)```', re.DOTALL
 )
 _FENCED_PYTHON_RE = re.compile(
     r'```python[3]?\s*\n.*?```', re.DOTALL
@@ -43,8 +43,8 @@ def extract_command(reply: str) -> str | None:
     if extract_done(reply) is not None:
         return None
 
-    # 2. Fenced bash/sh code block (preferred)
-    m = _FENCED_RE.search(reply)
+    # 2. Fenced ```bash or ```sh block (preferred — explicit shell)
+    m = _FENCED_SHELL_RE.search(reply)
     if m:
         return m.group(1).strip()
 
@@ -52,13 +52,13 @@ def extract_command(reply: str) -> str | None:
     if _FENCED_PYTHON_RE.search(reply):
         return None
 
-    # 2c. Fenced block with no language tag (but not python)
+    # 2c. Fenced block with no language tag — accept if content doesn't look like python
     m = re.search(r'```\s*\n(.*?)```', reply, re.DOTALL)
     if m:
         content = m.group(1).strip()
-        # Reject if it looks like python
-        if not content.startswith(('import ', 'from ', 'def ', 'class ', 'print(')):
-            return content
+        if content.startswith(('import ', 'from ', 'def ', 'class ', 'print(')):
+            return None  # looks like python, reject entirely
+        return content
 
     # 3. $ prefix
     for line in reply.splitlines():

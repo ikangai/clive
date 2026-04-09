@@ -938,6 +938,8 @@ def run_subtask_interactive(
 
     client = get_client()
     total_pt = total_ct = 0
+    empty_reply_count = 0
+    EMPTY_REPLY_LIMIT = 2
 
     system_prompt = build_interactive_prompt_v2(
         subtask_description=subtask.description,
@@ -955,53 +957,74 @@ def run_subtask_interactive(
 
     prev_screen = None
 
-    for turn in range(1, subtask.max_turns + 1):
-        if _cancel_event.is_set():
-            return SubtaskResult(
-                subtask_id=subtask.id, status=SubtaskStatus.FAILED,
-                summary="Cancelled", output_snippet="",
-                turns_used=turn - 1, prompt_tokens=total_pt, completion_tokens=total_ct,
-            )
+    lock = _pane_locks.setdefault(subtask.pane, threading.Lock())
+    with lock:
+        for turn in range(1, subtask.max_turns + 1):
+            if _cancel_event.is_set():
+                return SubtaskResult(
+                    subtask_id=subtask.id, status=SubtaskStatus.FAILED,
+                    summary="Cancelled", output_snippet="",
+                    turns_used=turn - 1, prompt_tokens=total_pt, completion_tokens=total_ct,
+                )
 
-        screen = capture_pane(pane_info)
-        diff = compute_screen_diff(prev_screen, screen)
-        prev_screen = screen
+            screen = capture_pane(pane_info)
+            diff = compute_screen_diff(prev_screen, screen)
+            prev_screen = screen
 
-        messages.append({"role": "user", "content": diff})
-        messages = _trim_messages(messages)
+            messages.append({"role": "user", "content": diff})
+            messages = _trim_messages(messages)
 
-        reply, pt, ct = chat(client, messages)
-        total_pt += pt
-        total_ct += ct
-        messages.append({"role": "assistant", "content": reply})
+            reply, pt, ct = chat(client, messages)
+            total_pt += pt
+            total_ct += ct
 
-        _emit(on_event, "turn", subtask.id, turn, reply[:80])
-        _emit(on_event, "tokens", subtask.id, pt, ct)
+            # Detect consecutive empty replies (LLM outage / broken provider)
+            if not reply.strip():
+                empty_reply_count += 1
+                if empty_reply_count >= EMPTY_REPLY_LIMIT:
+                    return SubtaskResult(
+                        subtask_id=subtask.id, status=SubtaskStatus.FAILED,
+                        summary=f"LLM returned {EMPTY_REPLY_LIMIT} consecutive empty responses",
+                        output_snippet=screen[-500:] if screen else "",
+                        turns_used=turn, prompt_tokens=total_pt, completion_tokens=total_ct,
+                    )
+                continue
+            empty_reply_count = 0
 
-        # Check completion
-        done = extract_done(reply)
-        if done is not None:
-            return SubtaskResult(
-                subtask_id=subtask.id, status=SubtaskStatus.COMPLETED,
-                summary=done, output_snippet=screen[-500:],
-                turns_used=turn, prompt_tokens=total_pt, completion_tokens=total_ct,
-            )
+            messages.append({"role": "assistant", "content": reply})
 
-        # Extract and execute command
-        cmd = extract_command(reply)
-        if not cmd:
-            continue  # no command, next turn observes screen
+            _emit(on_event, "turn", subtask.id, turn, reply[:80])
+            _emit(on_event, "tokens", subtask.id, pt, ct)
 
-        violation = _check_command_safety(cmd)
-        if violation:
-            log.warning(violation)
-            messages.append({"role": "user", "content": f"[BLOCKED] {violation}. Try a different approach."})
-            continue
+            # Check completion
+            done = extract_done(reply)
+            if done is not None:
+                return SubtaskResult(
+                    subtask_id=subtask.id, status=SubtaskStatus.COMPLETED,
+                    summary=done, output_snippet=screen[-500:],
+                    turns_used=turn, prompt_tokens=total_pt, completion_tokens=total_ct,
+                )
 
-        wrapped, marker = wrap_command(cmd, subtask.id)
-        pane_info.pane.send_keys(wrapped, enter=True)
-        screen, method = wait_for_ready(pane_info, marker=marker)
-        prev_screen = screen  # update for next diff
+            # Extract and execute command
+            cmd = extract_command(reply)
+            if not cmd:
+                continue  # no command, next turn observes screen
+
+            violation = _check_command_safety(cmd)
+            if violation:
+                log.warning(violation)
+                messages.append({"role": "user", "content": f"[BLOCKED] {violation}. Try a different approach."})
+                continue
+
+            # Sandbox wrapping for shell-like panes
+            _SHELL_LIKE = {"shell", "data", "docs", "media", "browser", "files"}
+            if pane_info.app_type in _SHELL_LIKE:
+                cmd = _wrap_for_sandbox(cmd, session_dir, sandboxed=pane_info.sandboxed)
+
+            wrapped, marker = wrap_command(cmd, subtask.id)
+            pane_info.pane.send_keys(wrapped, enter=True)
+            screen, method = wait_for_ready(pane_info, marker=marker)
+            prev_screen = screen  # update for next diff
 
     # Exhausted turns
     final_screen = capture_pane(pane_info)

@@ -436,7 +436,7 @@ Prior results:
 GOAL: {subtask_description}
 {dep_section}
 You're investigating something where the next step depends on what you see.
-Type one command. Read the screen output (shown next turn). Decide what's next.
+Each turn: put your command in a ```bash code block. Read the screen output (shown next turn). Decide what's next.
 Write results to {session_dir}/
 When done: DONE: <one-line summary>
 """

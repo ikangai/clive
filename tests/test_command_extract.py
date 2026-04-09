@@ -73,3 +73,18 @@ class TestExtractCommand:
     def test_fenced_bash_preferred_over_bare(self):
         reply = "I suggest:\n```bash\nfind . -name '*.py'\n```\nAlternatively: ls"
         assert extract_command(reply) == "find . -name '*.py'"
+
+    def test_no_lang_block_with_python_content(self):
+        """No-lang fenced block containing python should be rejected."""
+        reply = "```\nimport json\njson.dumps({'a': 1})\n```"
+        assert extract_command(reply) is None
+
+    def test_python_then_bash_dual_blocks(self):
+        """When reply has both python and bash blocks, extract bash."""
+        reply = "```python\nprint('hello')\n```\nAlso:\n```bash\nls -la\n```"
+        assert extract_command(reply) == "ls -la"
+
+    def test_empty_fenced_block(self):
+        """Empty fenced block returns empty string."""
+        reply = "```bash\n\n```"
+        assert extract_command(reply) == ""
