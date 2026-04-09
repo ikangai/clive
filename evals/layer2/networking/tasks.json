@@ -1,0 +1,167 @@
+[
+  {
+    "id": "net_ping_hosts_001",
+    "layer": 2,
+    "tool": "shell",
+    "mode": "script",
+    "task": "Ping 5 hosts (google.com, github.com, ikangai.com, cloudflare.com, httpbin.org) with 3 packets each. Write the average response time for each host to /tmp/clive/result.txt.",
+    "initial_state": {},
+    "success_criteria": {
+      "type": "deterministic",
+      "check": "test -f /tmp/clive/result.txt && test $(wc -l < /tmp/clive/result.txt | tr -d ' ') -ge 5 && grep -qE '[0-9]+\\.[0-9]+' /tmp/clive/result.txt"
+    },
+    "min_turns": 1,
+    "max_turns": 5,
+    "timeout_seconds": 30
+  },
+  {
+    "id": "net_traceroute_002",
+    "layer": 2,
+    "tool": "shell",
+    "mode": "script",
+    "task": "Run a traceroute to google.com (traceroute or tracepath) and extract the hop count and final latency. Write to /tmp/clive/result.txt. If traceroute unavailable, write the route info from mtr or alternative.",
+    "initial_state": {},
+    "success_criteria": {
+      "type": "deterministic",
+      "check": "test -f /tmp/clive/result.txt && grep -qE '[0-9]+' /tmp/clive/result.txt"
+    },
+    "min_turns": 1,
+    "max_turns": 5,
+    "timeout_seconds": 45
+  },
+  {
+    "id": "net_bandwidth_test_003",
+    "layer": 2,
+    "tool": "shell",
+    "mode": "script",
+    "task": "Estimate download bandwidth by downloading a known file (https://httpbin.org/bytes/102400 — 100KB) and timing it. Calculate MB/s. Write the result to /tmp/clive/result.txt.",
+    "initial_state": {},
+    "success_criteria": {
+      "type": "deterministic",
+      "check": "test -f /tmp/clive/result.txt && grep -qE '[0-9]+' /tmp/clive/result.txt"
+    },
+    "min_turns": 1,
+    "max_turns": 5,
+    "timeout_seconds": 30
+  },
+  {
+    "id": "net_open_ports_004",
+    "layer": 2,
+    "tool": "shell",
+    "mode": "script",
+    "task": "List all open listening ports on the local machine. Show: port number, protocol, and process name (if available). Write to /tmp/clive/result.txt.",
+    "initial_state": {},
+    "success_criteria": {
+      "type": "deterministic",
+      "check": "test -f /tmp/clive/result.txt && grep -qE '[0-9]+' /tmp/clive/result.txt"
+    },
+    "min_turns": 1,
+    "max_turns": 5,
+    "timeout_seconds": 30
+  },
+  {
+    "id": "net_dns_comparison_005",
+    "layer": 2,
+    "tool": "shell",
+    "mode": "script",
+    "task": "Compare DNS resolution times for ikangai.com across different DNS servers: 8.8.8.8 (Google), 1.1.1.1 (Cloudflare), and the system default. Write the timing comparison to /tmp/clive/result.txt.",
+    "initial_state": {},
+    "success_criteria": {
+      "type": "deterministic",
+      "check": "test -f /tmp/clive/result.txt && grep -qEi 'google|cloudflare|8.8.8.8|1.1.1.1' /tmp/clive/result.txt"
+    },
+    "min_turns": 1,
+    "max_turns": 5,
+    "timeout_seconds": 30
+  },
+  {
+    "id": "net_http_benchmark_006",
+    "layer": 2,
+    "tool": "shell",
+    "mode": "script",
+    "task": "Benchmark HTTP response times for 5 popular websites (google.com, github.com, wikipedia.org, reddit.com, news.ycombinator.com) using curl timing. Measure: DNS lookup, TCP connect, TLS handshake, and total time. Write results to /tmp/clive/result.txt.",
+    "initial_state": {},
+    "success_criteria": {
+      "type": "deterministic",
+      "check": "test -f /tmp/clive/result.txt && test $(wc -l < /tmp/clive/result.txt | tr -d ' ') -ge 5 && grep -qE '[0-9]+\\.[0-9]+' /tmp/clive/result.txt"
+    },
+    "min_turns": 1,
+    "max_turns": 5,
+    "timeout_seconds": 45
+  },
+  {
+    "id": "net_network_info_007",
+    "layer": 2,
+    "tool": "shell",
+    "mode": "script",
+    "task": "Generate a network information report: list all network interfaces, their IP addresses, MAC addresses, and gateway. Include the default route. Write to /tmp/clive/result.txt.",
+    "initial_state": {},
+    "success_criteria": {
+      "type": "deterministic",
+      "check": "test -f /tmp/clive/result.txt && grep -qE '[0-9]+\\.[0-9]+\\.[0-9]+\\.[0-9]+' /tmp/clive/result.txt"
+    },
+    "min_turns": 1,
+    "max_turns": 5,
+    "timeout_seconds": 30
+  },
+  {
+    "id": "net_hosts_file_008",
+    "layer": 2,
+    "tool": "shell",
+    "mode": "script",
+    "task": "Parse /etc/hosts and write a formatted table showing all hostname-to-IP mappings. Count total entries and unique IPs. Write to /tmp/clive/result.txt.",
+    "initial_state": {},
+    "success_criteria": {
+      "type": "deterministic",
+      "check": "test -f /tmp/clive/result.txt && grep -q 'localhost' /tmp/clive/result.txt"
+    },
+    "min_turns": 1,
+    "max_turns": 5,
+    "timeout_seconds": 30
+  },
+  {
+    "id": "net_connection_count_009",
+    "layer": 2,
+    "tool": "shell",
+    "mode": "script",
+    "task": "Count active network connections grouped by state (ESTABLISHED, TIME_WAIT, CLOSE_WAIT, LISTEN). Write the summary to /tmp/clive/result.txt.",
+    "initial_state": {},
+    "success_criteria": {
+      "type": "deterministic",
+      "check": "test -f /tmp/clive/result.txt && grep -qEi 'ESTABLISHED|LISTEN|TIME_WAIT|connection' /tmp/clive/result.txt"
+    },
+    "min_turns": 1,
+    "max_turns": 5,
+    "timeout_seconds": 30
+  },
+  {
+    "id": "net_curl_timing_010",
+    "layer": 2,
+    "tool": "shell",
+    "mode": "script",
+    "task": "Write a script at /tmp/clive/curl_timing.sh that measures detailed HTTP timing for any URL using curl's -w format string. Show: namelookup, connect, appconnect, starttransfer, and total time. Test with https://ikangai.com. Write results to /tmp/clive/result.txt.",
+    "initial_state": {},
+    "success_criteria": {
+      "type": "deterministic",
+      "check": "test -x /tmp/clive/curl_timing.sh && test -f /tmp/clive/result.txt && grep -qEi 'namelookup|connect|total' /tmp/clive/result.txt"
+    },
+    "min_turns": 1,
+    "max_turns": 5,
+    "timeout_seconds": 30
+  },
+  {
+    "id": "net_reverse_dns_011",
+    "layer": 2,
+    "tool": "shell",
+    "mode": "script",
+    "task": "Perform reverse DNS lookups for 5 well-known IP addresses: 8.8.8.8, 1.1.1.1, 208.67.222.222, 9.9.9.9, 185.228.168.9. Write IP and resolved hostname to /tmp/clive/result.txt.",
+    "initial_state": {},
+    "success_criteria": {
+      "type": "deterministic",
+      "check": "test -f /tmp/clive/result.txt && test $(wc -l < /tmp/clive/result.txt | tr -d ' ') -ge 5 && grep -q '8.8.8.8' /tmp/clive/result.txt"
+    },
+    "min_turns": 1,
+    "max_turns": 5,
+    "timeout_seconds": 30
+  }
+]
