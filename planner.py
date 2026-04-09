@@ -3,7 +3,7 @@
 import json
 import re
 
-from output import progress
+from output import progress, detail
 from models import Plan, Subtask, PaneInfo
 from llm import get_client, chat
 from prompts import build_planner_prompt
@@ -111,19 +111,9 @@ def _extract_json(text: str) -> str:
 
 
 def display_plan(plan: Plan) -> None:
-    """Print the execution plan."""
-    progress(f"\n{'═' * 60}")
-    progress("EXECUTION PLAN")
-    progress(f"{'═' * 60}")
-    progress(f"Task: {plan.task}\n")
-
-    for s in plan.subtasks:
-        deps = f" (after: {', '.join(s.depends_on)})" if s.depends_on else ""
-        progress(f"  [{s.id}] [{s.pane}] [{s.mode}] {s.description}{deps}")
-
-    # Show parallelism opportunities
+    """Print the execution plan as a compact one-liner."""
+    n = len(plan.subtasks)
+    modes = sorted(set(s.mode for s in plan.subtasks))
     no_deps = [s.id for s in plan.subtasks if not s.depends_on]
-    if len(no_deps) > 1:
-        progress(f"\n  Parallel start: subtasks {', '.join(no_deps)}")
-
-    progress(f"{'═' * 60}\n")
+    parallel = f" ({len(no_deps)} parallel)" if len(no_deps) > 1 else ""
+    detail(f"{n} subtask{'s' if n != 1 else ''}{parallel}, {'+'.join(modes)}")

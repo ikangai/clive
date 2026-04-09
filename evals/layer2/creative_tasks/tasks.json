@@ -1,0 +1,257 @@
+[
+  {
+    "id": "creative_haiku_count_001",
+    "layer": 2,
+    "tool": "shell",
+    "mode": "script",
+    "task": "Count the number of .py files in the current directory tree and write a haiku about that count to /tmp/clive/result.txt. The haiku must have exactly 3 lines.",
+    "initial_state": {
+      "filesystem": "fixtures/project/"
+    },
+    "success_criteria": {
+      "type": "deterministic",
+      "check": "test -f /tmp/clive/result.txt && test \"$(wc -l < /tmp/clive/result.txt | tr -d ' ')\" = \"3\""
+    },
+    "min_turns": 1,
+    "max_turns": 5,
+    "timeout_seconds": 30
+  },
+  {
+    "id": "creative_largest_files_002",
+    "layer": 2,
+    "tool": "shell",
+    "mode": "script",
+    "task": "Find the 3 largest files by size in the current directory tree. List their names and sizes (one file per line) in /tmp/clive/result.txt.",
+    "initial_state": {
+      "filesystem": "fixtures/project/"
+    },
+    "success_criteria": {
+      "type": "deterministic",
+      "check": "test -f /tmp/clive/result.txt && test \"$(wc -l < /tmp/clive/result.txt | tr -d ' ')\" = \"3\""
+    },
+    "min_turns": 1,
+    "max_turns": 5,
+    "timeout_seconds": 30
+  },
+  {
+    "id": "creative_total_loc_003",
+    "layer": 2,
+    "tool": "shell",
+    "mode": "script",
+    "task": "Calculate the total number of lines of code across all .py files in the current directory tree. Write the total count as a single number to /tmp/clive/result.txt.",
+    "initial_state": {
+      "filesystem": "fixtures/project/"
+    },
+    "success_criteria": {
+      "type": "deterministic",
+      "check": "test -f /tmp/clive/result.txt && grep -qE '^[0-9]+$' /tmp/clive/result.txt"
+    },
+    "min_turns": 1,
+    "max_turns": 5,
+    "timeout_seconds": 30
+  },
+  {
+    "id": "creative_dir_report_004",
+    "layer": 2,
+    "tool": "shell",
+    "mode": "script",
+    "task": "Create a markdown report of the directory structure in /tmp/clive/result.txt. Use markdown headings for directories and list files under each.",
+    "initial_state": {
+      "filesystem": "fixtures/project/"
+    },
+    "success_criteria": {
+      "type": "deterministic",
+      "check": "test -f /tmp/clive/result.txt && grep -qE '^#{1,3} ' /tmp/clive/result.txt"
+    },
+    "min_turns": 1,
+    "max_turns": 5,
+    "timeout_seconds": 30
+  },
+  {
+    "id": "creative_func_defs_005",
+    "layer": 2,
+    "tool": "shell",
+    "mode": "script",
+    "task": "Extract all function definitions from all Python files in the current directory tree and list them in /tmp/clive/result.txt, one per line.",
+    "initial_state": {
+      "filesystem": "fixtures/project/"
+    },
+    "success_criteria": {
+      "type": "deterministic",
+      "check": "test -f /tmp/clive/result.txt && grep -q 'def ' /tmp/clive/result.txt"
+    },
+    "min_turns": 1,
+    "max_turns": 5,
+    "timeout_seconds": 30
+  },
+  {
+    "id": "creative_csv_report_006",
+    "layer": 2,
+    "tool": "shell",
+    "mode": "script",
+    "task": "Generate a CSV file at /tmp/clive/result.csv with columns: filename, lines, size — one row per file in the current directory tree (recursive). Include a header row.",
+    "initial_state": {
+      "filesystem": "fixtures/project/"
+    },
+    "success_criteria": {
+      "type": "deterministic",
+      "check": "test -f /tmp/clive/result.csv && head -1 /tmp/clive/result.csv | grep -qi 'filename'"
+    },
+    "min_turns": 1,
+    "max_turns": 5,
+    "timeout_seconds": 30
+  },
+  {
+    "id": "creative_dup_lines_007",
+    "layer": 2,
+    "tool": "shell",
+    "mode": "script",
+    "task": "Find lines that appear in more than one text file (.txt) in the current directory tree. Write the unique duplicate lines to /tmp/clive/result.txt.",
+    "initial_state": {
+      "filesystem": "fixtures/project/"
+    },
+    "success_criteria": {
+      "type": "deterministic",
+      "check": "test -f /tmp/clive/result.txt"
+    },
+    "min_turns": 1,
+    "max_turns": 5,
+    "timeout_seconds": 30
+  },
+  {
+    "id": "creative_json_summary_008",
+    "layer": 2,
+    "tool": "shell",
+    "mode": "script",
+    "task": "Create a JSON summary of the current directory at /tmp/clive/result.json with keys: total_files (number of files), total_size (total bytes), extensions (array of unique file extensions found).",
+    "initial_state": {
+      "filesystem": "fixtures/project/"
+    },
+    "success_criteria": {
+      "type": "deterministic",
+      "check": "python3 -c \"import json; d=json.load(open('/tmp/clive/result.json')); assert 'total_files' in d\""
+    },
+    "min_turns": 1,
+    "max_turns": 5,
+    "timeout_seconds": 30
+  },
+  {
+    "id": "creative_reverse_lines_009",
+    "layer": 2,
+    "tool": "shell",
+    "mode": "script",
+    "task": "Reverse the contents of data/words.txt line by line (reverse the character order of each line) and write the result to /tmp/clive/result.txt.",
+    "initial_state": {
+      "filesystem": "fixtures/project/"
+    },
+    "success_criteria": {
+      "type": "deterministic",
+      "check": "test -f /tmp/clive/result.txt && head -1 /tmp/clive/result.txt | grep -q '^ecnef'"
+    },
+    "min_turns": 1,
+    "max_turns": 5,
+    "timeout_seconds": 30
+  },
+  {
+    "id": "creative_sort_dedup_010",
+    "layer": 2,
+    "tool": "shell",
+    "mode": "script",
+    "task": "Gather all lines from all .txt files in the current directory tree, sort them alphabetically, remove duplicates, and write the result to /tmp/clive/result.txt.",
+    "initial_state": {
+      "filesystem": "fixtures/project/"
+    },
+    "success_criteria": {
+      "type": "deterministic",
+      "check": "test -f /tmp/clive/result.txt && test \"$(wc -l < /tmp/clive/result.txt | tr -d ' ')\" -gt 0"
+    },
+    "min_turns": 1,
+    "max_turns": 5,
+    "timeout_seconds": 30
+  },
+  {
+    "id": "creative_longest_line_011",
+    "layer": 2,
+    "tool": "shell",
+    "mode": "script",
+    "task": "Find the longest line across all files in the current directory tree and write it to /tmp/clive/result.txt.",
+    "initial_state": {
+      "filesystem": "fixtures/project/"
+    },
+    "success_criteria": {
+      "type": "deterministic",
+      "check": "test -f /tmp/clive/result.txt && test -s /tmp/clive/result.txt"
+    },
+    "min_turns": 1,
+    "max_turns": 5,
+    "timeout_seconds": 30
+  },
+  {
+    "id": "creative_ext_count_012",
+    "layer": 2,
+    "tool": "shell",
+    "mode": "script",
+    "task": "Count the occurrences of each file extension in the current directory tree and write the result to /tmp/clive/result.txt, one line per extension in the format 'count extension' (e.g. '4 .py').",
+    "initial_state": {
+      "filesystem": "fixtures/project/"
+    },
+    "success_criteria": {
+      "type": "deterministic",
+      "check": "test -f /tmp/clive/result.txt && grep -q '\\.py' /tmp/clive/result.txt"
+    },
+    "min_turns": 1,
+    "max_turns": 5,
+    "timeout_seconds": 30
+  },
+  {
+    "id": "creative_ascii_chart_013",
+    "layer": 2,
+    "tool": "shell",
+    "mode": "script",
+    "task": "Create a simple ASCII bar chart showing the size of each file in the current directory tree. Use characters like '#', '=', or '|' to represent relative size. Write the chart to /tmp/clive/result.txt.",
+    "initial_state": {
+      "filesystem": "fixtures/project/"
+    },
+    "success_criteria": {
+      "type": "deterministic",
+      "check": "test -f /tmp/clive/result.txt && grep -qE '[#=|]{2,}' /tmp/clive/result.txt"
+    },
+    "min_turns": 1,
+    "max_turns": 5,
+    "timeout_seconds": 30
+  },
+  {
+    "id": "creative_concat_py_014",
+    "layer": 2,
+    "tool": "shell",
+    "mode": "script",
+    "task": "Concatenate all .py files in the current directory tree with a header line showing the filename before each file's contents. Write the result to /tmp/clive/result.txt.",
+    "initial_state": {
+      "filesystem": "fixtures/project/"
+    },
+    "success_criteria": {
+      "type": "deterministic",
+      "check": "test -f /tmp/clive/result.txt && grep -q 'main.py' /tmp/clive/result.txt && grep -q 'utils.py' /tmp/clive/result.txt"
+    },
+    "min_turns": 1,
+    "max_turns": 5,
+    "timeout_seconds": 30
+  },
+  {
+    "id": "creative_md5_hashes_015",
+    "layer": 2,
+    "tool": "shell",
+    "mode": "script",
+    "task": "Calculate the MD5 hash of each file in the current directory tree and write filename:hash pairs to /tmp/clive/result.txt, one per line.",
+    "initial_state": {
+      "filesystem": "fixtures/project/"
+    },
+    "success_criteria": {
+      "type": "deterministic",
+      "check": "test -f /tmp/clive/result.txt && grep -q 'main.py' /tmp/clive/result.txt"
+    },
+    "min_turns": 1,
+    "max_turns": 5,
+    "timeout_seconds": 30
+  }
+]

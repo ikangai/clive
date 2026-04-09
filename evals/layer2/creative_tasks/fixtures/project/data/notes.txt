@@ -1,0 +1,12 @@
+Meeting notes from Monday standup.
+We discussed the new feature rollout plan.
+Alice will handle the frontend changes.
+Bob is working on the API integration.
+
+Performance review is scheduled for next week.
+Remember to update the documentation before release.
+The test coverage needs to reach 80% minimum.
+
+Action items:
+- Fix the login bug reported by QA
+- Deploy staging environment by Wednesday

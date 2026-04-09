@@ -284,8 +284,9 @@ class CliveApp(App):
             if n:
                 self._cancelled.set()
                 try:
+                    from session import SOCKET_NAME
                     subprocess.run(
-                        ["tmux", "kill-session", "-t", "clive"],
+                        ["tmux", "-L", SOCKET_NAME, "kill-session", "-t", "clive"],
                         capture_output=True,
                     )
                 except Exception:

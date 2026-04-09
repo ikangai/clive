@@ -186,12 +186,21 @@ Context from prerequisite tasks:
 
     driver = load_driver(app_type)
 
+    import platform
+    os_name = platform.system()
+    os_arch = platform.machine()
+    os_info = f"OS: {os_name} ({os_arch})"
+    if os_name == "Darwin":
+        os_info += "\nIMPORTANT: This is macOS with BSD coreutils. Do NOT use GNU extensions like find -printf, sed -i without '', readlink -f, xargs -d, grep -P, etc. Use POSIX-compatible or macOS alternatives."
+
     return f"""You are a script generator for an autonomous terminal agent.
 
 Your pane: {pane_name} [{app_type}] — {tool_description}
 
 Tool knowledge:
 {driver}
+
+{os_info}
 
 Your goal:
 {subtask_description}
@@ -209,15 +218,64 @@ Requirements:
 - Write output/results to {session_dir}/ (use absolute paths for output)
 - The script should be self-contained and deterministic
 - Handle expected edge cases (empty files, missing dirs) with guards
+- When saving output to a file, also print a short preview (first ~20 lines) to stdout
 - Print a one-line summary of what was accomplished as the last line of output
 
-Respond with ONLY the script inside a code block:
+Respond with ONLY the script inside a fenced code block. No explanation, no prose, nothing else.
+The FIRST line of your response MUST be the opening fence — do not write anything before it.
 
 ```bash
 #!/bin/bash
-set -e
+set -euo pipefail
 # your script here
 ```
+"""
+
+
+def build_classifier_prompt(
+    available_panes: list[str],
+    installed_commands: list[str],
+    missing_commands: list[str],
+    available_endpoints: list[str],
+) -> str:
+    """Build the Tier 1 fast classifier system prompt."""
+    return f"""You are a fast intent classifier for a CLI automation agent.
+
+Given a user's task, classify it and route to the right execution mode.
+
+Available panes: {', '.join(available_panes) if available_panes else 'shell'}
+Installed commands: {', '.join(installed_commands) if installed_commands else 'basic shell'}
+Missing commands: {', '.join(missing_commands) if missing_commands else 'none'}
+Available APIs: {', '.join(available_endpoints) if available_endpoints else 'none'}
+
+Respond with ONLY valid JSON (no markdown, no explanation):
+
+{{
+  "mode": "direct|script|interactive|plan|unavailable|answer|clarify",
+  "tool": "primary tool name or null",
+  "pane": "target pane name (usually shell)",
+  "driver": "driver name (shell, browser, email_cli, data, docs, media, or null)",
+  "cmd": "exact shell command to run (for mode=direct only, else null)",
+  "fallback_mode": "script|interactive|null (fallback if direct fails)",
+  "stateful": true/false,
+  "message": "explanation (for unavailable/answer/clarify modes, else null)"
+}}
+
+Mode guide:
+- "direct": task IS a shell command or maps to a single known command. Provide exact cmd.
+- "script": task needs a short script (file processing, data transformation, multi-step shell).
+- "interactive": task needs a TUI app (mutt, lynx) or multi-turn exploration.
+- "plan": complex multi-step task needing parallel subtasks or multiple tools.
+- "unavailable": required tool is in the missing_commands list. Include install hint in message.
+- "answer": question about the system, no execution needed. Put answer in message.
+- "clarify": task is too vague. Put clarifying question in message.
+
+Examples:
+- "curl ikangai.com" -> {{"mode":"direct","tool":"curl","pane":"shell","driver":"shell","cmd":"curl -sL ikangai.com","fallback_mode":"script","stateful":false,"message":null}}
+- "count .py files and write a haiku" -> {{"mode":"script","tool":"shell","pane":"shell","driver":"shell","cmd":null,"fallback_mode":null,"stateful":true,"message":null}}
+- "send email to bob@x.com" (mutt missing) -> {{"mode":"unavailable","tool":"mutt","pane":"email","driver":"email_cli","cmd":null,"fallback_mode":null,"stateful":false,"message":"Email requires neomutt. Install: brew install neomutt"}}
+- "ls -la | grep .py" -> {{"mode":"direct","tool":"ls","pane":"shell","driver":"shell","cmd":"ls -la | grep .py","fallback_mode":null,"stateful":false,"message":null}}
+- "scrape 5 sites and compare them" -> {{"mode":"plan","tool":null,"pane":null,"driver":null,"cmd":null,"fallback_mode":null,"stateful":true,"message":null}}
 """
 
 

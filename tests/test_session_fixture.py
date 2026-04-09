@@ -26,7 +26,8 @@ def test_fixture_creates_tmux_session(fixture_dir):
     with EvalFixture(fixture_dir=str(fixture_dir)) as ef:
         assert ef.session_name.startswith("clive_eval_")
         import libtmux
-        server = libtmux.Server()
+        from session import SOCKET_NAME
+        server = libtmux.Server(socket_name=SOCKET_NAME)
         session = server.sessions.filter(session_name=ef.session_name)
         assert len(session) == 1
 
@@ -38,7 +39,8 @@ def test_fixture_cleanup(fixture_dir):
         session_name = ef.session_name
         workdir = ef.workdir
     import libtmux
-    server = libtmux.Server()
+    from session import SOCKET_NAME
+    server = libtmux.Server(socket_name=SOCKET_NAME)
     sessions = server.sessions.filter(session_name=session_name)
     assert len(sessions) == 0
     assert not os.path.exists(workdir)

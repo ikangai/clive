@@ -1,0 +1,152 @@
+[
+  {
+    "id": "toolavail_email_001",
+    "layer": 2,
+    "tool": "shell",
+    "mode": "script",
+    "task": "Send an email to mt@ikangai.com about project status. Write the result or explanation to /tmp/clive/result.txt.",
+    "initial_state": {},
+    "success_criteria": {
+      "type": "deterministic",
+      "check": "test -f /tmp/clive/result.txt && grep -qiE 'mutt|mail|not available|not installed|not found|cannot' /tmp/clive/result.txt"
+    },
+    "min_turns": 1,
+    "max_turns": 5,
+    "timeout_seconds": 30
+  },
+  {
+    "id": "toolavail_calendar_002",
+    "layer": 2,
+    "tool": "shell",
+    "mode": "script",
+    "task": "Check my calendar for tomorrow's meetings. Write the result or explanation to /tmp/clive/result.txt.",
+    "initial_state": {},
+    "success_criteria": {
+      "type": "deterministic",
+      "check": "test -f /tmp/clive/result.txt && grep -qiE 'icalBuddy|calendar|not available|not installed|not found|cannot' /tmp/clive/result.txt"
+    },
+    "min_turns": 1,
+    "max_turns": 5,
+    "timeout_seconds": 30
+  },
+  {
+    "id": "toolavail_browser_003",
+    "layer": 2,
+    "tool": "shell",
+    "mode": "script",
+    "task": "Open hackernews in the browser. Write the result or explanation to /tmp/clive/result.txt.",
+    "initial_state": {},
+    "success_criteria": {
+      "type": "deterministic",
+      "check": "test -f /tmp/clive/result.txt && grep -qiE 'lynx|browser|not available|not installed|not found|curl|cannot' /tmp/clive/result.txt"
+    },
+    "min_turns": 1,
+    "max_turns": 5,
+    "timeout_seconds": 30
+  },
+  {
+    "id": "toolavail_mastodon_004",
+    "layer": 2,
+    "tool": "shell",
+    "mode": "script",
+    "task": "Post to mastodon about my latest commit. Write the result or explanation to /tmp/clive/result.txt.",
+    "initial_state": {},
+    "success_criteria": {
+      "type": "deterministic",
+      "check": "test -f /tmp/clive/result.txt && grep -qiE 'toot|mastodon|not available|not installed|not found|cannot' /tmp/clive/result.txt"
+    },
+    "min_turns": 1,
+    "max_turns": 5,
+    "timeout_seconds": 30
+  },
+  {
+    "id": "toolavail_translate_005",
+    "layer": 2,
+    "tool": "shell",
+    "mode": "script",
+    "task": "Translate this text to German: Hello World. Write the result or explanation to /tmp/clive/result.txt.",
+    "initial_state": {},
+    "success_criteria": {
+      "type": "deterministic",
+      "check": "test -f /tmp/clive/result.txt && grep -qiE 'trans|translate|not available|not installed|not found|cannot' /tmp/clive/result.txt"
+    },
+    "min_turns": 1,
+    "max_turns": 5,
+    "timeout_seconds": 30
+  },
+  {
+    "id": "toolavail_search_006",
+    "layer": 2,
+    "tool": "shell",
+    "mode": "script",
+    "task": "Search duckduckgo for 'clive terminal agent'. Write the result or explanation to /tmp/clive/result.txt.",
+    "initial_state": {},
+    "success_criteria": {
+      "type": "deterministic",
+      "check": "test -f /tmp/clive/result.txt && grep -qiE 'ddgr|duckduckgo|not available|not installed|not found|cannot' /tmp/clive/result.txt"
+    },
+    "min_turns": 1,
+    "max_turns": 5,
+    "timeout_seconds": 30
+  },
+  {
+    "id": "toolavail_ip_addr_007",
+    "layer": 2,
+    "tool": "shell",
+    "mode": "script",
+    "task": "What is my IP address? Write the IP address to /tmp/clive/result.txt.",
+    "initial_state": {},
+    "success_criteria": {
+      "type": "deterministic",
+      "check": "test -f /tmp/clive/result.txt && grep -qE '[0-9]' /tmp/clive/result.txt"
+    },
+    "min_turns": 1,
+    "max_turns": 5,
+    "timeout_seconds": 30
+  },
+  {
+    "id": "toolavail_disk_usage_008",
+    "layer": 2,
+    "tool": "shell",
+    "mode": "script",
+    "task": "Show disk usage of current directory. Write the output to /tmp/clive/result.txt.",
+    "initial_state": {},
+    "success_criteria": {
+      "type": "deterministic",
+      "check": "test -f /tmp/clive/result.txt && test -s /tmp/clive/result.txt"
+    },
+    "min_turns": 1,
+    "max_turns": 5,
+    "timeout_seconds": 30
+  },
+  {
+    "id": "toolavail_line_count_009",
+    "layer": 2,
+    "tool": "shell",
+    "mode": "script",
+    "task": "Count lines in all files recursively in the current directory. Write the total number to /tmp/clive/result.txt.",
+    "initial_state": {},
+    "success_criteria": {
+      "type": "deterministic",
+      "check": "test -f /tmp/clive/result.txt && grep -qE '[0-9]' /tmp/clive/result.txt"
+    },
+    "min_turns": 1,
+    "max_turns": 5,
+    "timeout_seconds": 30
+  },
+  {
+    "id": "toolavail_audio_010",
+    "layer": 2,
+    "tool": "shell",
+    "mode": "script",
+    "task": "Record 5 seconds of audio. Write the result or explanation to /tmp/clive/result.txt.",
+    "initial_state": {},
+    "success_criteria": {
+      "type": "deterministic",
+      "check": "test -f /tmp/clive/result.txt && grep -qiE 'sox|rec|audio|not available|not installed|not found|cannot|microphone' /tmp/clive/result.txt"
+    },
+    "min_turns": 1,
+    "max_turns": 5,
+    "timeout_seconds": 30
+  }
+]

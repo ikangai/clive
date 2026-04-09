@@ -1,0 +1,332 @@
+[
+  {
+    "id": "cli_echo_001",
+    "layer": 2,
+    "tool": "shell",
+    "mode": "script",
+    "task": "Run 'echo hello world' and write the output to /tmp/clive/result.txt",
+    "initial_state": {},
+    "success_criteria": {
+      "type": "deterministic",
+      "check": "grep -q 'hello world' /tmp/clive/result.txt"
+    },
+    "min_turns": 1,
+    "max_turns": 3,
+    "timeout_seconds": 30
+  },
+  {
+    "id": "cli_ls_002",
+    "layer": 2,
+    "tool": "shell",
+    "mode": "script",
+    "task": "Run 'ls -la' in the current directory and write the output to /tmp/clive/result.txt",
+    "initial_state": {
+      "filesystem": "fixtures/file_ops/project/"
+    },
+    "success_criteria": {
+      "type": "deterministic",
+      "check": "grep -q 'README' /tmp/clive/result.txt && grep -q 'config' /tmp/clive/result.txt"
+    },
+    "min_turns": 1,
+    "max_turns": 3,
+    "timeout_seconds": 30
+  },
+  {
+    "id": "cli_cat_003",
+    "layer": 2,
+    "tool": "shell",
+    "mode": "script",
+    "task": "Display the contents of config.yaml and write the output to /tmp/clive/result.txt",
+    "initial_state": {
+      "filesystem": "fixtures/file_ops/project/"
+    },
+    "success_criteria": {
+      "type": "deterministic",
+      "check": "grep -q 'localhost' /tmp/clive/result.txt && grep -q '5432' /tmp/clive/result.txt"
+    },
+    "min_turns": 1,
+    "max_turns": 3,
+    "timeout_seconds": 30
+  },
+  {
+    "id": "cli_wc_004",
+    "layer": 2,
+    "tool": "shell",
+    "mode": "script",
+    "task": "Count the number of lines in access.log and write just the number to /tmp/clive/result.txt",
+    "initial_state": {
+      "filesystem": "fixtures/text_processing/"
+    },
+    "success_criteria": {
+      "type": "deterministic",
+      "check": "test \"$(cat /tmp/clive/result.txt | tr -d '[:space:]')\" = \"10\""
+    },
+    "min_turns": 1,
+    "max_turns": 3,
+    "timeout_seconds": 30
+  },
+  {
+    "id": "cli_grep_005",
+    "layer": 2,
+    "tool": "shell",
+    "mode": "script",
+    "task": "Find all lines in access.log that contain HTTP status code 500 and write them to /tmp/clive/result.txt",
+    "initial_state": {
+      "filesystem": "fixtures/text_processing/"
+    },
+    "success_criteria": {
+      "type": "deterministic",
+      "check": "test $(wc -l < /tmp/clive/result.txt | tr -d ' ') -eq 2 && grep -q '/index.html' /tmp/clive/result.txt"
+    },
+    "min_turns": 1,
+    "max_turns": 3,
+    "timeout_seconds": 30
+  },
+  {
+    "id": "cli_pipe_sort_006",
+    "layer": 2,
+    "tool": "shell",
+    "mode": "script",
+    "task": "Sort data.csv by salary (3rd column) in descending order and write the top 3 rows (excluding header) to /tmp/clive/result.txt",
+    "initial_state": {
+      "filesystem": "fixtures/text_processing/"
+    },
+    "success_criteria": {
+      "type": "deterministic",
+      "check": "head -1 /tmp/clive/result.txt | grep -q 'Eve' && test $(wc -l < /tmp/clive/result.txt | tr -d ' ') -eq 3"
+    },
+    "min_turns": 1,
+    "max_turns": 5,
+    "timeout_seconds": 30
+  },
+  {
+    "id": "cli_pipe_uniq_007",
+    "layer": 2,
+    "tool": "shell",
+    "mode": "script",
+    "task": "Count how many employees are in each department from data.csv. Write the results to /tmp/clive/result.txt with format 'COUNT DEPARTMENT' sorted by count descending",
+    "initial_state": {
+      "filesystem": "fixtures/text_processing/"
+    },
+    "success_criteria": {
+      "type": "deterministic",
+      "check": "head -1 /tmp/clive/result.txt | grep -q 'Engineering' && head -1 /tmp/clive/result.txt | grep -q '4'"
+    },
+    "min_turns": 1,
+    "max_turns": 5,
+    "timeout_seconds": 30
+  },
+  {
+    "id": "cli_grep_count_008",
+    "layer": 2,
+    "tool": "shell",
+    "mode": "script",
+    "task": "Count how many lines in access.log contain HTTP status 200. Write just the number to /tmp/clive/result.txt",
+    "initial_state": {
+      "filesystem": "fixtures/text_processing/"
+    },
+    "success_criteria": {
+      "type": "deterministic",
+      "check": "test \"$(cat /tmp/clive/result.txt | tr -d '[:space:]')\" = \"6\""
+    },
+    "min_turns": 1,
+    "max_turns": 5,
+    "timeout_seconds": 30
+  },
+  {
+    "id": "cli_find_py_009",
+    "layer": 2,
+    "tool": "shell",
+    "mode": "script",
+    "task": "Find all Python files (*.py) in the current directory tree and write their paths to /tmp/clive/result.txt, one per line",
+    "initial_state": {
+      "filesystem": "fixtures/file_ops/project/"
+    },
+    "success_criteria": {
+      "type": "deterministic",
+      "check": "test $(wc -l < /tmp/clive/result.txt | tr -d ' ') -eq 3 && grep -q 'main.py' /tmp/clive/result.txt"
+    },
+    "min_turns": 1,
+    "max_turns": 5,
+    "timeout_seconds": 30
+  },
+  {
+    "id": "cli_word_freq_010",
+    "layer": 2,
+    "tool": "shell",
+    "mode": "script",
+    "task": "Count the total number of times 'the' appears in words.txt and write just the count to /tmp/clive/result.txt",
+    "initial_state": {
+      "filesystem": "fixtures/text_processing/"
+    },
+    "success_criteria": {
+      "type": "deterministic",
+      "check": "test \"$(cat /tmp/clive/result.txt | tr -d '[:space:]')\" = \"9\""
+    },
+    "min_turns": 1,
+    "max_turns": 5,
+    "timeout_seconds": 30
+  },
+  {
+    "id": "cli_csv_filter_011",
+    "layer": 2,
+    "tool": "shell",
+    "mode": "script",
+    "task": "Extract all rows from data.csv where the department is Engineering, and write just their names (one per line) to /tmp/clive/result.txt",
+    "initial_state": {
+      "filesystem": "fixtures/text_processing/"
+    },
+    "success_criteria": {
+      "type": "deterministic",
+      "check": "test $(wc -l < /tmp/clive/result.txt | tr -d ' ') -eq 4 && grep -q 'Alice' /tmp/clive/result.txt && grep -q 'Eve' /tmp/clive/result.txt"
+    },
+    "min_turns": 1,
+    "max_turns": 5,
+    "timeout_seconds": 30
+  },
+  {
+    "id": "cli_log_ips_012",
+    "layer": 2,
+    "tool": "shell",
+    "mode": "script",
+    "task": "Extract unique IP addresses from access.log, sort them, and write to /tmp/clive/result.txt (one per line)",
+    "initial_state": {
+      "filesystem": "fixtures/text_processing/"
+    },
+    "success_criteria": {
+      "type": "deterministic",
+      "check": "test $(wc -l < /tmp/clive/result.txt | tr -d ' ') -eq 4 && grep -q '10.0.0.5' /tmp/clive/result.txt && grep -q '192.168.1.30' /tmp/clive/result.txt"
+    },
+    "min_turns": 1,
+    "max_turns": 5,
+    "timeout_seconds": 30
+  },
+  {
+    "id": "cli_log_errors_013",
+    "layer": 2,
+    "tool": "shell",
+    "mode": "script",
+    "task": "Find all HTTP 500 errors in access.log and write the requested URLs (just the path, e.g. /index.html) to /tmp/clive/result.txt, one per line",
+    "initial_state": {
+      "filesystem": "fixtures/text_processing/"
+    },
+    "success_criteria": {
+      "type": "deterministic",
+      "check": "test $(wc -l < /tmp/clive/result.txt | tr -d ' ') -eq 2 && grep -q '/index.html' /tmp/clive/result.txt && grep -q '/api/data' /tmp/clive/result.txt"
+    },
+    "min_turns": 1,
+    "max_turns": 5,
+    "timeout_seconds": 30
+  },
+  {
+    "id": "cli_csv_avg_014",
+    "layer": 2,
+    "tool": "shell",
+    "mode": "script",
+    "task": "Calculate the average salary from data.csv and write just the integer (rounded down) to /tmp/clive/result.txt",
+    "initial_state": {
+      "filesystem": "fixtures/text_processing/"
+    },
+    "success_criteria": {
+      "type": "deterministic",
+      "check": "test \"$(cat /tmp/clive/result.txt | tr -d '[:space:]')\" = \"80700\""
+    },
+    "min_turns": 1,
+    "max_turns": 5,
+    "timeout_seconds": 30
+  },
+  {
+    "id": "cli_tree_count_015",
+    "layer": 2,
+    "tool": "shell",
+    "mode": "script",
+    "task": "Count the total number of files (not directories) in the current directory tree and write the count to /tmp/clive/result.txt",
+    "initial_state": {
+      "filesystem": "fixtures/file_ops/project/"
+    },
+    "success_criteria": {
+      "type": "deterministic",
+      "check": "test \"$(cat /tmp/clive/result.txt | tr -d '[:space:]')\" = \"5\""
+    },
+    "min_turns": 1,
+    "max_turns": 5,
+    "timeout_seconds": 30
+  },
+  {
+    "id": "cli_uname_016",
+    "layer": 2,
+    "tool": "shell",
+    "mode": "script",
+    "task": "Run 'uname -a' and write the output to /tmp/clive/result.txt",
+    "initial_state": {},
+    "success_criteria": {
+      "type": "deterministic",
+      "check": "grep -qi 'darwin' /tmp/clive/result.txt"
+    },
+    "min_turns": 1,
+    "max_turns": 3,
+    "timeout_seconds": 30
+  },
+  {
+    "id": "cli_date_017",
+    "layer": 2,
+    "tool": "shell",
+    "mode": "script",
+    "task": "Get today's date in YYYY-MM-DD format and write it to /tmp/clive/result.txt",
+    "initial_state": {},
+    "success_criteria": {
+      "type": "deterministic",
+      "check": "grep -qE '2[0-9]{3}-[0-9]{2}-[0-9]{2}' /tmp/clive/result.txt"
+    },
+    "min_turns": 1,
+    "max_turns": 3,
+    "timeout_seconds": 30
+  },
+  {
+    "id": "cli_curl_018",
+    "layer": 2,
+    "tool": "shell",
+    "mode": "script",
+    "task": "Fetch the HTTP headers from https://httpbin.org/get using curl and write them to /tmp/clive/result.txt",
+    "initial_state": {},
+    "success_criteria": {
+      "type": "deterministic",
+      "check": "grep -qi 'HTTP' /tmp/clive/result.txt"
+    },
+    "min_turns": 1,
+    "max_turns": 3,
+    "timeout_seconds": 30
+  },
+  {
+    "id": "cli_json_create_019",
+    "layer": 2,
+    "tool": "shell",
+    "mode": "script",
+    "task": "Create a JSON file at /tmp/clive/result.json with this content: {\"status\": \"ok\", \"count\": 42}. Then use jq to extract the count value and write it to /tmp/clive/result.txt",
+    "initial_state": {},
+    "success_criteria": {
+      "type": "deterministic",
+      "check": "test \"$(cat /tmp/clive/result.txt | tr -d '[:space:]')\" = \"42\""
+    },
+    "min_turns": 1,
+    "max_turns": 5,
+    "timeout_seconds": 30
+  },
+  {
+    "id": "cli_csv_group_020",
+    "layer": 2,
+    "tool": "shell",
+    "mode": "script",
+    "task": "Group data.csv by city and calculate the total salary per city. Write the results to /tmp/clive/result.txt in the format 'city total' sorted by total descending",
+    "initial_state": {
+      "filesystem": "fixtures/text_processing/"
+    },
+    "success_criteria": {
+      "type": "deterministic",
+      "check": "head -1 /tmp/clive/result.txt | grep -q 'Berlin' && head -1 /tmp/clive/result.txt | grep -q '376000'"
+    },
+    "min_turns": 1,
+    "max_turns": 5,
+    "timeout_seconds": 30
+  }
+]

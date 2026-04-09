@@ -53,19 +53,27 @@ class EvalFixture:
                 else:
                     shutil.copy2(src, dst)
 
-        # Create tmux session
-        server = libtmux.Server()
+        # Create tmux session on dedicated server
+        from session import SOCKET_NAME
+        server = libtmux.Server(socket_name=SOCKET_NAME)
         self.session = server.new_session(
             session_name=self.session_name,
             kill_session=True,
             attach=False,
         )
+        server.cmd('set-option', '-t', self.session_name, 'remain-on-exit', 'on')
         self.pane = self.session.active_window.active_pane
 
-        # Set up shell environment
+        # Set up shell environment with marker-based wait
+        marker = f"___EVAL_SETUP_{uuid.uuid4().hex[:4]}___"
         self.pane.send_keys('export PS1="[AGENT_READY] $ "', enter=True)
-        self.pane.send_keys(f'cd {self.workdir}', enter=True)
-        time.sleep(0.5)
+        self.pane.send_keys(f'cd {self.workdir}; echo {marker}', enter=True)
+        start = time.time()
+        while time.time() - start < 5.0:
+            lines = self.pane.cmd("capture-pane", "-p", "-J").stdout
+            if marker in "\n".join(lines or []):
+                break
+            time.sleep(0.02)
 
         self.pane_info = PaneInfo(
             pane=self.pane,

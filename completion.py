@@ -56,12 +56,23 @@ def wait_for_ready(
     poll_interval = 0.01  # adaptive: start fast (10ms), backoff to 500ms
 
     while True:
-        lines = pane_info.pane.cmd("capture-pane", "-p").stdout
+        # Check for cancellation from signal handler
+        from executor import _cancel_event
+        if _cancel_event.is_set():
+            return last_content or "", "cancelled"
+
+        lines = pane_info.pane.cmd("capture-pane", "-p", "-J").stdout
         screen = "\n".join(lines) if lines else ""
 
         # Strategy 1: unique end marker
+        # Guard: the marker also appears in the command echo (send_keys
+        # echoes the typed command).  The echo line contains "EXIT:$?" or
+        # "EXIT:$_ec" — a dollar sign after "EXIT:".  Real output has
+        # "EXIT:<digit>".  Only match lines without "EXIT:$".
         if marker and marker in screen:
-            return screen, "marker"
+            for _line in screen.splitlines():
+                if marker in _line and "EXIT:$" not in _line:
+                    return screen, "marker"
 
         # Strategy 2: prompt sentinel on last line
         if lines and "[AGENT_READY] $" in lines[-1]:
@@ -73,12 +84,12 @@ def wait_for_ready(
                 if pattern.search(screen):
                     return screen, f"intervention:{intervention_type}"
 
-        # Strategy 3: idle timeout
+        # Strategy 3: idle timeout (skip when waiting for a specific marker)
         if screen != last_content:
             last_content = screen
             last_change = time.time()
             poll_interval = 0.01  # reset to fast polling on change
-        elif time.time() - last_change > idle_timeout:
+        elif not marker and time.time() - last_change > idle_timeout:
             return screen, "idle"
 
         # Absolute ceiling

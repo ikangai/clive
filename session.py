@@ -11,6 +11,7 @@ from output import progress
 from models import PaneInfo
 
 SESSION_NAME = "clive"
+SOCKET_NAME = "clive"  # Dedicated tmux server socket — isolates clive from user sessions
 
 
 def generate_session_id() -> str:
@@ -24,7 +25,7 @@ def setup_session(
     session_dir: str | None = None,
 ) -> tuple[libtmux.Session, dict[str, PaneInfo]]:
     """Create tmux session with one window+pane per tool."""
-    server = libtmux.Server()
+    server = libtmux.Server(socket_name=SOCKET_NAME)
     # Use session_dir suffix to avoid killing concurrent instances
     if session_dir:
         import os
@@ -36,6 +37,9 @@ def setup_session(
         attach=False,
         window_name=tools[0]["name"],
     )
+    # Panes survive process exits — preserves output for debugging and
+    # prevents cascading failures when SSH connections drop.
+    server.cmd('set-option', '-t', session_name, 'remain-on-exit', 'on')
 
     panes: dict[str, PaneInfo] = {}
 
@@ -83,9 +87,27 @@ def setup_session(
     import os
     cwd = os.getcwd()
     workdir = session_dir or "/tmp/clive"
-    for pane_info in panes.values():
-        pane_info.pane.send_keys(f"cd {cwd} && mkdir -p {workdir}", enter=True)
-    time.sleep(1.5)
+    setup_markers = {}
+    for name, pane_info in panes.items():
+        marker = f"___SETUP_{uuid.uuid4().hex[:4]}___"
+        pane_info.pane.send_keys(
+            f"cd {cwd} && mkdir -p {workdir}; echo {marker}", enter=True
+        )
+        setup_markers[name] = marker
+
+    # Wait for all panes to finish setup (poll all in parallel)
+    pending = set(setup_markers.keys())
+    start = time.time()
+    poll = 0.01
+    while pending and time.time() - start < 10.0:
+        for name in list(pending):
+            lines = panes[name].pane.cmd("capture-pane", "-p", "-J").stdout
+            screen = "\n".join(lines) if lines else ""
+            if setup_markers[name] in screen:
+                pending.discard(name)
+        if pending:
+            time.sleep(poll)
+            poll = min(poll * 2, 0.5)
 
     return session, panes, session_name
 
