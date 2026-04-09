@@ -1073,35 +1073,70 @@ if __name__ == "__main__":
         from output import set_conversational, emit_turn, emit_context, emit_question
         set_conversational(True)
 
+        # Named instances loop: run task(s), then wait for more on stdin
+        keep_alive = bool(_instance_name)
+
         # Read task from args (SSH command) or stdin
         task = args.task
         if not task:
             try:
                 task = sys.stdin.readline().strip()
             except EOFError:
-                emit_turn("failed")
-                raise SystemExit(1)
+                if not keep_alive:
+                    emit_turn("failed")
+                    raise SystemExit(1)
+                task = None
 
-        if not task:
+        if task:
+            emit_turn("thinking")
+            try:
+                summary = run(
+                    task,
+                    toolset_spec=args.toolset,
+                    output_format="default",
+                    max_tokens=args.max_tokens,
+                )
+                emit_context({"result": summary})
+                emit_turn("done")
+            except Exception as e:
+                emit_context({"error": str(e)})
+                emit_turn("failed")
+                if not keep_alive:
+                    raise SystemExit(1)
+        elif not keep_alive:
             emit_context({"error": "No task provided"})
             emit_turn("failed")
             raise SystemExit(1)
 
-        emit_turn("thinking")
+        if not keep_alive:
+            raise SystemExit(0)
 
-        try:
-            summary = run(
-                task,
-                toolset_spec=args.toolset,
-                output_format="default",
-                max_tokens=args.max_tokens,
-            )
-            emit_context({"result": summary})
-            emit_turn("done")
-        except Exception as e:
-            emit_context({"error": str(e)})
-            emit_turn("failed")
-            raise SystemExit(1)
+        # Named instance: loop, waiting for tasks on stdin
+        while True:
+            try:
+                line = sys.stdin.readline()
+            except EOFError:
+                break
+            if not line:  # EOF
+                break
+            task = line.strip()
+            if not task:
+                continue
+            if task.lower() in ("exit", "quit", "/stop"):
+                break
+            emit_turn("thinking")
+            try:
+                summary = run(
+                    task,
+                    toolset_spec=args.toolset,
+                    output_format="default",
+                    max_tokens=args.max_tokens,
+                )
+                emit_context({"result": summary})
+                emit_turn("done")
+            except Exception as e:
+                emit_context({"error": str(e)})
+                emit_turn("failed")
 
         raise SystemExit(0)
 
