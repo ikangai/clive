@@ -37,9 +37,43 @@ def new(title: str | None = None, sessions_dir: Path | None = None) -> str:
         "created_at": now,
         "updated_at": now,
         "messages": [],
+        "tasks": [],
     }
     _path(sid, sessions_dir).write_text(json.dumps(entry, indent=2))
     return sid
+
+
+def _infer_title(task: str, max_len: int = 60) -> str:
+    """Strip and truncate a task string into a human-readable title."""
+    t = " ".join(task.strip().split())
+    if len(t) > max_len:
+        return t[: max_len - 1].rstrip() + "\u2026"
+    return t
+
+
+def record_task(sid: str, task: str, summary: str | None = None,
+                status: str = "pending",
+                sessions_dir: Path | None = None) -> bool:
+    """Record a user task against a session.
+
+    Adds a row to ``tasks`` with {task, summary, status, started_at}. If the
+    session has no title yet, auto-infers one from the first task. Returns
+    True on success, False if the session doesn't exist.
+    """
+    data = get(sid, sessions_dir)
+    if data is None:
+        return False
+    data.setdefault("tasks", []).append({
+        "task": task,
+        "summary": summary,
+        "status": status,
+        "started_at": time.time(),
+    })
+    if not data.get("title"):
+        data["title"] = _infer_title(task)
+    data["updated_at"] = time.time()
+    _path(sid, sessions_dir).write_text(json.dumps(data, indent=2))
+    return True
 
 
 def append_message(sid: str, role: str, content: str,

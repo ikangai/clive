@@ -1,7 +1,7 @@
 """Tests for the persistent chat-session store."""
 import json
 
-from session_store import new, get, list_sessions, delete, append_message
+from session_store import new, get, list_sessions, delete, append_message, record_task
 
 
 def test_new_creates_file(tmp_path):
@@ -118,3 +118,59 @@ def test_append_message_updates_updated_at(tmp_path):
     append_message(sid, "user", "hi", sessions_dir=tmp_path)
     after = get(sid, sessions_dir=tmp_path)["updated_at"]
     assert after > before
+
+
+def test_new_session_has_empty_tasks_list(tmp_path):
+    sid = new(sessions_dir=tmp_path)
+    data = get(sid, sessions_dir=tmp_path)
+    assert data["tasks"] == []
+
+
+def test_record_task_persists(tmp_path):
+    sid = new(sessions_dir=tmp_path)
+    ok = record_task(sid, "list the files", summary="found 3", status="done",
+                     sessions_dir=tmp_path)
+    assert ok is True
+    data = get(sid, sessions_dir=tmp_path)
+    assert len(data["tasks"]) == 1
+    t = data["tasks"][0]
+    assert t["task"] == "list the files"
+    assert t["summary"] == "found 3"
+    assert t["status"] == "done"
+    assert "started_at" in t
+
+
+def test_record_task_returns_false_for_missing(tmp_path):
+    assert record_task("nope", "do it", sessions_dir=tmp_path) is False
+
+
+def test_record_task_auto_infers_title(tmp_path):
+    sid = new(sessions_dir=tmp_path)
+    record_task(sid, "list the files in /tmp", sessions_dir=tmp_path)
+    data = get(sid, sessions_dir=tmp_path)
+    assert data["title"] == "list the files in /tmp"
+
+
+def test_record_task_does_not_overwrite_explicit_title(tmp_path):
+    sid = new(title="My Important Chat", sessions_dir=tmp_path)
+    record_task(sid, "do something", sessions_dir=tmp_path)
+    data = get(sid, sessions_dir=tmp_path)
+    assert data["title"] == "My Important Chat"
+
+
+def test_record_task_title_truncated(tmp_path):
+    sid = new(sessions_dir=tmp_path)
+    long_task = "a" * 120
+    record_task(sid, long_task, sessions_dir=tmp_path)
+    data = get(sid, sessions_dir=tmp_path)
+    assert len(data["title"]) <= 60
+    assert data["title"].endswith("\u2026")
+
+
+def test_record_task_multiple_tasks_append(tmp_path):
+    sid = new(sessions_dir=tmp_path)
+    record_task(sid, "task one", sessions_dir=tmp_path)
+    record_task(sid, "task two", sessions_dir=tmp_path)
+    record_task(sid, "task three", sessions_dir=tmp_path)
+    data = get(sid, sessions_dir=tmp_path)
+    assert [t["task"] for t in data["tasks"]] == ["task one", "task two", "task three"]
