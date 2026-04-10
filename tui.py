@@ -240,6 +240,53 @@ class CliveApp(App):
         else:
             self._run_task(text)
 
+    def _handle_profile(self, arg: str, out: RichLog) -> None:
+        if not arg:
+            out.write(f"[#6b7280]Current:[/] {self._spec}")
+            out.write(f"[#6b7280]Profiles:[/] {', '.join(PROFILES)}")
+            out.write(f"[#6b7280]Categories:[/] {', '.join(sorted(CATEGORIES))}")
+            return
+        new_spec = self._spec + arg if arg.startswith("+") else arg
+        try:
+            resolve_toolset(new_spec)
+            self._spec = new_spec
+            self._resolve_profile()
+            out.write(f"[#22c55e]✓[/] Profile: [#c9c9d6]{self._spec}[/]")
+        except ValueError as e:
+            out.write(f"[#ef4444]✗[/] {e}")
+
+    def _handle_status(self, out: RichLog) -> None:
+        with self._tasks_lock:
+            tasks = list(self._tasks)
+        if not tasks:
+            out.write("[#6b7280]No tasks running.[/]")
+            return
+        for t in tasks:
+            elapsed = time.time() - t["start"]
+            total = t["pt"] + t["ct"]
+            out.write(
+                f"[#d97706]●[/] {t['desc'][:70]}  "
+                f"[#6b7280]{elapsed:.0f}s · {total:,} tokens[/]"
+            )
+
+    def _handle_cancel(self, out: RichLog) -> None:
+        with self._tasks_lock:
+            n = len(self._tasks)
+            self._tasks.clear()
+        if not n:
+            out.write("[#6b7280]No tasks running.[/]")
+            return
+        self._cancelled.set()
+        try:
+            subprocess.run(
+                ["tmux", "-L", SOCKET_NAME, "kill-session", "-t", "clive"],
+                capture_output=True,
+            )
+        except Exception:
+            pass
+        out.write(f"[#f59e0b]Cancelled {n} task(s).[/]")
+        self._update_status()
+
     def _handle_command(self, text: str) -> None:
         out = self.query_one("#output", RichLog)
         parts = text.split(None, 1)
@@ -252,102 +299,42 @@ class CliveApp(App):
                 categories=", ".join(sorted(CATEGORIES)),
                 providers=", ".join(LLM_PROVIDERS),
             ))
-
         elif cmd == "/profile":
-            if not arg:
-                out.write(f"[#6b7280]Current:[/] {self._spec}")
-                out.write(
-                    f"[#6b7280]Profiles:[/] {', '.join(PROFILES)}"
-                )
-                out.write(
-                    f"[#6b7280]Categories:[/] {', '.join(sorted(CATEGORIES))}"
-                )
-                return
-            if arg.startswith("+"):
-                new_spec = self._spec + arg
-            else:
-                new_spec = arg
-            try:
-                resolve_toolset(new_spec)
-                self._spec = new_spec
-                self._resolve_profile()
-                out.write(f"[#22c55e]✓[/] Profile: [#c9c9d6]{self._spec}[/]")
-            except ValueError as e:
-                out.write(f"[#ef4444]✗[/] {e}")
-
+            self._handle_profile(arg, out)
         elif cmd == "/status":
-            with self._tasks_lock:
-                tasks = list(self._tasks)
-            if tasks:
-                for t in tasks:
-                    elapsed = time.time() - t["start"]
-                    total = t["pt"] + t["ct"]
-                    out.write(
-                        f"[#d97706]●[/] {t['desc'][:70]}  "
-                        f"[#6b7280]{elapsed:.0f}s · {total:,} tokens[/]"
-                    )
-            else:
-                out.write("[#6b7280]No tasks running.[/]")
-
+            self._handle_status(out)
         elif cmd == "/cancel":
-            with self._tasks_lock:
-                n = len(self._tasks)
-                self._tasks.clear()
-            if n:
-                self._cancelled.set()
-                try:
-                    subprocess.run(
-                        ["tmux", "-L", SOCKET_NAME, "kill-session", "-t", "clive"],
-                        capture_output=True,
-                    )
-                except Exception:
-                    pass
-                out.write(f"[#f59e0b]Cancelled {n} task(s).[/]")
-                self._update_status()
-            else:
-                out.write("[#6b7280]No tasks running.[/]")
-
+            self._handle_cancel(out)
         elif cmd == "/clear":
             out.clear()
-
         elif cmd == "/provider":
             self._handle_provider(arg, out)
-
         elif cmd == "/model":
             self._handle_model(arg, out)
-
         elif cmd == "/tools":
             self._show_tools()
-
         elif cmd == "/install":
             self._install_missing()
-
         elif cmd == "/selfmod":
             if not arg:
                 out.write("[#6b7280]Usage: /selfmod <goal>[/]")
                 out.write("[#6b7280]Example: /selfmod add a /history command that shows past tasks[/]")
                 return
             self._run_selfmod(arg)
-
         elif cmd == "/undo":
             self._undo_selfmod()
-
         elif cmd == "/safe-mode":
             os.environ["CLIVE_EXPERIMENTAL_SELFMOD"] = "0"
             out.write("[#22c55e]✓[/] Self-modification disabled for this session.")
-
         elif cmd == "/evolve":
             if arg:
                 out.write(f"[bold]Evolving {arg} driver...[/bold]")
                 self._run_evolve(arg, out)
             else:
                 out.write("[yellow]Usage: /evolve <driver> (shell, browser, all)[/yellow]")
-            return
-
         elif cmd == "/dashboard":
             for line in render_lines():
                 out.write(line)
-
         else:
             out.write(f"[#ef4444]Unknown command: {cmd}[/] — try /help")
 

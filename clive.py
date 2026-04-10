@@ -360,6 +360,61 @@ def _expand_toolset(category: str, session_ctx: dict) -> bool:
     return True
 
 
+def _progress_event(event_type, *args):
+    """Print subtask progress as it happens. Shared callback for run/REPL paths."""
+    if event_type == "subtask_start":
+        sid, _pane, description = args
+        activity(f"[{sid}] {description[:60]}")
+    elif event_type == "subtask_done":
+        sid, summary, elapsed = args
+        detail(f"✓ [{sid}] {summary[:70]} ({elapsed:.1f}s)")
+    elif event_type == "subtask_fail":
+        sid, msg = args
+        detail(f"✗ [{sid}] {msg[:70]}")
+
+
+def _finalize_summary(summary, output_format, results, elapsed):
+    """Wrap summary in JSON envelope if requested; otherwise return as-is."""
+    if output_format != "json":
+        return summary
+    completed = sum(1 for r in results if r.status == SubtaskStatus.COMPLETED)
+    total = len(results)
+    total_pt = sum(r.prompt_tokens for r in results)
+    total_ct = sum(r.completion_tokens for r in results)
+    try:
+        parsed = json.loads(summary)
+    except (ValueError, TypeError):
+        parsed = summary
+    return json.dumps({
+        "result": parsed,
+        "success": completed == total,
+        "subtasks": {"completed": completed, "total": total},
+        "tokens": {"prompt": total_pt, "completion": total_ct, "total": total_pt + total_ct},
+        "elapsed_s": round(elapsed, 1),
+    }, indent=2)
+
+
+def _display_final_result(summary, results, elapsed):
+    """Print the status banner and indented summary to the user."""
+    total_pt = sum(r.prompt_tokens for r in results)
+    total_ct = sum(r.completion_tokens for r in results)
+    completed = sum(1 for r in results if r.status == SubtaskStatus.COMPLETED)
+    total = len(results)
+    status_icon = "✓" if completed == total else "✗"
+    step(f"Result ({completed}/{total} {status_icon}, {elapsed:.1f}s, {total_pt + total_ct:,} tokens)")
+    indented = "\n".join(f"  {line}" for line in summary.splitlines())
+    result(indented)
+
+
+def _build_final_summary(task, results, output_format, session_dir):
+    """Pick the summary source: output files for trivial plans, else LLM synthesis."""
+    if len(results) == 1 and results[0].status == SubtaskStatus.COMPLETED:
+        # Prefer user-created output files over raw terminal output
+        return summarizer.read_output_files(session_dir, results[0]) or results[0].summary
+    step("Summarizing")
+    return summarizer.summarize(task, results, output_format=output_format, session_dir=session_dir)
+
+
 def _run_inner(task, toolset_spec, output_format, max_tokens, session_dir, _cleanup, _state, session_ctx=None):
     # Set up session if not provided (single-run mode)
     owns_session = session_ctx is None
@@ -371,7 +426,6 @@ def _run_inner(task, toolset_spec, output_format, max_tokens, session_dir, _clea
     tools_summary = session_ctx["tools_summary"]
 
     step(f"Task: {task}")
-
     start_time = time.time()
 
     # ─── Three-Tier Intent Resolution ──────────────────────────────────
@@ -385,71 +439,31 @@ def _run_inner(task, toolset_spec, output_format, max_tokens, session_dir, _clea
     if early_return is not None:
         return early_return
 
-    # Phase 2: Execution
+    # Execution
     step("Executing")
+    results = execute_plan(plan, panes, tool_status, on_event=_progress_event,
+                           session_dir=session_dir, max_tokens=max_tokens)
 
-    def _progress_event(event_type, *args):
-        """Print subtask progress as it happens."""
-        if event_type == "subtask_start":
-            sid, _pane, description = args
-            activity(f"[{sid}] {description[:60]}")
-        elif event_type == "subtask_done":
-            sid, summary, elapsed = args
-            detail(f"✓ [{sid}] {summary[:70]} ({elapsed:.1f}s)")
-        elif event_type == "subtask_fail":
-            sid, msg = args
-            detail(f"✗ [{sid}] {msg[:70]}")
-
-    results = execute_plan(plan, panes, tool_status, on_event=_progress_event, session_dir=session_dir, max_tokens=max_tokens)
-
-    # Early exit if cancelled
     if is_cancelled():
         step("Cancelled")
         return "Cancelled"
 
-    # Check for failures with skipped dependents → attempt replan
+    # Recovery replan if some subtasks failed + others were skipped
     results = summarizer.attempt_recovery(
         task, results, execute_plan,
         panes=panes, tool_status=tool_status, tools_summary=tools_summary,
         on_event=_progress_event, session_dir=session_dir, max_tokens=max_tokens,
     )
 
-    # Summarization (skip for single-subtask plans — result IS the summary)
-    if len(results) == 1 and results[0].status == SubtaskStatus.COMPLETED:
-        # Prefer user-created output files over raw terminal output
-        summary = summarizer.read_output_files(session_dir, results[0]) or results[0].summary
-    else:
-        step("Summarizing")
-        summary = summarizer.summarize(task, results, output_format=output_format, session_dir=session_dir)
-
+    # Summarize, format, display
+    summary = _build_final_summary(task, results, output_format, session_dir)
     elapsed = time.time() - start_time
-    total_pt = sum(r.prompt_tokens for r in results)
-    total_ct = sum(r.completion_tokens for r in results)
-    completed = sum(1 for r in results if r.status == SubtaskStatus.COMPLETED)
-    total = len(results)
-
-    # Wrap --json output with structured metadata
-    if output_format == "json":
-        try:
-            parsed = json.loads(summary)
-        except (ValueError, TypeError):
-            parsed = summary
-        summary = json.dumps({
-            "result": parsed,
-            "success": completed == total,
-            "subtasks": {"completed": completed, "total": total},
-            "tokens": {"prompt": total_pt, "completion": total_ct, "total": total_pt + total_ct},
-            "elapsed_s": round(elapsed, 1),
-        }, indent=2)
-
-    # Result display
-    status_icon = "✓" if completed == total else "✗"
-    step(f"Result ({completed}/{total} {status_icon}, {elapsed:.1f}s, {total_pt + total_ct:,} tokens)")
-    # Indent all lines of the summary
-    indented = "\n".join(f"  {line}" for line in summary.splitlines())
-    result(indented)
+    summary = _finalize_summary(summary, output_format, results, elapsed)
+    _display_final_result(summary, results, elapsed)
 
     # Cross-run session log — record task, plan shape, tokens, time
+    total_pt = sum(r.prompt_tokens for r in results)
+    total_ct = sum(r.completion_tokens for r in results)
     summarizer.log_session(task, plan, results, elapsed, total_pt + total_ct)
 
     # Cleanup session directory (unless --keep-session or REPL mode)
