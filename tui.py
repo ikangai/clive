@@ -63,6 +63,10 @@ from toolsets import (
 from tui_theme import LOGO, HELP_TEXT, CLIVE_THEME, CSS
 from tui_helpers import build_clive_context, show_tools
 from tui_task_runner import run_task_inner
+from tui_actions import (
+    install_missing, do_install, execute_selfmod, run_selfmod,
+    undo_selfmod, run_evolve,
+)
 
 
 # ── App ──────────────────────────────────────────────────────────────────────
@@ -214,22 +218,22 @@ class CliveApp(App):
         elif cmd == "/tools":
             show_tools(out, self._resolved, self._available_cmds, self._missing_cmds)
         elif cmd == "/install":
-            self._install_missing()
+            install_missing(self)
         elif cmd == "/selfmod":
             if not arg:
                 out.write("[#6b7280]Usage: /selfmod <goal>[/]")
                 out.write("[#6b7280]Example: /selfmod add a /history command that shows past tasks[/]")
                 return
-            self._run_selfmod(arg)
+            run_selfmod(self, arg)
         elif cmd == "/undo":
-            self._undo_selfmod()
+            undo_selfmod(self)
         elif cmd == "/safe-mode":
             os.environ["CLIVE_EXPERIMENTAL_SELFMOD"] = "0"
             out.write("[#22c55e]✓[/] Self-modification disabled for this session.")
         elif cmd == "/evolve":
             if arg:
                 out.write(f"[bold]Evolving {arg} driver...[/bold]")
-                self._run_evolve(arg, out)
+                run_evolve(self, arg, out)
             else:
                 out.write("[yellow]Usage: /evolve <driver> (shell, browser, all)[/yellow]")
         elif cmd == "/dashboard":
@@ -297,165 +301,13 @@ class CliveApp(App):
         )
         self._update_status()
 
-
-    def _install_missing(self) -> None:
-        if not self._missing_cmds:
-            self.query_one("#output", RichLog).write(
-                "[#6b7280]Nothing to install.[/]"
-            )
-            return
-
-        brew_pkgs = []
-        pip_pkgs = []
-        for cmd in self._missing_cmds:
-            install = cmd.get("install", "")
-            if install.startswith("brew install "):
-                brew_pkgs.append(install.split("brew install ", 1)[1])
-            elif install.startswith("pip install "):
-                pip_pkgs.append(install.split("pip install ", 1)[1])
-
-        if not brew_pkgs and not pip_pkgs:
-            self.query_one("#output", RichLog).write(
-                "[#6b7280]No auto-installable packages.[/]"
-            )
-            return
-
-        self._do_install(brew_pkgs, pip_pkgs)
-
     @work(thread=True)
     def _do_install(self, brew_pkgs: list, pip_pkgs: list) -> None:
-        out = self.query_one("#output", RichLog)
-
-        if brew_pkgs:
-            argv = ["brew", "install"] + brew_pkgs
-            self.call_from_thread(
-                out.write, f"[#d97706]$[/] {' '.join(argv)}"
-            )
-            self._run_subprocess(argv, out)
-
-        if pip_pkgs:
-            argv = ["pip3", "install"] + pip_pkgs
-            self.call_from_thread(
-                out.write, f"[#d97706]$[/] {' '.join(argv)}"
-            )
-            self._run_subprocess(argv, out)
-
-        self.call_from_thread(out.write, "[#22c55e]✓ Install complete[/]")
-        self.call_from_thread(self._resolve_profile)
-
-    def _run_subprocess(self, argv: list[str], out: RichLog) -> None:
-        try:
-            proc = subprocess.Popen(
-                argv,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.STDOUT,
-                text=True,
-            )
-        except FileNotFoundError:
-            self.call_from_thread(
-                out.write, f"[#ef4444]✗ Command not found: {argv[0]}[/]"
-            )
-            return
-
-        if proc.stdout:
-            for line in proc.stdout:
-                self.call_from_thread(out.write, line.rstrip())
-        proc.wait()
-        if proc.returncode != 0:
-            self.call_from_thread(
-                out.write, f"[#ef4444]✗ Exit code: {proc.returncode}[/]"
-            )
-
-    # ── Self-modification ─────────────────────────────────────────────────
-
-    def _run_selfmod(self, goal: str) -> None:
-        from selfmod import is_enabled
-        out = self.query_one("#output", RichLog)
-        if not is_enabled():
-            out.write(
-                "[#f59e0b]⚠ Self-modification is disabled.[/]\n"
-                "[#6b7280]Set CLIVE_EXPERIMENTAL_SELFMOD=1 in .env to enable.[/]"
-            )
-            return
-        self._execute_selfmod(goal)
+        do_install(self, brew_pkgs, pip_pkgs)
 
     @work(thread=True)
     def _execute_selfmod(self, goal: str) -> None:
-        out = self.query_one("#output", RichLog)
-        from selfmod.pipeline import run_pipeline
-
-        def on_status(stage: str, msg: str) -> None:
-            icon = {
-                "analyzing": "◐",
-                "proposing": "◐",
-                "reviewing": "◑",
-                "auditing": "◒",
-                "gate": "◓",
-                "applying": "●",
-                "complete": "✓",
-            }.get(stage, "·")
-            color = "#22c55e" if stage == "complete" else "#d97706"
-            self.call_from_thread(
-                out.write, f"  [{color}]{icon}[/] [#6b7280]{stage}:[/] {msg}"
-            )
-
-        self.call_from_thread(out.write, "")
-        self.call_from_thread(
-            out.write, "[#d97706]Self-modification pipeline[/]"
-        )
-
-        result = run_pipeline(goal, on_status=on_status)
-
-        self.call_from_thread(out.write, "")
-        if result.success:
-            self.call_from_thread(
-                out.write,
-                f"[#22c55e]✓ Applied:[/] {result.message}"
-            )
-            self.call_from_thread(
-                out.write,
-                f"[#6b7280]  Snapshot: {result.snapshot_tag} · "
-                f"Tokens: {result.tokens['prompt'] + result.tokens['completion']:,}[/]"
-            )
-            self.call_from_thread(
-                out.write,
-                "[#6b7280]  Use /undo to roll back.[/]"
-            )
-        else:
-            self.call_from_thread(
-                out.write,
-                f"[#ef4444]✗ {result.stage}:[/] {result.message}"
-            )
-        self.call_from_thread(out.write, "")
-
-    def _undo_selfmod(self) -> None:
-        out = self.query_one("#output", RichLog)
-        try:
-            from selfmod.workspace import rollback, list_snapshots
-            snaps = list_snapshots()
-            if not snaps:
-                out.write("[#6b7280]No selfmod snapshots to undo.[/]")
-                return
-            tag = rollback()
-            out.write(f"[#22c55e]✓[/] Rolled back to [#c9c9d6]{tag}[/]")
-        except Exception as e:
-            out.write(f"[#ef4444]✗ Undo failed: {e}[/]")
-
-    def _run_evolve(self, driver: str, out: RichLog) -> None:
-        """Run driver evolution in background thread."""
-        import threading
-        def _worker():
-            try:
-                from evolve import evolve_driver
-                result = evolve_driver(driver, dry_run=False)
-                if result["improved"]:
-                    self.call_from_thread(out.write, f"[green]✓ {driver} driver improved: {result['baseline_score']:.3f} → {result['final_score']:.3f}[/green]")
-                else:
-                    self.call_from_thread(out.write, f"[yellow]No improvement found for {driver} (baseline: {result['baseline_score']:.3f})[/yellow]")
-            except Exception as e:
-                self.call_from_thread(out.write, f"[red]Evolution error: {e}[/red]")
-        threading.Thread(target=_worker, daemon=True).start()
-        out.write(f"[dim]Evolution running in background for {driver}...[/dim]")
+        execute_selfmod(self, goal)
 
     # ── Task execution ───────────────────────────────────────────────────
 
