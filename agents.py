@@ -35,18 +35,23 @@ def ensure_ssh_control_dir() -> str | None:
 
     SSH ControlMaster connection pooling is an optimization, not a
     correctness feature — when the directory can't be created, we
-    degrade to unpooled connections instead of crashing. Callers
-    (build_agent_ssh_cmd) check the return value and skip the
-    ControlMaster options when it's None.
+    degrade to unpooled connections instead of crashing.
+    build_agent_ssh_cmd checks os.path.isdir(ctl_dir) independently
+    and skips the ControlMaster options when it's missing.
 
     Idempotent: repeated calls return the same path without
-    re-creating the directory.
+    re-creating the directory. resolve_agent() calls this on every
+    invocation so any entry point that reaches agent addressing
+    (clive.py __main__, future tui.py wiring, CLI scripts, etc.)
+    gets pooling without needing a dedicated startup hook.
     """
     ctl_dir = os.path.expanduser("~/.clive/ssh")
     try:
         os.makedirs(ctl_dir, exist_ok=True, mode=0o700)
         return ctl_dir
-    except (OSError, PermissionError) as e:
+    except OSError as e:
+        # PermissionError is a subclass of OSError, as is
+        # NotADirectoryError (when ~/.clive is a regular file).
         log.warning(
             "could not create SSH control dir %s: %s — "
             "falling back to unpooled SSH connections",
@@ -147,6 +152,15 @@ def resolve_agent(host: str, registry_path: str | None = None,
     # Step 2+3: Remote registry / auto-resolve
     registry = _load_registry(registry_path)
     config = registry.get(host, {})
+
+    # Ensure the SSH control-socket directory exists before we build
+    # a command that references it. Idempotent — cheap on repeat
+    # calls, and covers every entry point (clive.py, tui.py, one-shot
+    # CLI scripts, scheduler jobs) without needing per-entry startup
+    # hooks. If the helper returns None (unlikely edge case like
+    # ~/.clive is a file), build_agent_ssh_cmd's isdir check will
+    # skip the ControlMaster options and we degrade to unpooled SSH.
+    ensure_ssh_control_dir()
 
     actual_host = config.get("host", host)
     nonce = generate_nonce()

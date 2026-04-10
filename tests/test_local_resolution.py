@@ -4,8 +4,21 @@ import os
 import time
 import tempfile
 
+import pytest
+
 from agents import resolve_agent
 from registry import register
+
+
+@pytest.fixture(autouse=True)
+def _isolate_home(tmp_path_factory, monkeypatch):
+    """Hermetic HOME — same reasoning as tests/test_agents.py.
+    resolve_agent() creates ~/.clive/ssh via ensure_ssh_control_dir;
+    we don't want that landing in the developer's real home during
+    test runs."""
+    home = tmp_path_factory.mktemp("fake-home")
+    monkeypatch.setenv("HOME", str(home))
+    yield
 
 REGISTRY_KWARGS = dict(
     pid=os.getpid(),

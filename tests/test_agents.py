@@ -1,7 +1,29 @@
 """Tests for agent addressing and resolution."""
 import os
 import tempfile
+
+import pytest
+
 from agents import parse_agent_addresses, resolve_agent, build_agent_ssh_cmd
+
+
+@pytest.fixture(autouse=True)
+def _isolate_home(tmp_path_factory, monkeypatch):
+    """Make every test in this file hermetic w.r.t. ~/.clive.
+
+    resolve_agent() calls ensure_ssh_control_dir() to guarantee the
+    SSH pooling directory exists before handing out a pane_def. That
+    side effect would otherwise litter the developer's real home on
+    every test run — the exact pollution Phase 3.5 M2 removed from
+    build_agent_ssh_cmd. We pin HOME to a per-module tmp dir so the
+    side effect lands somewhere disposable.
+
+    Tests that want a specific HOME (e.g. ensure_ssh_control_dir
+    tests with a ~/.clive file) re-monkeypatch HOME themselves.
+    """
+    home = tmp_path_factory.mktemp("fake-home")
+    monkeypatch.setenv("HOME", str(home))
+    yield
 
 
 # ─── Address parsing ─────────────────────────────────────────────────────────
@@ -335,3 +357,28 @@ def test_ensure_ssh_control_dir_degrades_when_parent_is_file(tmp_path, monkeypat
     # Must not raise; returns None to signal "no dir available".
     result = ensure_ssh_control_dir()
     assert result is None
+
+
+def test_resolve_agent_ensures_ssh_control_dir(tmp_path, monkeypatch):
+    """Regression test for L-A.
+
+    Phase 3.5 moved os.makedirs out of build_agent_ssh_cmd and into
+    clive.py's __main__ startup hook. That worked for the clive.py
+    entry point but left a latent bug: tui.py (and any future entry
+    that skips clive.py's __main__) never called ensure_ssh_control_dir,
+    so the first agent-pane resolution from those paths ran with
+    ControlMaster disabled.
+
+    The fix is to call ensure_ssh_control_dir() lazily from
+    resolve_agent() — idempotent, cheap on subsequent calls, and
+    covers every entry point that can reach agent addressing.
+    """
+    monkeypatch.setenv("HOME", str(tmp_path))
+    assert not (tmp_path / ".clive" / "ssh").exists()
+    from agents import resolve_agent
+    pane_def = resolve_agent("someagent")
+    # The side effect: resolve_agent created the control dir
+    assert (tmp_path / ".clive" / "ssh").is_dir()
+    # And because the dir now exists, build_agent_ssh_cmd emitted
+    # the ControlMaster options.
+    assert "ControlMaster=auto" in pane_def["cmd"]
