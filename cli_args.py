@@ -63,4 +63,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--version", action="version", version="clive 0.2.0")
     parser.add_argument("--debug", action="store_true", help="Enable debug logging to stderr")
     parser.add_argument("--max-tokens", type=int, default=50000, help="Maximum total tokens before aborting (default: 50000)")
+    parser.add_argument("--list-sessions", action="store_true", help="List persistent chat sessions (most recent first) and exit")
+    parser.add_argument("--new-session", action="store_true", help="Create a new persistent chat session and print its id")
+    parser.add_argument("--resume-session", metavar="SID", help="Resume a persistent chat session by id (binds subsequent tasks to it)")
     return parser

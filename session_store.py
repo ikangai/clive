@@ -153,6 +153,45 @@ def most_recent(sessions_dir: Path | None = None) -> dict | None:
     return sorted_list[0] if sorted_list else None
 
 
+def handle_session_args(args, sessions_dir: Path | None = None) -> tuple[bool, list[str]]:
+    """Pure handler for session-related CLI flags.
+
+    Returns ``(handled, lines)`` — ``handled=True`` means one of the session
+    flags was invoked and the caller should print ``lines`` and exit instead
+    of proceeding to normal task execution.
+
+    Recognized attributes on ``args`` (all optional):
+      - ``list_sessions: bool``  — print sorted session list
+      - ``new_session: bool``    — create a session, print the id
+      - ``resume_session: str``  — validate id exists, print a recap header
+    """
+    lines: list[str] = []
+    if getattr(args, "list_sessions", False):
+        sessions = list_sorted(sessions_dir)
+        if not sessions:
+            lines.append("(no sessions)")
+        else:
+            for s in sessions:
+                lines.append(format_session_line(s))
+        return True, lines
+    if getattr(args, "new_session", False):
+        sid = new(sessions_dir=sessions_dir)
+        lines.append(sid)
+        return True, lines
+    sid = getattr(args, "resume_session", None)
+    if sid:
+        data = get(sid, sessions_dir=sessions_dir)
+        if data is None:
+            lines.append(f"error: no such session: {sid}")
+            return True, lines
+        lines.append(f"resuming session {sid}")
+        recap = build_recap_text(data)
+        if recap:
+            lines.append(recap)
+        return True, lines
+    return False, lines
+
+
 def run_task_in_session(sid: str, task: str, runner,
                         sessions_dir: Path | None = None) -> dict:
     """Execute a task under a session with automatic bookkeeping.

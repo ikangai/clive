@@ -4,8 +4,16 @@ import json
 from session_store import (
     new, get, list_sessions, delete, append_message, record_task,
     complete_last_task, list_sorted, most_recent, format_session_line,
-    build_recap_text, run_task_in_session,
+    build_recap_text, run_task_in_session, handle_session_args,
 )
+
+
+class _Args:
+    """Minimal stand-in for argparse.Namespace in tests."""
+    def __init__(self, **kw):
+        self.list_sessions = kw.get("list_sessions", False)
+        self.new_session = kw.get("new_session", False)
+        self.resume_session = kw.get("resume_session", None)
 
 
 def test_new_creates_file(tmp_path):
@@ -413,3 +421,70 @@ def test_run_task_in_session_runner_receives_task(tmp_path):
     run_task_in_session(sid, "capture me", lambda t: received.append(t) or "ok",
                         sessions_dir=tmp_path)
     assert received == ["capture me"]
+
+
+def test_handle_session_args_none_returns_not_handled(tmp_path):
+    handled, lines = handle_session_args(_Args(), sessions_dir=tmp_path)
+    assert handled is False
+    assert lines == []
+
+
+def test_handle_session_args_list_empty(tmp_path):
+    handled, lines = handle_session_args(_Args(list_sessions=True),
+                                          sessions_dir=tmp_path)
+    assert handled is True
+    assert lines == ["(no sessions)"]
+
+
+def test_handle_session_args_list_shows_sessions(tmp_path):
+    sid1 = new(title="first", sessions_dir=tmp_path)
+    import time as _t
+    _t.sleep(0.01)
+    sid2 = new(title="second", sessions_dir=tmp_path)
+    handled, lines = handle_session_args(_Args(list_sessions=True),
+                                          sessions_dir=tmp_path)
+    assert handled is True
+    assert len(lines) == 2
+    # Most recent (sid2) should appear first
+    assert sid2 in lines[0]
+    assert sid1 in lines[1]
+
+
+def test_handle_session_args_new_creates_and_prints_id(tmp_path):
+    handled, lines = handle_session_args(_Args(new_session=True),
+                                          sessions_dir=tmp_path)
+    assert handled is True
+    assert len(lines) == 1
+    sid = lines[0]
+    assert get(sid, sessions_dir=tmp_path) is not None
+
+
+def test_handle_session_args_resume_missing_session(tmp_path):
+    handled, lines = handle_session_args(_Args(resume_session="ghost"),
+                                          sessions_dir=tmp_path)
+    assert handled is True
+    assert "no such session" in lines[0]
+    assert "ghost" in lines[0]
+
+
+def test_handle_session_args_resume_valid_session(tmp_path):
+    sid = new(title="prev work", sessions_dir=tmp_path)
+    record_task(sid, "earlier task", sessions_dir=tmp_path)
+    complete_last_task(sid, summary="earlier done", sessions_dir=tmp_path)
+    handled, lines = handle_session_args(_Args(resume_session=sid),
+                                          sessions_dir=tmp_path)
+    assert handled is True
+    assert any(sid in ln for ln in lines)
+    # Recap is included
+    assert any("earlier task" in ln for ln in lines)
+    assert any("earlier done" in ln for ln in lines)
+
+
+def test_handle_session_args_resume_valid_but_empty(tmp_path):
+    sid = new(sessions_dir=tmp_path)
+    handled, lines = handle_session_args(_Args(resume_session=sid),
+                                          sessions_dir=tmp_path)
+    assert handled is True
+    assert any(sid in ln for ln in lines)
+    # Empty session: no recap block, just the header
+    assert len(lines) == 1
