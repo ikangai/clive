@@ -28,10 +28,36 @@ Design notes:
 from __future__ import annotations
 
 import os
+import shlex
 import subprocess
 from dataclasses import dataclass, field
 
 from agents import _FORWARD_ENVS, _load_registry
+
+
+def _extract_python_interpreter(clive_path: str) -> str:
+    """Return the Python interpreter to use for the clive_installed check.
+
+    If the first token of ``clive_path`` looks like a Python interpreter
+    (basename starts with "python"), honour it — covers versioned
+    interpreters (`python3.11`), venv paths (`/opt/app/.venv/bin/python`),
+    and pyenv shims. Otherwise fall back to `python3`: the user's
+    ``path`` points at a wrapper script or a binary that isn't a Python
+    interpreter, and using it with ``-c`` would silently fail. The
+    clive_installed check's purpose is "can the remote import clive",
+    which is orthogonal to how clive is normally launched on that host.
+    """
+    try:
+        tokens = shlex.split(clive_path)
+    except ValueError:
+        return "python3"
+    if not tokens:
+        return "python3"
+    first = tokens[0]
+    basename = os.path.basename(first)
+    if basename.startswith("python"):
+        return first
+    return "python3"
 
 
 @dataclass
@@ -77,15 +103,16 @@ def check_agent(host: str, config: dict) -> AgentCheck:
         # even reach the host.
         return result
 
-    # 3. Remote clive is importable. The check's purpose is "can the
-    # remote find the clive module", which is independent of how
-    # clive is normally launched on that host. Always use `python3 -c`,
-    # NOT the configured `path` — a legitimate wrapper path like
-    # `/opt/clive/bin/clive` is not a Python interpreter and would
-    # silently fail the `-c` invocation.
+    # 3. Remote clive is importable. Honour the user's ``path``
+    # config when it points at a recognizable Python interpreter
+    # (covers venv installs, versioned pythons, pyenv shims); fall
+    # back to `python3` for wrapper scripts and bare binary names.
+    # See _extract_python_interpreter.
+    clive_path = config.get("path", "python3 clive.py")
+    interp = _extract_python_interpreter(clive_path)
     import_cmd = ssh_base + [
         actual_host,
-        "python3 -c 'import clive; print(\"ok\")'",
+        f"{interp} -c 'import clive; print(\"ok\")'",
     ]
     try:
         r = subprocess.run(import_cmd, capture_output=True, text=True, timeout=10)

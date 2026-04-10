@@ -229,22 +229,17 @@ def test_accept_env_populated_sshd_output_detects_actual_missing(monkeypatch):
     assert "OPENROUTER_API_KEY" in detail
 
 
-def test_clive_installed_uses_python3_not_wrapper_path(monkeypatch):
-    """Regression test for M3.
+def _captured_import_cmd(captured_cmds):
+    """Pull the `import clive` ssh command out of the captured list."""
+    matches = [
+        " ".join(argv) for argv in captured_cmds
+        if any("import clive" in arg for arg in argv)
+    ]
+    assert len(matches) == 1
+    return matches[0]
 
-    The previous implementation did `clive_path.split()[0]` to pick
-    an "interpreter" — fine for the default "python3 clive.py" but
-    wrong for a legitimate wrapper path like "/opt/clive/bin/clive".
-    Such a path is NOT a Python interpreter and does not accept
-    -c, so the check would silently fail.
 
-    The check's purpose is "can the remote import clive?", which is
-    independent of how clive is normally launched. Always use
-    `python3 -c 'import clive; ...'`.
-    """
-    import agents_doctor
-    captured_cmds = []
-
+def _mk_fake_run(captured_cmds):
     def fake_run(argv, *args, **kwargs):
         captured_cmds.append(list(argv) if isinstance(argv, list) else [argv])
         class R:
@@ -256,25 +251,86 @@ def test_clive_installed_uses_python3_not_wrapper_path(monkeypatch):
             R.stdout = "clive-doctor-ok\n"
         elif "import clive" in cmd_str:
             R.stdout = "ok\n"
+        elif "sshd -T" in cmd_str:
+            R.stdout = "<<SSHD_EXIT>> 1\n"
         return R()
+    return fake_run
 
-    monkeypatch.setattr("subprocess.run", fake_run)
 
-    # User's registry specifies a wrapper script path — NOT a python interp
+def test_clive_installed_uses_python3_by_default(monkeypatch):
+    """Default path (`python3 clive.py`) → interpreter is python3."""
+    import agents_doctor
+    captured = []
+    monkeypatch.setattr("subprocess.run", _mk_fake_run(captured))
+    agents_doctor.check_agent("myhost", {})  # no path override
+    cmd = _captured_import_cmd(captured)
+    assert "python3 -c " in cmd
+
+
+def test_clive_installed_falls_back_for_wrapper_path(monkeypatch):
+    """Regression test for M3.
+
+    A wrapper script path like `/opt/clive/bin/clive-wrapper` is NOT
+    a Python interpreter. L-D refined the fix so the check falls
+    back to `python3` when the first token of `path` doesn't look
+    like a Python interpreter.
+    """
+    import agents_doctor
+    captured = []
+    monkeypatch.setattr("subprocess.run", _mk_fake_run(captured))
     agents_doctor.check_agent("myhost", {"path": "/opt/clive/bin/clive-wrapper"})
+    cmd = _captured_import_cmd(captured)
+    assert "python3 -c " in cmd
+    assert "/opt/clive/bin/clive-wrapper -c" not in cmd
 
-    # Find the import check command among captured calls
-    import_cmd_strs = [
-        " ".join(argv) for argv in captured_cmds
-        if any("import clive" in arg for arg in argv)
-    ]
-    assert len(import_cmd_strs) == 1
-    import_cmd_str = import_cmd_strs[0]
-    assert "python3 -c" in import_cmd_str, (
-        f"clive-install check must use `python3 -c`, not a wrapper path. "
-        f"Got: {import_cmd_str}"
+
+def test_clive_installed_honours_versioned_python(monkeypatch):
+    """Regression test for L-D.
+
+    A user on Python 3.11-only host configures
+    `path: python3.11 clive.py`. The check must use python3.11, not
+    hardcoded python3 — otherwise we'd fail on hosts where bare
+    python3 isn't in PATH.
+    """
+    import agents_doctor
+    captured = []
+    monkeypatch.setattr("subprocess.run", _mk_fake_run(captured))
+    agents_doctor.check_agent("myhost", {"path": "python3.11 clive.py"})
+    cmd = _captured_import_cmd(captured)
+    assert "python3.11 -c " in cmd
+
+
+def test_clive_installed_honours_venv_python(monkeypatch):
+    """Regression test for L-D — the motivating case.
+
+    A user with clive installed in a dedicated venv configures
+    `path: /opt/clive/.venv/bin/python clive.py` because their system
+    python3 does NOT have clive's dependencies. The doctor MUST use
+    the venv interpreter, otherwise it reports clive_installed=False
+    on a host where clive actually works fine.
+    """
+    import agents_doctor
+    captured = []
+    monkeypatch.setattr("subprocess.run", _mk_fake_run(captured))
+    agents_doctor.check_agent(
+        "myhost",
+        {"path": "/opt/clive/.venv/bin/python clive.py"},
     )
-    assert "/opt/clive/bin/clive-wrapper -c" not in import_cmd_str
+    cmd = _captured_import_cmd(captured)
+    assert "/opt/clive/.venv/bin/python -c " in cmd
+    # Must NOT fall back to hardcoded python3
+    assert " python3 -c " not in cmd
+
+
+def test_clive_installed_falls_back_for_bare_binary_name(monkeypatch):
+    """A bare binary name like `clive` (no `python` prefix, no path)
+    is probably an installed wrapper — fall back to python3."""
+    import agents_doctor
+    captured = []
+    monkeypatch.setattr("subprocess.run", _mk_fake_run(captured))
+    agents_doctor.check_agent("myhost", {"path": "clive"})
+    cmd = _captured_import_cmd(captured)
+    assert "python3 -c " in cmd
 
 
 def test_accept_env_sshd_ok_but_no_directive_reports_missing(monkeypatch):
