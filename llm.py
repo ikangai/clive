@@ -39,6 +39,14 @@ PROVIDERS = {
         "api_key_env": None,
         "default_model": "llama3",
     },
+    "delegate": {
+        # Inference routed back over the conversational channel to the
+        # outer clive — no HTTP, no API key, no network. See
+        # delegate_client.py and protocol.py llm_request / llm_response.
+        "base_url": None,
+        "api_key_env": None,
+        "default_model": "delegate",
+    },
 }
 
 PROVIDER_NAME = os.getenv("LLM_PROVIDER", "openrouter")
