@@ -6,6 +6,7 @@ deferred `import executor` to avoid circular-import issues at load time.
 """
 
 import logging
+import re
 import threading
 
 import executor  # deferred attribute access avoids the circular import
@@ -24,6 +25,24 @@ log = logging.getLogger(__name__)
 
 _SHELL_LIKE_APP_TYPES = {"shell", "data", "docs", "media", "browser", "files"}
 _EMPTY_REPLY_LIMIT = 2
+# Matches the exit code inside the wrap_command marker line: "EXIT:<n> ___DONE_..."
+# The "EXIT:$" guard (unexpanded variable in the echoed command) is applied
+# before this regex to avoid matching the command echo itself.
+_EXIT_CODE_RE = re.compile(r"EXIT:(\d+)")
+
+
+def _parse_exit_code(screen: str) -> int | None:
+    """Extract the exit code from the most recent marker line in a captured screen.
+
+    Returns None if no marker line is found (e.g. timeout before completion).
+    Scans bottom-up so the most recent command wins when multiple markers exist.
+    """
+    for line in reversed(screen.splitlines()):
+        if "EXIT:" in line and "EXIT:$" not in line:
+            match = _EXIT_CODE_RE.search(line)
+            if match:
+                return int(match.group(1))
+    return None
 
 
 def _trim_messages(messages: list[dict], max_user_turns: int = 4) -> list[dict]:
@@ -149,6 +168,18 @@ def run_subtask_interactive(
                 continue
 
             prev_screen = _send_agent_command(cmd, subtask, pane_info, session_dir)
+            # Surface non-zero exit codes explicitly so the LLM can't miss
+            # them via the screen diff alone. The marker wraps every command
+            # with `echo "EXIT:$? ___DONE_..."`, so the code is always present.
+            exit_code = _parse_exit_code(prev_screen)
+            if exit_code is not None and exit_code != 0:
+                messages.append({
+                    "role": "user",
+                    "content": (
+                        f"[EXIT:{exit_code}] Previous command exited non-zero. "
+                        "Inspect the screen output and try a different approach."
+                    ),
+                })
 
     # Exhausted turns
     final_screen = executor.capture_pane(pane_info)
