@@ -5,7 +5,7 @@ from session_store import (
     new, get, list_sessions, delete, append_message, record_task,
     complete_last_task, list_sorted, most_recent, format_session_line,
     build_recap_text, run_task_in_session, handle_session_args,
-    dispatch_session_slash, set_title,
+    dispatch_session_slash, set_title, prune_sessions,
 )
 
 
@@ -619,3 +619,93 @@ def test_dispatch_slash_unknown_not_handled(tmp_path):
                                                       sessions_dir=tmp_path)
     assert handled is False
     assert new_sid == "x"
+
+
+def test_prune_sessions_empty_only_deletes_no_task_sessions(tmp_path):
+    a = new(title="empty", sessions_dir=tmp_path)
+    b = new(title="busy", sessions_dir=tmp_path)
+    record_task(b, "something", sessions_dir=tmp_path)
+    deleted = prune_sessions(sessions_dir=tmp_path, empty_only=True)
+    assert deleted == 1
+    assert get(a, sessions_dir=tmp_path) is None
+    assert get(b, sessions_dir=tmp_path) is not None
+
+
+def test_prune_sessions_empty_only_keeps_busy(tmp_path):
+    for i in range(3):
+        sid = new(sessions_dir=tmp_path)
+        record_task(sid, f"task {i}", sessions_dir=tmp_path)
+    deleted = prune_sessions(sessions_dir=tmp_path, empty_only=True)
+    assert deleted == 0
+    assert len(list_sessions(sessions_dir=tmp_path)) == 3
+
+
+def test_prune_sessions_no_args_deletes_all(tmp_path):
+    new(sessions_dir=tmp_path)
+    new(sessions_dir=tmp_path)
+    new(sessions_dir=tmp_path)
+    deleted = prune_sessions(sessions_dir=tmp_path)
+    assert deleted == 3
+    assert list_sessions(sessions_dir=tmp_path) == []
+
+
+def test_prune_sessions_older_than_deletes_stale(tmp_path):
+    old = new(sessions_dir=tmp_path)
+    # Backdate via direct file mutation
+    import json as _j
+    p = tmp_path / f"{old}.json"
+    data = _j.loads(p.read_text())
+    data["updated_at"] = data["updated_at"] - 1000
+    p.write_text(_j.dumps(data))
+    fresh = new(sessions_dir=tmp_path)
+    deleted = prune_sessions(sessions_dir=tmp_path, older_than_seconds=100)
+    assert deleted == 1
+    assert get(old, sessions_dir=tmp_path) is None
+    assert get(fresh, sessions_dir=tmp_path) is not None
+
+
+def test_prune_sessions_older_than_keeps_fresh(tmp_path):
+    new(sessions_dir=tmp_path)
+    new(sessions_dir=tmp_path)
+    # Nothing is older than an hour (just created)
+    deleted = prune_sessions(sessions_dir=tmp_path, older_than_seconds=3600)
+    assert deleted == 0
+
+
+def test_prune_sessions_combined_criteria(tmp_path):
+    # Old-and-empty should go; old-and-busy should stay; new-and-empty should stay
+    import json as _j
+
+    old_empty = new(sessions_dir=tmp_path)
+    old_busy = new(sessions_dir=tmp_path)
+    record_task(old_busy, "work", sessions_dir=tmp_path)
+    for sid in (old_empty, old_busy):
+        p = tmp_path / f"{sid}.json"
+        data = _j.loads(p.read_text())
+        data["updated_at"] = data["updated_at"] - 10000
+        p.write_text(_j.dumps(data))
+
+    new_empty = new(sessions_dir=tmp_path)
+
+    deleted = prune_sessions(sessions_dir=tmp_path, empty_only=True,
+                             older_than_seconds=1000)
+    assert deleted == 1  # only old_empty matches both criteria
+    assert get(old_empty, sessions_dir=tmp_path) is None
+    assert get(old_busy, sessions_dir=tmp_path) is not None
+    assert get(new_empty, sessions_dir=tmp_path) is not None
+
+
+def test_prune_sessions_empty_dir(tmp_path):
+    assert prune_sessions(sessions_dir=tmp_path) == 0
+
+
+def test_prune_sessions_returns_count(tmp_path):
+    for _ in range(5):
+        new(sessions_dir=tmp_path)
+    # Add 2 busy ones that should survive
+    for _ in range(2):
+        sid = new(sessions_dir=tmp_path)
+        record_task(sid, "keep me", sessions_dir=tmp_path)
+    deleted = prune_sessions(sessions_dir=tmp_path, empty_only=True)
+    assert deleted == 5
+    assert len(list_sessions(sessions_dir=tmp_path)) == 2

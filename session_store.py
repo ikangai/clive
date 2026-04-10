@@ -340,3 +340,33 @@ def delete(sid: str, sessions_dir: Path | None = None) -> bool:
         p.unlink()
         return True
     return False
+
+
+def prune_sessions(sessions_dir: Path | None = None, *,
+                   empty_only: bool = False,
+                   older_than_seconds: float | None = None) -> int:
+    """Delete sessions matching the given criteria. Returns count deleted.
+
+    Parameters
+    ----------
+    empty_only : bool
+        If True, only delete sessions with zero tasks (regardless of age).
+    older_than_seconds : float | None
+        If set, only delete sessions whose ``updated_at`` is older than
+        ``now - older_than_seconds``. Combined with ``empty_only`` via AND.
+    """
+    now = time.time()
+    deleted = 0
+    for session in list_sessions(sessions_dir):
+        sid = session.get("id")
+        if not sid:
+            continue
+        if empty_only and (session.get("tasks") or []):
+            continue
+        if older_than_seconds is not None:
+            age = now - session.get("updated_at", now)
+            if age < older_than_seconds:
+                continue
+        if delete(sid, sessions_dir):
+            deleted += 1
+    return deleted
