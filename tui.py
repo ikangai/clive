@@ -235,6 +235,12 @@ def _register_core_commands() -> None:
 _register_core_commands()
 _register_session_commands()
 
+# File-based plugin discovery — any *.py file in ~/.clive/commands/ can
+# call commands.register() at import time and appear as a first-class
+# slash command. Mirrors the skills.py discovery pattern.
+_PLUGIN_DIR = os.path.expanduser("~/.clive/commands")
+commands.load_plugin_commands(_PLUGIN_DIR)
+
 
 # ── App ──────────────────────────────────────────────────────────────────────
 

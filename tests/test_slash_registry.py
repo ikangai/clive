@@ -260,6 +260,61 @@ def test_build_slash_hint_empty_for_gibberish():
     assert hint == ""
 
 
+def test_load_plugin_commands_registers_new_command(tmp_path):
+    """A drop-in plugin file can register a command via the normal API."""
+    plugin = tmp_path / "history.py"
+    plugin.write_text(
+        "import commands\n"
+        "def _handler(app, arg, out):\n"
+        "    out.write('history listing')\n"
+        "commands.register(commands.SlashCommand(\n"
+        "    name='/history_test_tmp', summary='Test plugin command',\n"
+        "    args_hint='', handler=_handler, source='plugin'))\n"
+    )
+    loaded = commands.load_plugin_commands(str(tmp_path))
+    try:
+        assert "history.py" in loaded
+        cmd = commands.get("/history_test_tmp")
+        assert cmd is not None
+        assert cmd.source == "plugin"
+        assert cmd.summary == "Test plugin command"
+    finally:
+        # Clean up — don't leak into other tests
+        commands._REGISTRY.pop("/history_test_tmp", None)
+
+
+def test_load_plugin_commands_missing_dir_returns_empty(tmp_path):
+    nonexistent = tmp_path / "nowhere"
+    assert commands.load_plugin_commands(str(nonexistent)) == []
+
+
+def test_load_plugin_commands_skips_underscore_prefixed(tmp_path):
+    (tmp_path / "_private.py").write_text(
+        "import commands\n"
+        "commands.register(commands.SlashCommand(\n"
+        "    name='/should_not_load', summary='x', handler=lambda a,b,c: None))\n"
+    )
+    commands.load_plugin_commands(str(tmp_path))
+    assert commands.get("/should_not_load") is None
+
+
+def test_load_plugin_commands_broken_plugin_does_not_crash(tmp_path):
+    """Broken plugins must be silently skipped — a plugin error never blocks the TUI."""
+    (tmp_path / "good.py").write_text(
+        "import commands\n"
+        "commands.register(commands.SlashCommand(\n"
+        "    name='/good_plugin_tmp', summary='ok', handler=lambda a,b,c: None, source='plugin'))\n"
+    )
+    (tmp_path / "bad.py").write_text("this is not valid python syntax !!!!")
+    loaded = commands.load_plugin_commands(str(tmp_path))
+    try:
+        assert "good.py" in loaded
+        assert "bad.py" not in loaded
+        assert commands.get("/good_plugin_tmp") is not None
+    finally:
+        commands._REGISTRY.pop("/good_plugin_tmp", None)
+
+
 def test_no_if_cmd_ladder_in_tui_or_session_store():
     """Regression guard: the branch-count metric must stay at 0."""
     import re

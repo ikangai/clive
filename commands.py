@@ -157,6 +157,43 @@ def suggest(unknown_name: str, limit: int = 3) -> list[str]:
     return difflib.get_close_matches(unknown_name, list(_REGISTRY.keys()), n=limit, cutoff=0.6)
 
 
+def load_plugin_commands(plugin_dir: str) -> list[str]:
+    """Discover and import every ``*.py`` file in ``plugin_dir``.
+
+    Plugin files are expected to import ``commands`` and call ``register()``
+    at module load time. This gives ``/selfmod`` (and human maintainers) a
+    drop-in plugin surface — adding a new command means writing a file, not
+    patching ``tui.py``. The ``skills.py`` module already uses this pattern
+    for workflow recipes; this aligns the slash-command surface with it.
+
+    Returns the list of loaded file basenames (for logging). Silently skips
+    files that raise on import — a broken plugin must never take down the TUI.
+    """
+    import importlib.util
+    import os
+
+    loaded: list[str] = []
+    if not os.path.isdir(plugin_dir):
+        return loaded
+
+    for fname in sorted(os.listdir(plugin_dir)):
+        if not fname.endswith(".py") or fname.startswith("_"):
+            continue
+        path = os.path.join(plugin_dir, fname)
+        mod_name = f"_clive_plugin_{fname[:-3]}"
+        try:
+            spec = importlib.util.spec_from_file_location(mod_name, path)
+            if spec is None or spec.loader is None:
+                continue
+            mod = importlib.util.module_from_spec(spec)
+            spec.loader.exec_module(mod)
+            loaded.append(fname)
+        except Exception:
+            # Broken plugin — skip silently. Plugins are advisory.
+            continue
+    return loaded
+
+
 def render_help(profiles: str, categories: str, providers: str) -> str:
     """Render the slash-command help block from the registry.
 
