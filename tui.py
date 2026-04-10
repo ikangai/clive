@@ -43,6 +43,7 @@ from textual.widgets import (
     Static,
 )
 
+import commands
 from dashboard import render_lines
 from executor import execute_plan
 from llm import PROVIDERS as LLM_PROVIDERS, chat, get_client
@@ -67,6 +68,114 @@ from tui_actions import (
     install_missing, do_install, execute_selfmod, run_selfmod,
     undo_selfmod, run_evolve,
 )
+
+
+# ── Core command handlers (registered via commands registry) ────────────────
+#
+# Each handler takes (app, arg, out). Registering them in a flat list at
+# module load time replaces the if/elif dispatch ladder that used to live in
+# CliveApp._handle_command. Adding a new command = one list entry, not two
+# sites (dispatch + HELP_TEXT).
+
+
+def _cmd_help(app, arg, out) -> None:
+    out.write(HELP_TEXT.format(
+        profiles=", ".join(PROFILES),
+        categories=", ".join(sorted(CATEGORIES)),
+        providers=", ".join(LLM_PROVIDERS),
+    ))
+
+
+def _cmd_profile(app, arg, out) -> None:
+    app._handle_profile(arg, out)
+
+
+def _cmd_status(app, arg, out) -> None:
+    app._handle_status(out)
+
+
+def _cmd_cancel(app, arg, out) -> None:
+    app._handle_cancel(out)
+
+
+def _cmd_clear(app, arg, out) -> None:
+    out.clear()
+
+
+def _cmd_provider(app, arg, out) -> None:
+    app._handle_provider(arg, out)
+
+
+def _cmd_model(app, arg, out) -> None:
+    app._handle_model(arg, out)
+
+
+def _cmd_tools(app, arg, out) -> None:
+    show_tools(out, app._resolved, app._available_cmds, app._missing_cmds)
+
+
+def _cmd_install(app, arg, out) -> None:
+    install_missing(app)
+
+
+def _cmd_selfmod(app, arg, out) -> None:
+    if not arg:
+        out.write("[#6b7280]Usage: /selfmod <goal>[/]")
+        out.write("[#6b7280]Example: /selfmod add a /history command that shows past tasks[/]")
+        return
+    run_selfmod(app, arg)
+
+
+def _cmd_undo(app, arg, out) -> None:
+    undo_selfmod(app)
+
+
+def _cmd_safe_mode(app, arg, out) -> None:
+    os.environ["CLIVE_EXPERIMENTAL_SELFMOD"] = "0"
+    out.write("[#22c55e]✓[/] Self-modification disabled for this session.")
+
+
+def _cmd_evolve(app, arg, out) -> None:
+    if arg:
+        out.write(f"[bold]Evolving {arg} driver...[/bold]")
+        run_evolve(app, arg, out)
+    else:
+        out.write("[yellow]Usage: /evolve <driver> (shell, browser, all)[/yellow]")
+
+
+def _cmd_dashboard(app, arg, out) -> None:
+    for line in render_lines():
+        out.write(line)
+
+
+def _register_core_commands() -> None:
+    """Register all built-in slash commands. Called once at module load.
+
+    Keeping the list flat and declarative is the whole point — every
+    command lives here and only here. Adding "/history" means appending
+    one SlashCommand(...) entry, not editing both HELP_TEXT and dispatch.
+    """
+    core = [
+        commands.SlashCommand("/help",      "Show this help",                         "",            _cmd_help),
+        commands.SlashCommand("/profile",   "Switch toolset profile or add category", "<name|+cat>", _cmd_profile),
+        commands.SlashCommand("/provider",  "Switch LLM provider",                    "<name>",      _cmd_provider),
+        commands.SlashCommand("/model",     "Switch model",                           "<name>",      _cmd_model),
+        commands.SlashCommand("/tools",     "Show available and missing tools",       "",            _cmd_tools),
+        commands.SlashCommand("/install",   "Install missing CLI tools",              "",            _cmd_install),
+        commands.SlashCommand("/status",    "Show running task status",               "",            _cmd_status),
+        commands.SlashCommand("/cancel",    "Cancel the running task",                "",            _cmd_cancel),
+        commands.SlashCommand("/clear",     "Clear the screen",                       "",            _cmd_clear),
+        commands.SlashCommand("/selfmod",   "Self-modify clive (experimental)",       "<goal>",      _cmd_selfmod),
+        commands.SlashCommand("/undo",      "Roll back last self-modification",       "",            _cmd_undo),
+        commands.SlashCommand("/safe-mode", "Disable self-modification",              "",            _cmd_safe_mode),
+        commands.SlashCommand("/evolve",    "Evolve a driver (shell, browser, all)",  "<driver>",    _cmd_evolve),
+        commands.SlashCommand("/dashboard", "Show running clive instances",           "",            _cmd_dashboard),
+    ]
+    for c in core:
+        commands.register(c)
+
+
+_register_core_commands()
 
 
 # ── App ──────────────────────────────────────────────────────────────────────
@@ -194,53 +303,10 @@ class CliveApp(App):
     def _handle_command(self, text: str) -> None:
         out = self.query_one("#output", RichLog)
         parts = text.split(None, 1)
-        cmd = parts[0].lower()
+        name = parts[0].lower()
         arg = parts[1].strip() if len(parts) > 1 else ""
-
-        if cmd == "/help":
-            out.write(HELP_TEXT.format(
-                profiles=", ".join(PROFILES),
-                categories=", ".join(sorted(CATEGORIES)),
-                providers=", ".join(LLM_PROVIDERS),
-            ))
-        elif cmd == "/profile":
-            self._handle_profile(arg, out)
-        elif cmd == "/status":
-            self._handle_status(out)
-        elif cmd == "/cancel":
-            self._handle_cancel(out)
-        elif cmd == "/clear":
-            out.clear()
-        elif cmd == "/provider":
-            self._handle_provider(arg, out)
-        elif cmd == "/model":
-            self._handle_model(arg, out)
-        elif cmd == "/tools":
-            show_tools(out, self._resolved, self._available_cmds, self._missing_cmds)
-        elif cmd == "/install":
-            install_missing(self)
-        elif cmd == "/selfmod":
-            if not arg:
-                out.write("[#6b7280]Usage: /selfmod <goal>[/]")
-                out.write("[#6b7280]Example: /selfmod add a /history command that shows past tasks[/]")
-                return
-            run_selfmod(self, arg)
-        elif cmd == "/undo":
-            undo_selfmod(self)
-        elif cmd == "/safe-mode":
-            os.environ["CLIVE_EXPERIMENTAL_SELFMOD"] = "0"
-            out.write("[#22c55e]✓[/] Self-modification disabled for this session.")
-        elif cmd == "/evolve":
-            if arg:
-                out.write(f"[bold]Evolving {arg} driver...[/bold]")
-                run_evolve(self, arg, out)
-            else:
-                out.write("[yellow]Usage: /evolve <driver> (shell, browser, all)[/yellow]")
-        elif cmd == "/dashboard":
-            for line in render_lines():
-                out.write(line)
-        else:
-            out.write(f"[#ef4444]Unknown command: {cmd}[/] — try /help")
+        if not commands.dispatch(name, arg, self, out):
+            out.write(f"[#ef4444]Unknown command: {name}[/] — try /help")
 
     def _resolve_profile(self) -> None:
         try:
