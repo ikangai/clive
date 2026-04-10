@@ -5,3 +5,5 @@ autoresearch-results.tsv
 .DS_Store
 .clive/audit/
 .eval_cache/
+autoresearch-results.tsv
+.autoresearch_verify.py
