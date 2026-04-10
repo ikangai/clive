@@ -71,14 +71,19 @@ def _trim_messages(messages: list[dict], max_user_turns: int = 4) -> list[dict]:
     return system + first_pair + recent
 
 
-def _send_agent_command(cmd: str, subtask: Subtask, pane_info: PaneInfo, session_dir: str) -> str:
-    """Wrap, sandbox, send, and wait. Returns the resulting pane screen."""
+def _send_agent_command(cmd: str, subtask: Subtask, pane_info: PaneInfo, session_dir: str) -> tuple[str, str]:
+    """Wrap, sandbox, send, and wait.
+
+    Returns (screen, detection_method) so callers can react to
+    "intervention:<type>" states (y/N prompts, password prompts, fatal
+    errors) instead of waiting for the 2s idle timeout to trip.
+    """
     if pane_info.app_type in _SHELL_LIKE_APP_TYPES:
         cmd = executor._wrap_for_sandbox(cmd, session_dir, sandboxed=pane_info.sandboxed)
     wrapped, marker = wrap_command(cmd, subtask.id)
     pane_info.pane.send_keys(wrapped, enter=True)
-    screen, _method = executor.wait_for_ready(pane_info, marker=marker)
-    return screen
+    screen, method = executor.wait_for_ready(pane_info, marker=marker, detect_intervention=True)
+    return screen, method
 
 
 def run_subtask_interactive(
@@ -167,7 +172,7 @@ def run_subtask_interactive(
                 messages.append({"role": "user", "content": f"[BLOCKED] {violation}. Try a different approach."})
                 continue
 
-            prev_screen = _send_agent_command(cmd, subtask, pane_info, session_dir)
+            prev_screen, detection = _send_agent_command(cmd, subtask, pane_info, session_dir)
             # Surface non-zero exit codes explicitly so the LLM can't miss
             # them via the screen diff alone. The marker wraps every command
             # with `echo "EXIT:$? ___DONE_..."`, so the code is always present.
@@ -178,6 +183,21 @@ def run_subtask_interactive(
                     "content": (
                         f"[EXIT:{exit_code}] Previous command exited non-zero. "
                         "Inspect the screen output and try a different approach."
+                    ),
+                })
+            # Intervention detection: if the pane is now sitting at a prompt
+            # for human input (y/N, password, "Press any key"...) or a fatal
+            # error, tell the LLM explicitly so it can respond on the next
+            # turn instead of waiting for the idle timeout to trip.
+            if detection.startswith("intervention:"):
+                intervention_type = detection.split(":", 1)[1]
+                messages.append({
+                    "role": "user",
+                    "content": (
+                        f"[INTERVENTION:{intervention_type}] The pane is waiting "
+                        "for input or reporting a fatal condition. Respond "
+                        "directly (e.g. type 'y', a password, or abort) — "
+                        "do NOT issue a new shell command until this is resolved."
                     ),
                 })
 
