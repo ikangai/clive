@@ -303,137 +303,18 @@ if __name__ == "__main__":
 
     # Interactive REPL mode: no task arg → show banner, set up session once, loop
     if not args.task and not args.dry_run:
-        from llm import PROVIDER_NAME, MODEL
-        print(f"""
- ██████╗██╗     ██╗██╗   ██╗███████╗
-██╔════╝██║     ██║██║   ██║██╔════╝
-██║     ██║     ██║██║   ██║█████╗
-██║     ██║     ██║╚██╗ ██╔╝██╔══╝
-╚██████╗███████╗██║ ╚████╔╝ ███████╗
- ╚═════╝╚══════╝╚═╝  ╚═══╝  ╚══════╝
-  {MODEL} · {PROVIDER_NAME}
-  toolset: {args.toolset}
-""")
-
-        # Set up session once for the REPL
-        session_id = generate_session_id()
-        session_dir = f"/tmp/clive/{session_id}"
-        _repl_state = {"session_name": SESSION_NAME}
-        session_ctx = _setup_session(args.toolset, session_dir, _repl_state)
-
-        # Register named instance now that we have the session name
-        if _instance_name:
-            _register(_instance_name, pid=os.getpid(),
-                      tmux_session=_repl_state["session_name"],
-                      tmux_socket="clive", toolset=args.toolset,
-                      task=args.task or "", conversational=True,
-                      session_dir=session_dir)
-
-        def _repl_cleanup():
-            try:
-                server = libtmux.Server(socket_name=SOCKET_NAME)
-                for s in server.sessions.filter(session_name=_repl_state["session_name"]):
-                    s.kill()
-            except Exception:
-                pass
-            if os.path.isdir(session_dir):
-                shutil.rmtree(session_dir, ignore_errors=True)
-
-        # Enable readline for arrow keys, history, and special chars
-        import readline
-        # macOS libedit: don't steal Option key (needed for @ on German keyboards etc.)
-        if "libedit" in (readline.__doc__ or ""):
-            readline.parse_and_bind("bind -e")
-            readline.parse_and_bind("bind '\\e[A' ed-search-prev-history")
-            readline.parse_and_bind("bind '\\e[B' ed-search-next-history")
-        else:
-            readline.parse_and_bind("set enable-meta-key off")
-        history_file = os.path.expanduser("~/.clive/history")
-        os.makedirs(os.path.dirname(history_file), exist_ok=True)
-        try:
-            readline.read_history_file(history_file)
-        except FileNotFoundError:
-            pass
-        readline.set_history_length(500)
-
-        try:
-            while True:
-                try:
-                    task = input("\nEnter task: ").strip()
-                except (EOFError, KeyboardInterrupt):
-                    print()
-                    break
-                if not task or task.lower() in ("exit", "quit", "q"):
-                    break
-                if task == "/dashboard":
-                    from dashboard import render_lines
-                    for line in render_lines():
-                        print(line)
-                    continue
-                if task.startswith("/add "):
-                    cat = task[5:].strip()
-                    if cat in CATEGORIES:
-                        if _expand_toolset(cat, session_ctx):
-                            step(f"Added {cat}")
-                        else:
-                            detail(f"{cat} already loaded")
-                    else:
-                        detail(f"Unknown category: {cat}. Available: {', '.join(sorted(CATEGORIES.keys()))}")
-                    continue
-                if task == "/tools":
-                    cats = sorted(session_ctx.get("categories", set()))
-                    detail(f"Active: {', '.join(cats)}")
-                    detail(f"Panes: {', '.join(session_ctx['panes'].keys())}")
-                    avail = [c['name'] for c in session_ctx['available_cmds']]
-                    if avail:
-                        detail(f"Commands: {', '.join(avail)}")
-                    uncfg = session_ctx.get('unconfigured', [])
-                    if uncfg:
-                        detail(f"Needs setup: {', '.join(uncfg)}")
-                    continue
-                try:
-                    run(task, toolset_spec=args.toolset, output_format=output_format,
-                        max_tokens=args.max_tokens, session_ctx=session_ctx, session_dir=session_dir)
-                except (SystemExit, KeyboardInterrupt):
-                    pass  # don't exit the REPL on Ctrl-C during a task
-                except Exception as e:
-                    progress(f"Error: {e}")
-        finally:
-            try:
-                readline.write_history_file(history_file)
-            except OSError:
-                pass
-            _repl_cleanup()
-
+        from cli_modes import run_repl
+        run_repl(
+            args,
+            instance_name=_instance_name,
+            output_format=output_format,
+            register_fn=_register if _instance_name else None,
+        )
         raise SystemExit(0)
 
     if args.dry_run:
-        if not args.task:
-            print("Error: --dry-run requires a task argument.", file=sys.stderr)
-            raise SystemExit(1)
-        resolved = resolve_toolset(args.toolset)
-        session, panes, dry_session_name = setup_session(resolved["panes"], session_dir="/tmp/clive/dryrun")
-        available_cmds, _ = check_commands(resolved["commands"])
-        tools_summary = build_tools_summary(
-            check_health(panes), available_cmds, resolved["endpoints"],
-        )
-        if _is_trivial(args.task, len(panes)):
-            first_pane = list(panes.keys())[0]
-            plan = Plan(task=args.task, subtasks=[
-                Subtask(id="1", description=args.task, pane=first_pane, mode="script"),
-            ])
-        else:
-            plan = create_plan(args.task, panes, check_health(panes), tools_summary=tools_summary)
-        display_plan(plan)
-        print(f"\n(dry run — {len(plan.subtasks)} subtask(s), not executed)")
-        # Cleanup
-        try:
-            server = libtmux.Server(socket_name=SOCKET_NAME)
-            for s in server.sessions.filter(session_name=dry_session_name):
-                s.kill()
-        except Exception:
-            pass
-        shutil.rmtree("/tmp/clive/dryrun", ignore_errors=True)
+        from cli_modes import run_dry_run
+        run_dry_run(args)
         raise SystemExit(0)
 
     # Register named instance for single-task path
