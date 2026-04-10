@@ -1,28 +1,26 @@
-# tests/test_agent_conversation.py
+from protocol import encode
 from remote import parse_question
 
+
 def test_parse_question():
-    screen = "TURN: waiting\nQUESTION: What format should the output be in?"
-    q = parse_question(screen)
-    assert q == "What format should the output be in?"
+    screen = encode("question", {"text": "What format should the output be in?"})
+    assert parse_question(screen) == "What format should the output be in?"
+
 
 def test_parse_question_none_when_no_question():
-    screen = "TURN: thinking\nPROGRESS: step 1 of 3"
-    q = parse_question(screen)
-    assert q is None
+    screen = encode("turn", {"state": "thinking"}) + "\n" + encode("progress", {"text": "step 1 of 3"})
+    assert parse_question(screen) is None
 
-def test_parse_question_multiline():
-    """Should get the last QUESTION: line."""
-    screen = "QUESTION: first question\nTURN: waiting\nQUESTION: second question"
-    q = parse_question(screen)
-    assert q == "second question"
 
-def test_parse_question_with_extra_whitespace():
-    screen = "TURN: waiting\nQUESTION:   spaces around   "
-    q = parse_question(screen)
-    assert q == "spaces around"
+def test_parse_question_last_wins():
+    screen = "\n".join([
+        encode("question", {"text": "first question"}),
+        encode("turn", {"state": "waiting"}),
+        encode("question", {"text": "second question"}),
+    ])
+    assert parse_question(screen) == "second question"
+
 
 def test_parse_question_empty_question():
-    screen = "TURN: waiting\nQUESTION:"
-    q = parse_question(screen)
-    assert q is None  # empty question should be treated as no question
+    screen = encode("question", {"text": ""})
+    assert parse_question(screen) is None

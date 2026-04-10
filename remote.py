@@ -2,107 +2,81 @@
 
 Two clive instances communicate through a tmux pane containing an SSH
 session. The local agent sends natural language tasks, the remote agent
-executes and returns structured results via the DONE: protocol.
+executes and returns structured results via the framed protocol.
 
-Protocol (text-based, parsed from screen):
+Protocol (framed sentinels — see protocol.py):
   → (local types task description, presses enter)
-  ← PROGRESS: step N of M — description
-  ← FILE: filename (scp-able from remote:{session_dir}/filename)
-  ← DONE: {"status": "success"|"error", "result": "...", "files": [...]}
+  ← <<<CLIVE:progress:...>>>   step descriptions
+  ← <<<CLIVE:file:...>>>       files available on remote for scp
+  ← <<<CLIVE:context:...>>>    final result payload
+  ← <<<CLIVE:turn:done>>>      completion signal
 
-File transfer: after DONE, local scp's any declared files from remote.
+File transfer: after turn=done, local scp's any declared files from remote.
 
 Architecture:
-  local clive → SSH pane → remote clive --quiet --json → DONE: JSON → parse
+  local clive → SSH pane → remote clive --conversational → framed output → parse
 """
-import json
 import os
-import re
 import subprocess
 import time
 
 from output import progress
-
-
-def parse_remote_result(screen: str) -> dict | None:
-    """Parse DONE: protocol from screen content. Returns result dict or None."""
-    for line in screen.splitlines():
-        stripped = line.strip()
-        if stripped.startswith("DONE:"):
-            payload = stripped[5:].strip()
-            try:
-                return json.loads(payload)
-            except json.JSONDecodeError:
-                return {"status": "success", "result": payload}
-    return None
-
-
-def parse_remote_progress(screen: str) -> list[str]:
-    """Parse PROGRESS: lines from screen content."""
-    progress_lines = []
-    for line in screen.splitlines():
-        stripped = line.strip()
-        if stripped.startswith("PROGRESS:"):
-            progress_lines.append(stripped[9:].strip())
-    return progress_lines
-
-
-def parse_remote_files(screen: str) -> list[str]:
-    """Parse FILE: declarations from screen content."""
-    files = []
-    for line in screen.splitlines():
-        stripped = line.strip()
-        if stripped.startswith("FILE:"):
-            files.append(stripped[5:].strip())
-    return files
+from protocol import decode_all, latest
 
 
 def parse_turn_state(screen: str) -> str | None:
-    """Parse the latest TURN: state from screen content.
+    """Parse the latest turn state from framed screen content.
 
     Returns "thinking", "waiting", "done", "failed", or None.
-    When multiple TURN: lines exist, the last one wins.
     """
-    state = None
-    for line in screen.splitlines():
-        stripped = line.strip()
-        if stripped.startswith("TURN:"):
-            state = stripped[5:].strip().lower()
-    return state
+    frame = latest(decode_all(screen), "turn")
+    if frame is None:
+        return None
+    state = frame.payload.get("state")
+    return state.lower() if isinstance(state, str) else None
 
 
 def parse_question(screen: str) -> str | None:
-    """Parse the latest QUESTION: line from screen content.
+    """Parse the latest question from framed screen content.
 
-    Returns the question text, or None if no question found or question is empty.
-    When multiple QUESTION: lines exist, the last one wins.
+    Returns the question text, or None if no question frame is found
+    or the question text is missing/empty.
     """
-    question = None
-    for line in screen.splitlines():
-        stripped = line.strip()
-        if stripped.startswith("QUESTION:"):
-            text = stripped[9:].strip()
-            if text:
-                question = text
-    return question
+    frame = latest(decode_all(screen), "question")
+    if frame is None:
+        return None
+    text = frame.payload.get("text")
+    if not isinstance(text, str) or not text.strip():
+        return None
+    return text
 
 
 def parse_context(screen: str) -> dict | None:
-    """Parse the latest CONTEXT: JSON from screen content.
+    """Parse the latest context payload from framed screen content."""
+    frame = latest(decode_all(screen), "context")
+    return frame.payload if frame is not None else None
 
-    When multiple CONTEXT: lines exist, the last one wins.
-    Returns parsed dict or None.
-    """
-    ctx = None
-    for line in screen.splitlines():
-        stripped = line.strip()
-        if stripped.startswith("CONTEXT:"):
-            payload = stripped[8:].strip()
-            try:
-                ctx = json.loads(payload)
-            except json.JSONDecodeError:
-                ctx = {"raw": payload}
-    return ctx
+
+def parse_remote_files(screen: str) -> list[str]:
+    """Parse all file declarations in order of appearance."""
+    out = []
+    for f in decode_all(screen):
+        if f.kind == "file":
+            name = f.payload.get("name")
+            if isinstance(name, str):
+                out.append(name)
+    return out
+
+
+def parse_remote_progress(screen: str) -> list[str]:
+    """Parse all progress declarations in order of appearance."""
+    out = []
+    for f in decode_all(screen):
+        if f.kind == "progress":
+            text = f.payload.get("text")
+            if isinstance(text, str):
+                out.append(text)
+    return out
 
 
 def scp_file(host: str, remote_path: str, local_dir: str, key: str | None = None) -> str | None:

@@ -1,10 +1,15 @@
 # tests/test_agent_file_transfer.py
 import os
+from protocol import encode
 from remote import parse_remote_files
 from server.file_transfer import build_scp_command, transfer_files, FileTransferResult
 
 def test_parse_remote_files():
-    screen = "TURN: done\nFILE: /tmp/result.csv\nFILE: /tmp/report.pdf\nDONE: success"
+    screen = "\n".join([
+        encode("turn", {"state": "done"}),
+        encode("file", {"name": "/tmp/result.csv"}),
+        encode("file", {"name": "/tmp/report.pdf"}),
+    ])
     files = parse_remote_files(screen)
     assert files == ["/tmp/result.csv", "/tmp/report.pdf"]
 
