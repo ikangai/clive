@@ -310,16 +310,18 @@ def test_build_recap_text_shows_title(tmp_path):
 
 
 def test_build_recap_text_limits_to_last_n(tmp_path):
-    sid = new(sessions_dir=tmp_path)
+    # Explicit title so it doesn't collide with auto-inferred title
+    # from the first task (which would sneak "step 0" into the header).
+    sid = new(title="limit-test", sessions_dir=tmp_path)
     for i in range(5):
-        record_task(sid, f"task {i}", sessions_dir=tmp_path)
-        complete_last_task(sid, summary=f"summary {i}", sessions_dir=tmp_path)
+        record_task(sid, f"step {i}", sessions_dir=tmp_path)
+        complete_last_task(sid, summary=f"outcome {i}", sessions_dir=tmp_path)
     data = get(sid, sessions_dir=tmp_path)
     recap = build_recap_text(data, last_n=2)
-    assert "task 3" in recap
-    assert "task 4" in recap
-    assert "task 0" not in recap
-    assert "task 1" not in recap
+    assert "step 3" in recap
+    assert "step 4" in recap
+    assert "step 0" not in recap
+    assert "step 1" not in recap
     assert "2 of 5" in recap
 
 
