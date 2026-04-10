@@ -1,0 +1,885 @@
+{
+  "total_tasks": 109,
+  "passed": 86,
+  "completion_rate": 0.789,
+  "avg_turn_efficiency": 0.81,
+  "total_tokens": 515559,
+  "total_elapsed_seconds": 1438.6,
+  "estimated_cost_usd": 2.6135,
+  "error_recovery_rate": 0.0,
+  "false_completion_rate": 0.101,
+  "results": [
+    {
+      "task_id": "cli_echo_001",
+      "passed": true,
+      "turns": 1,
+      "tokens": 937,
+      "elapsed": 2.5,
+      "detail": "deterministic check passed"
+    },
+    {
+      "task_id": "cli_ls_002",
+      "passed": true,
+      "turns": 1,
+      "tokens": 956,
+      "elapsed": 2.4,
+      "detail": "deterministic check passed"
+    },
+    {
+      "task_id": "cli_cat_003",
+      "passed": true,
+      "turns": 1,
+      "tokens": 1019,
+      "elapsed": 3.1,
+      "detail": "deterministic check passed"
+    },
+    {
+      "task_id": "cli_wc_004",
+      "passed": true,
+      "turns": 1,
+      "tokens": 1037,
+      "elapsed": 6.2,
+      "detail": "deterministic check passed"
+    },
+    {
+      "task_id": "cli_grep_005",
+      "passed": true,
+      "turns": 1,
+      "tokens": 1149,
+      "elapsed": 3.2,
+      "detail": "deterministic check passed"
+    },
+    {
+      "task_id": "cli_pipe_sort_006",
+      "passed": true,
+      "turns": 1,
+      "tokens": 1137,
+      "elapsed": 3.4,
+      "detail": "deterministic check passed"
+    },
+    {
+      "task_id": "cli_pipe_uniq_007",
+      "passed": true,
+      "turns": 1,
+      "tokens": 1323,
+      "elapsed": 4.8,
+      "detail": "deterministic check passed"
+    },
+    {
+      "task_id": "cli_grep_count_008",
+      "passed": true,
+      "turns": 1,
+      "tokens": 1077,
+      "elapsed": 2.6,
+      "detail": "deterministic check passed"
+    },
+    {
+      "task_id": "cli_find_py_009",
+      "passed": true,
+      "turns": 1,
+      "tokens": 1032,
+      "elapsed": 10.5,
+      "detail": "deterministic check passed"
+    },
+    {
+      "task_id": "cli_word_freq_010",
+      "passed": true,
+      "turns": 1,
+      "tokens": 1043,
+      "elapsed": 2.6,
+      "detail": "deterministic check passed"
+    },
+    {
+      "task_id": "cli_csv_filter_011",
+      "passed": true,
+      "turns": 3,
+      "tokens": 6205,
+      "elapsed": 31.8,
+      "detail": "deterministic check passed"
+    },
+    {
+      "task_id": "cli_log_ips_012",
+      "passed": true,
+      "turns": 1,
+      "tokens": 1073,
+      "elapsed": 3.1,
+      "detail": "deterministic check passed"
+    },
+    {
+      "task_id": "cli_log_errors_013",
+      "passed": true,
+      "turns": 1,
+      "tokens": 1159,
+      "elapsed": 3.9,
+      "detail": "deterministic check passed"
+    },
+    {
+      "task_id": "cli_csv_avg_014",
+      "passed": true,
+      "turns": 2,
+      "tokens": 3034,
+      "elapsed": 17.7,
+      "detail": "deterministic check passed"
+    },
+    {
+      "task_id": "cli_tree_count_015",
+      "passed": true,
+      "turns": 1,
+      "tokens": 1026,
+      "elapsed": 8.8,
+      "detail": "deterministic check passed"
+    },
+    {
+      "task_id": "cli_uname_016",
+      "passed": true,
+      "turns": 1,
+      "tokens": 941,
+      "elapsed": 2.1,
+      "detail": "deterministic check passed"
+    },
+    {
+      "task_id": "cli_date_017",
+      "passed": true,
+      "turns": 1,
+      "tokens": 947,
+      "elapsed": 9.7,
+      "detail": "deterministic check passed"
+    },
+    {
+      "task_id": "cli_curl_018",
+      "passed": true,
+      "turns": 1,
+      "tokens": 1026,
+      "elapsed": 3.9,
+      "detail": "deterministic check passed"
+    },
+    {
+      "task_id": "cli_json_create_019",
+      "passed": true,
+      "turns": 1,
+      "tokens": 1113,
+      "elapsed": 2.8,
+      "detail": "deterministic check passed"
+    },
+    {
+      "task_id": "cli_csv_group_020",
+      "passed": true,
+      "turns": 1,
+      "tokens": 1347,
+      "elapsed": 4.7,
+      "detail": "deterministic check passed"
+    },
+    {
+      "task_id": "creative_haiku_count_001",
+      "passed": true,
+      "turns": 5,
+      "tokens": 11107,
+      "elapsed": 27.7,
+      "detail": "deterministic check passed"
+    },
+    {
+      "task_id": "creative_largest_files_002",
+      "passed": true,
+      "turns": 5,
+      "tokens": 10753,
+      "elapsed": 34.3,
+      "detail": "deterministic check passed"
+    },
+    {
+      "task_id": "creative_total_loc_003",
+      "passed": true,
+      "turns": 5,
+      "tokens": 10980,
+      "elapsed": 16.7,
+      "detail": "deterministic check passed"
+    },
+    {
+      "task_id": "creative_dir_report_004",
+      "passed": true,
+      "turns": 5,
+      "tokens": 15558,
+      "elapsed": 30.6,
+      "detail": "deterministic check passed"
+    },
+    {
+      "task_id": "creative_func_defs_005",
+      "passed": true,
+      "turns": 5,
+      "tokens": 12231,
+      "elapsed": 16.6,
+      "detail": "deterministic check passed"
+    },
+    {
+      "task_id": "creative_csv_report_006",
+      "passed": true,
+      "turns": 5,
+      "tokens": 13206,
+      "elapsed": 20.1,
+      "detail": "deterministic check passed"
+    },
+    {
+      "task_id": "creative_dup_lines_007",
+      "passed": true,
+      "turns": 5,
+      "tokens": 14611,
+      "elapsed": 23.9,
+      "detail": "deterministic check passed"
+    },
+    {
+      "task_id": "creative_json_summary_008",
+      "passed": true,
+      "turns": 5,
+      "tokens": 15387,
+      "elapsed": 22.9,
+      "detail": "deterministic check passed"
+    },
+    {
+      "task_id": "creative_reverse_lines_009",
+      "passed": true,
+      "turns": 5,
+      "tokens": 10823,
+      "elapsed": 27.6,
+      "detail": "deterministic check passed"
+    },
+    {
+      "task_id": "creative_sort_dedup_010",
+      "passed": true,
+      "turns": 5,
+      "tokens": 11825,
+      "elapsed": 18.5,
+      "detail": "deterministic check passed"
+    },
+    {
+      "task_id": "creative_longest_line_011",
+      "passed": true,
+      "turns": 5,
+      "tokens": 14098,
+      "elapsed": 20.4,
+      "detail": "deterministic check passed"
+    },
+    {
+      "task_id": "creative_ext_count_012",
+      "passed": true,
+      "turns": 5,
+      "tokens": 11681,
+      "elapsed": 23.5,
+      "detail": "deterministic check passed"
+    },
+    {
+      "task_id": "creative_ascii_chart_013",
+      "passed": true,
+      "turns": 5,
+      "tokens": 15559,
+      "elapsed": 26.6,
+      "detail": "deterministic check passed"
+    },
+    {
+      "task_id": "creative_concat_py_014",
+      "passed": true,
+      "turns": 5,
+      "tokens": 11077,
+      "elapsed": 28.5,
+      "detail": "deterministic check passed"
+    },
+    {
+      "task_id": "creative_md5_hashes_015",
+      "passed": false,
+      "turns": 5,
+      "tokens": 12904,
+      "elapsed": 22.9,
+      "detail": "deterministic check failed"
+    },
+    {
+      "task_id": "data_csv_sum_001",
+      "passed": false,
+      "turns": 1,
+      "tokens": 1232,
+      "elapsed": 3.8,
+      "detail": "deterministic check failed"
+    },
+    {
+      "task_id": "data_csv_group_002",
+      "passed": true,
+      "turns": 4,
+      "tokens": 10742,
+      "elapsed": 22.4,
+      "detail": "deterministic check passed"
+    },
+    {
+      "task_id": "data_json_transform_003",
+      "passed": true,
+      "turns": 4,
+      "tokens": 9560,
+      "elapsed": 27.4,
+      "detail": "deterministic check passed"
+    },
+    {
+      "task_id": "email_send_basic_001",
+      "passed": true,
+      "turns": 5,
+      "tokens": 1216,
+      "elapsed": 2.1,
+      "detail": "deterministic check passed"
+    },
+    {
+      "task_id": "email_send_uses_script_002",
+      "passed": false,
+      "turns": 1,
+      "tokens": 1251,
+      "elapsed": 2.6,
+      "detail": "deterministic check failed"
+    },
+    {
+      "task_id": "email_no_system_mail_003",
+      "passed": true,
+      "turns": 1,
+      "tokens": 1502,
+      "elapsed": 4.4,
+      "detail": "deterministic check passed"
+    },
+    {
+      "task_id": "email_launch_neomutt_004",
+      "passed": false,
+      "turns": 1,
+      "tokens": 1279,
+      "elapsed": 3.1,
+      "detail": "deterministic check failed"
+    },
+    {
+      "task_id": "email_send_with_special_chars_005",
+      "passed": false,
+      "turns": 5,
+      "tokens": 1256,
+      "elapsed": 2.7,
+      "detail": "deterministic check failed"
+    },
+    {
+      "task_id": "lynx_fetch_page_001",
+      "passed": true,
+      "turns": 1,
+      "tokens": 1223,
+      "elapsed": 2.7,
+      "detail": "deterministic check passed"
+    },
+    {
+      "task_id": "lynx_extract_links_002",
+      "passed": true,
+      "turns": 1,
+      "tokens": 1197,
+      "elapsed": 2.3,
+      "detail": "deterministic check passed"
+    },
+    {
+      "task_id": "lynx_json_api_003",
+      "passed": false,
+      "turns": 1,
+      "tokens": 1235,
+      "elapsed": 6.9,
+      "detail": "deterministic check failed"
+    },
+    {
+      "task_id": "lynx_headers_check_004",
+      "passed": true,
+      "turns": 1,
+      "tokens": 1217,
+      "elapsed": 2.8,
+      "detail": "deterministic check passed"
+    },
+    {
+      "task_id": "lynx_multi_api_005",
+      "passed": true,
+      "turns": 1,
+      "tokens": 1257,
+      "elapsed": 2.4,
+      "detail": "deterministic check passed"
+    },
+    {
+      "task_id": "shell_find_txt_001",
+      "passed": true,
+      "turns": 1,
+      "tokens": 1163,
+      "elapsed": 2.2,
+      "detail": "deterministic check passed"
+    },
+    {
+      "task_id": "shell_count_pattern_002",
+      "passed": true,
+      "turns": 1,
+      "tokens": 1174,
+      "elapsed": 7.7,
+      "detail": "deterministic check passed"
+    },
+    {
+      "task_id": "shell_pipeline_003",
+      "passed": true,
+      "turns": 1,
+      "tokens": 1234,
+      "elapsed": 2.3,
+      "detail": "deterministic check passed"
+    },
+    {
+      "task_id": "shell_disk_usage_004",
+      "passed": true,
+      "turns": 1,
+      "tokens": 1215,
+      "elapsed": 13.1,
+      "detail": "deterministic check passed"
+    },
+    {
+      "task_id": "shell_json_extract_005",
+      "passed": false,
+      "turns": 10,
+      "tokens": 1298,
+      "elapsed": 2.2,
+      "detail": "deterministic check failed"
+    },
+    {
+      "task_id": "script_csv_filter_001",
+      "passed": true,
+      "turns": 3,
+      "tokens": 5603,
+      "elapsed": 12.1,
+      "detail": "deterministic check passed"
+    },
+    {
+      "task_id": "script_log_errors_002",
+      "passed": true,
+      "turns": 3,
+      "tokens": 4628,
+      "elapsed": 9.9,
+      "detail": "deterministic check passed"
+    },
+    {
+      "task_id": "script_word_count_003",
+      "passed": true,
+      "turns": 3,
+      "tokens": 4694,
+      "elapsed": 19.6,
+      "detail": "deterministic check passed"
+    },
+    {
+      "task_id": "script_file_list_004",
+      "passed": true,
+      "turns": 1,
+      "tokens": 1063,
+      "elapsed": 2.9,
+      "detail": "deterministic check passed"
+    },
+    {
+      "task_id": "script_json_create_005",
+      "passed": true,
+      "turns": 3,
+      "tokens": 4734,
+      "elapsed": 15.1,
+      "detail": "deterministic check passed"
+    },
+    {
+      "task_id": "toolavail_email_001",
+      "passed": true,
+      "turns": 1,
+      "tokens": 1214,
+      "elapsed": 4.0,
+      "detail": "deterministic check passed"
+    },
+    {
+      "task_id": "toolavail_calendar_002",
+      "passed": false,
+      "turns": 5,
+      "tokens": 15738,
+      "elapsed": 236.2,
+      "detail": "deterministic check failed"
+    },
+    {
+      "task_id": "toolavail_browser_003",
+      "passed": true,
+      "turns": 5,
+      "tokens": 10516,
+      "elapsed": 15.7,
+      "detail": "deterministic check passed"
+    },
+    {
+      "task_id": "toolavail_mastodon_004",
+      "passed": false,
+      "turns": 5,
+      "tokens": 17827,
+      "elapsed": 41.3,
+      "detail": "deterministic check failed"
+    },
+    {
+      "task_id": "toolavail_translate_005",
+      "passed": false,
+      "turns": 5,
+      "tokens": 9003,
+      "elapsed": 11.9,
+      "detail": "deterministic check failed"
+    },
+    {
+      "task_id": "toolavail_search_006",
+      "passed": false,
+      "turns": 2,
+      "tokens": 3418,
+      "elapsed": 13.4,
+      "detail": "deterministic check failed"
+    },
+    {
+      "task_id": "toolavail_ip_addr_007",
+      "passed": true,
+      "turns": 5,
+      "tokens": 10721,
+      "elapsed": 15.3,
+      "detail": "deterministic check passed"
+    },
+    {
+      "task_id": "toolavail_disk_usage_008",
+      "passed": false,
+      "turns": 5,
+      "tokens": 10327,
+      "elapsed": 23.8,
+      "detail": "deterministic check failed"
+    },
+    {
+      "task_id": "toolavail_line_count_009",
+      "passed": true,
+      "turns": 5,
+      "tokens": 11734,
+      "elapsed": 17.0,
+      "detail": "deterministic check passed"
+    },
+    {
+      "task_id": "toolavail_audio_010",
+      "passed": true,
+      "turns": 1,
+      "tokens": 1226,
+      "elapsed": 4.5,
+      "detail": "deterministic check passed"
+    },
+    {
+      "task_id": "config_is_configured_missing_001",
+      "passed": false,
+      "turns": 3,
+      "tokens": 6010,
+      "elapsed": 21.0,
+      "detail": "deterministic check failed"
+    },
+    {
+      "task_id": "config_write_read_roundtrip_002",
+      "passed": false,
+      "turns": 2,
+      "tokens": 3909,
+      "elapsed": 11.7,
+      "detail": "deterministic check failed"
+    },
+    {
+      "task_id": "config_toml_escaping_003",
+      "passed": true,
+      "turns": 5,
+      "tokens": 17659,
+      "elapsed": 41.7,
+      "detail": "deterministic check passed"
+    },
+    {
+      "task_id": "config_file_permissions_004",
+      "passed": false,
+      "turns": 1,
+      "tokens": 1623,
+      "elapsed": 6.6,
+      "detail": "deterministic check failed"
+    },
+    {
+      "task_id": "config_is_configured_present_005",
+      "passed": true,
+      "turns": 2,
+      "tokens": 3747,
+      "elapsed": 9.6,
+      "detail": "deterministic check passed"
+    },
+    {
+      "task_id": "config_malformed_toml_006",
+      "passed": true,
+      "turns": 5,
+      "tokens": 16273,
+      "elapsed": 27.3,
+      "detail": "deterministic check passed"
+    },
+    {
+      "task_id": "config_get_unconfigured_007",
+      "passed": true,
+      "turns": 1,
+      "tokens": 1471,
+      "elapsed": 11.3,
+      "detail": "deterministic check passed"
+    },
+    {
+      "task_id": "config_find_schema_008",
+      "passed": true,
+      "turns": 3,
+      "tokens": 6322,
+      "elapsed": 17.1,
+      "detail": "deterministic check passed"
+    },
+    {
+      "task_id": "config_neomuttrc_gen_009",
+      "passed": false,
+      "turns": 5,
+      "tokens": 20143,
+      "elapsed": 35.0,
+      "detail": "deterministic check failed"
+    },
+    {
+      "task_id": "config_neomuttrc_backup_010",
+      "passed": true,
+      "turns": 1,
+      "tokens": 1682,
+      "elapsed": 5.9,
+      "detail": "deterministic check passed"
+    },
+    {
+      "task_id": "config_cls_email_unconfigured_001",
+      "passed": false,
+      "turns": 2,
+      "tokens": 4027,
+      "elapsed": 13.2,
+      "detail": "deterministic check failed"
+    },
+    {
+      "task_id": "config_cls_email_missing_002",
+      "passed": true,
+      "turns": 1,
+      "tokens": 1442,
+      "elapsed": 7.2,
+      "detail": "deterministic check passed"
+    },
+    {
+      "task_id": "config_cls_shell_not_unconfigured_003",
+      "passed": true,
+      "turns": 1,
+      "tokens": 1481,
+      "elapsed": 5.6,
+      "detail": "deterministic check passed"
+    },
+    {
+      "task_id": "config_cls_prompt_contains_unconfigured_004",
+      "passed": false,
+      "turns": 2,
+      "tokens": 3858,
+      "elapsed": 11.0,
+      "detail": "deterministic check failed"
+    },
+    {
+      "task_id": "config_cls_prompt_none_unconfigured_005",
+      "passed": true,
+      "turns": 1,
+      "tokens": 1455,
+      "elapsed": 4.3,
+      "detail": "deterministic check passed"
+    },
+    {
+      "task_id": "l3_fix_syntax_001",
+      "passed": true,
+      "turns": 1,
+      "tokens": 1310,
+      "elapsed": 5.1,
+      "detail": "deterministic check passed"
+    },
+    {
+      "task_id": "l3_fix_output_002",
+      "passed": true,
+      "turns": 1,
+      "tokens": 1201,
+      "elapsed": 8.0,
+      "detail": "deterministic check passed"
+    },
+    {
+      "task_id": "l3_missing_cmd_003",
+      "passed": true,
+      "turns": 3,
+      "tokens": 6221,
+      "elapsed": 21.9,
+      "detail": "deterministic check passed"
+    },
+    {
+      "task_id": "l3_rename_to_bak_001",
+      "passed": true,
+      "turns": 1,
+      "tokens": 1090,
+      "elapsed": 2.7,
+      "detail": "deterministic check passed"
+    },
+    {
+      "task_id": "l3_json_sum_002",
+      "passed": true,
+      "turns": 1,
+      "tokens": 1295,
+      "elapsed": 4.4,
+      "detail": "deterministic check passed"
+    },
+    {
+      "task_id": "l3_curl_pipeline_003",
+      "passed": true,
+      "turns": 1,
+      "tokens": 1099,
+      "elapsed": 3.2,
+      "detail": "deterministic check passed"
+    },
+    {
+      "task_id": "l3_python_parse_004",
+      "passed": true,
+      "turns": 3,
+      "tokens": 6737,
+      "elapsed": 14.9,
+      "detail": "deterministic check passed"
+    },
+    {
+      "task_id": "l3_error_exit_005",
+      "passed": true,
+      "turns": 3,
+      "tokens": 4577,
+      "elapsed": 8.6,
+      "detail": "deterministic check passed"
+    },
+    {
+      "task_id": "l3_empty_input_001",
+      "passed": false,
+      "turns": 2,
+      "tokens": 2565,
+      "elapsed": 6.4,
+      "detail": "deterministic check failed"
+    },
+    {
+      "task_id": "l3_missing_file_002",
+      "passed": true,
+      "turns": 1,
+      "tokens": 1162,
+      "elapsed": 4.7,
+      "detail": "deterministic check passed"
+    },
+    {
+      "task_id": "l3_valid_json_003",
+      "passed": false,
+      "turns": 3,
+      "tokens": 7114,
+      "elapsed": 27.7,
+      "detail": "deterministic check failed"
+    },
+    {
+      "task_id": "l3_no_clobber_004",
+      "passed": true,
+      "turns": 1,
+      "tokens": 1186,
+      "elapsed": 3.6,
+      "detail": "deterministic check passed"
+    },
+    {
+      "task_id": "l4_mode_batch_001",
+      "passed": true,
+      "turns": 1,
+      "tokens": 1037,
+      "elapsed": 1.7,
+      "detail": "planning checks passed"
+    },
+    {
+      "task_id": "l4_mode_interactive_002",
+      "passed": true,
+      "turns": 1,
+      "tokens": 1109,
+      "elapsed": 2.0,
+      "detail": "planning checks passed"
+    },
+    {
+      "task_id": "l4_mode_curl_003",
+      "passed": false,
+      "turns": 1,
+      "tokens": 950,
+      "elapsed": 1.3,
+      "detail": "Too few subtasks: 0 < 1"
+    },
+    {
+      "task_id": "l4_mode_mixed_004",
+      "passed": true,
+      "turns": 1,
+      "tokens": 1133,
+      "elapsed": 2.5,
+      "detail": "planning checks passed"
+    },
+    {
+      "task_id": "l4_mode_pipeline_005",
+      "passed": false,
+      "turns": 1,
+      "tokens": 951,
+      "elapsed": 1.5,
+      "detail": "Too few subtasks: 0 < 1"
+    },
+    {
+      "task_id": "l4_parallel_synthesis_001",
+      "passed": true,
+      "turns": 1,
+      "tokens": 1225,
+      "elapsed": 6.6,
+      "detail": "planning checks passed"
+    },
+    {
+      "task_id": "l4_single_tool_002",
+      "passed": true,
+      "turns": 1,
+      "tokens": 1031,
+      "elapsed": 2.2,
+      "detail": "planning checks passed"
+    },
+    {
+      "task_id": "l4_dependency_chain_003",
+      "passed": true,
+      "turns": 1,
+      "tokens": 1138,
+      "elapsed": 2.5,
+      "detail": "planning checks passed"
+    },
+    {
+      "task_id": "l4_multi_pane_004",
+      "passed": true,
+      "turns": 1,
+      "tokens": 1241,
+      "elapsed": 8.5,
+      "detail": "planning checks passed"
+    },
+    {
+      "task_id": "l4_minimal_decomp_005",
+      "passed": true,
+      "turns": 1,
+      "tokens": 1021,
+      "elapsed": 2.2,
+      "detail": "planning checks passed"
+    },
+    {
+      "task_id": "l1_count_todos_001",
+      "passed": true,
+      "turns": 1,
+      "tokens": 1190,
+      "elapsed": 2.2,
+      "detail": "deterministic check passed"
+    },
+    {
+      "task_id": "l1_api_table_002",
+      "passed": true,
+      "turns": 1,
+      "tokens": 1237,
+      "elapsed": 7.9,
+      "detail": "deterministic check passed"
+    },
+    {
+      "task_id": "l1_log_errors_003",
+      "passed": true,
+      "turns": 1,
+      "tokens": 1184,
+      "elapsed": 8.0,
+      "detail": "deterministic check passed"
+    },
+    {
+      "task_id": "l1_file_inventory_004",
+      "passed": false,
+      "turns": 1,
+      "tokens": 1375,
+      "elapsed": 3.1,
+      "detail": "deterministic check failed"
+    }
+  ]
+}
