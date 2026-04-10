@@ -134,6 +134,7 @@ if __name__ == "__main__":
     if args.run_now: _ch.handle_run_now(args)
     if args.history: _ch.handle_history(args)
     if args.dashboard: _ch.handle_dashboard(args)
+    if args.agents_doctor: _ch.handle_agents_doctor(args)
     if args.stop: _ch.handle_stop(args)
     if args.instances: _ch.handle_instances(args)
     if args.status: _ch.handle_status(args)

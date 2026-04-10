@@ -54,6 +54,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--stop", metavar="NAME", help="Stop a named instance by sending SIGTERM")
     parser.add_argument("--setup", metavar="TOOL", help="Configure a tool (e.g. --setup email)")
     parser.add_argument("--dashboard", action="store_true", help="Show running instances and exit")
+    parser.add_argument("--agents-doctor", action="store_true", help="Validate every agent host in ~/.clive/agents.yaml and exit")
     parser.add_argument("--serve", action="store_true", help="Start server mode with worker pool")
     parser.add_argument("--instances", action="store_true", help="List running clive instances and exit")
     parser.add_argument("--status", action="store_true", help="Show server health status and exit")

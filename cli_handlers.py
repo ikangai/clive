@@ -251,6 +251,26 @@ def handle_dashboard(args) -> None:
     raise SystemExit(0)
 
 
+def handle_agents_doctor(args) -> None:
+    """Run connectivity and config checks against every agent host.
+
+    Reads the registry from CLIVE_AGENTS_REGISTRY if set (used by
+    tests), otherwise the default ~/.clive/agents.yaml. Exits with
+    status 0 if every check for every host passes, 1 if any check
+    failed. Output is the formatted report.
+    """
+    from agents_doctor import run_doctor, format_report
+    registry_path = os.environ.get("CLIVE_AGENTS_REGISTRY")
+    results = run_doctor(registry_path=registry_path)
+    if not results:
+        print("No agents configured. Add entries to ~/.clive/agents.yaml "
+              "or set CLIVE_AGENTS_REGISTRY to a YAML file.")
+        raise SystemExit(0)
+    print(format_report(results))
+    all_ok = all(r.ok() for r in results)
+    raise SystemExit(0 if all_ok else 1)
+
+
 def handle_stop(args) -> None:
     from registry import get_instance as _get_inst
     inst = _get_inst(args.stop)
