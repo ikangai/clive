@@ -127,14 +127,32 @@ def run_subtask_interactive(
                     turns_used=turn - 1, prompt_tokens=total_pt, completion_tokens=total_ct,
                 )
 
-            screen = executor.capture_pane(pane_info)
+            try:
+                screen = executor.capture_pane(pane_info)
+            except Exception as exc:
+                log.exception("capture_pane failed at turn %d", turn)
+                return SubtaskResult(
+                    subtask_id=subtask.id, status=SubtaskStatus.FAILED,
+                    summary=f"capture_pane crashed: {exc}",
+                    output_snippet=prev_screen[-500:] if prev_screen else "",
+                    turns_used=turn - 1, prompt_tokens=total_pt, completion_tokens=total_ct,
+                )
             diff = compute_screen_diff(prev_screen, screen)
             prev_screen = screen
 
             messages.append({"role": "user", "content": diff})
             messages = _trim_messages(messages)
 
-            reply, pt, ct = executor.chat(client, messages)
+            try:
+                reply, pt, ct = executor.chat(client, messages)
+            except Exception as exc:
+                log.exception("executor.chat failed at turn %d", turn)
+                return SubtaskResult(
+                    subtask_id=subtask.id, status=SubtaskStatus.FAILED,
+                    summary=f"LLM call crashed: {exc}",
+                    output_snippet=screen[-500:] if screen else "",
+                    turns_used=turn - 1, prompt_tokens=total_pt, completion_tokens=total_ct,
+                )
             total_pt += pt
             total_ct += ct
 
