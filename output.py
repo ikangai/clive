@@ -185,16 +185,37 @@ def result(msg: str):
 # --- Conversational protocol ---
 
 def emit_turn(state: str):
-    """Emit TURN: protocol line. States: thinking, waiting, done, failed."""
-    print(f"TURN: {state}", flush=True)
+    """Emit a framed turn-state message. States: thinking, waiting, done, failed."""
+    from protocol import encode
+    print(encode("turn", {"state": state}), flush=True)
 
 
 def emit_context(data: dict):
-    """Emit CONTEXT: protocol line with JSON payload."""
-    import json
-    print(f"CONTEXT: {json.dumps(data)}", flush=True)
+    """Emit a framed context message with an arbitrary JSON-serializable dict."""
+    from protocol import encode
+    print(encode("context", data), flush=True)
 
 
 def emit_question(question: str):
-    """Emit QUESTION: protocol line."""
-    print(f'QUESTION: "{question}"', flush=True)
+    """Emit a framed question message."""
+    from protocol import encode
+    print(encode("question", {"text": question}), flush=True)
+
+
+def emit_file(name: str):
+    """Emit a framed file-available message."""
+    from protocol import encode
+    print(encode("file", {"name": name}), flush=True)
+
+
+def emit_progress(text: str):
+    """Emit a framed progress message."""
+    from protocol import encode
+    print(encode("progress", {"text": text}), flush=True)
+
+
+def emit_alive():
+    """Emit a framed keepalive message with current wall-clock timestamp."""
+    import time
+    from protocol import encode
+    print(encode("alive", {"ts": time.time()}), flush=True)
