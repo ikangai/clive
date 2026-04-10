@@ -46,6 +46,7 @@ from textual.widgets import (
 import commands
 from dashboard import render_lines
 from executor import execute_plan
+from session_store import dispatch_session_slash
 from llm import PROVIDERS as LLM_PROVIDERS, chat, get_client
 from models import SubtaskStatus
 from planner import create_plan
@@ -148,6 +149,43 @@ def _cmd_dashboard(app, arg, out) -> None:
         out.write(line)
 
 
+def _make_session_handler(name: str):
+    """Build a (app, arg, out) handler that proxies to dispatch_session_slash.
+
+    Rebuilds the full task string (``"/name arg"``), calls the pure session
+    dispatcher, writes the returned lines, and stores the new active session
+    id on ``app._active_sid``. This wires the previously-orphaned session
+    commands into the TUI without duplicating their logic.
+    """
+    def _handler(app, arg, out) -> None:
+        task = f"{name} {arg}".strip() if arg else name
+        _, lines, new_sid = dispatch_session_slash(task, app._active_sid)
+        for line in lines:
+            out.write(line)
+        app._active_sid = new_sid
+    _handler.__name__ = f"_cmd_session_{name.lstrip('/').replace('-', '_')}"
+    return _handler
+
+
+def _register_session_commands() -> None:
+    """Register the session slash commands (formerly orphaned).
+
+    Previously these lived in session_store.dispatch_session_slash but
+    weren't reachable from any entry point — only from unit tests. They're
+    now first-class TUI commands via the registry, with ``source="session"``.
+    """
+    session_cmds = [
+        commands.SlashCommand("/sessions", "List all sessions",                 "",             _make_session_handler("/sessions"), source="session"),
+        commands.SlashCommand("/new",      "Create and switch to a new session", "[title]",     _make_session_handler("/new"),      source="session"),
+        commands.SlashCommand("/resume",   "Switch to an existing session",      "<id>",        _make_session_handler("/resume"),   source="session"),
+        commands.SlashCommand("/title",    "Rename the current session",         "<new title>", _make_session_handler("/title"),    source="session"),
+        commands.SlashCommand("/session",  "Show the current session id",        "",            _make_session_handler("/session"),  source="session"),
+        commands.SlashCommand("/id",       "Show the current session id (alias)","",            _make_session_handler("/id"),       source="session"),
+    ]
+    for c in session_cmds:
+        commands.register(c)
+
+
 def _register_core_commands() -> None:
     """Register all built-in slash commands. Called once at module load.
 
@@ -176,6 +214,7 @@ def _register_core_commands() -> None:
 
 
 _register_core_commands()
+_register_session_commands()
 
 
 # ── App ──────────────────────────────────────────────────────────────────────
@@ -205,6 +244,8 @@ class CliveApp(App):
         self._timer = None
         # Pending clarification: {original_task, context}
         self._pending: dict | None = None
+        # Active REPL session id (used by /sessions, /new, /resume, /title, /session)
+        self._active_sid: str | None = None
 
     def get_css_variables(self) -> dict[str, str]:
         return {**super().get_css_variables(), **CLIVE_THEME.generate()}
