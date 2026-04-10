@@ -8,6 +8,7 @@ deferred `import executor` to avoid circular-import issues at load time.
 import logging
 import re
 import threading
+import time
 
 import executor  # deferred attribute access avoids the circular import
 from command_extract import extract_command, extract_done
@@ -138,6 +139,18 @@ def run_subtask_interactive(
                     output_snippet=prev_screen[-500:] if prev_screen else "",
                     turns_used=turn - 1, prompt_tokens=total_pt, completion_tokens=total_ct,
                 )
+            # Delegate side-channel: if the inner is asking the outer
+            # for inference (LLM_PROVIDER=delegate), answer it now and
+            # loop without consuming an outer-LLM turn. The raw
+            # llm_request/response frames live in the pane scrollback;
+            # we operate on the raw screen BEFORE rendering for the
+            # LLM view below.
+            if pane_info.app_type == "agent":
+                if executor.handle_agent_pane_frame(
+                    pane_info.pane, screen, nonce=pane_info.frame_nonce
+                ):
+                    time.sleep(0.2)
+                    continue
             # For agent panes, decode framed protocol messages into
             # human-readable pseudo-lines BEFORE the LLM sees them.
             # The outer LLM never parses raw frames — it reads the

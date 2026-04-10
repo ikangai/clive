@@ -44,6 +44,68 @@ _pane_locks: dict[str, threading.Lock] = {}
 _cancel_event = threading.Event()
 
 
+def handle_agent_pane_frame(pane, screen_blob: str, nonce: str) -> bool:
+    """Answer an unanswered llm_request frame on an agent pane.
+
+    When the inner clive is configured with LLM_PROVIDER=delegate, it
+    serializes each inference call as an llm_request frame. The outer
+    pane reader detects the frame, calls its own local llm.chat() with
+    the forwarded messages, and types back an llm_response (or
+    llm_error) frame via tmux send_keys. This is a side-channel round
+    trip — the caller MUST NOT advance its turn state when this
+    returns True.
+
+    Returns True iff a delegate request was handled (the outer's loop
+    should sleep briefly and continue without consuming a turn).
+
+    ``nonce`` is the session nonce the outer injected into the inner
+    via CLIVE_FRAME_NONCE. Forged frames carrying any other nonce are
+    silently dropped — a compromised LLM inside the inner cannot make
+    the outer burn inference tokens by fabricating a request.
+    """
+    from protocol import decode_all, encode, latest
+    import llm
+
+    frames = decode_all(screen_blob, nonce=nonce)
+    req = latest(frames, "llm_request")
+    if req is None:
+        return False
+
+    # Dedup: if a response frame with the same id already exists, we
+    # have already answered this request on a previous poll.
+    resp = latest(frames, "llm_response")
+    if resp is not None and resp.payload.get("id") == req.payload.get("id"):
+        return False
+
+    rid = req.payload.get("id", "unknown")
+    messages = req.payload.get("messages", [])
+    max_tokens = int(req.payload.get("max_tokens", 1024))
+    model = req.payload.get("model")
+
+    try:
+        client = llm.get_client()
+        content, pt, ct = llm.chat(
+            client,
+            messages,
+            max_tokens=max_tokens,
+            # When the inner asked for model="delegate" (its placeholder),
+            # let the outer fall back to its own configured model.
+            model=model if model and model != "delegate" else None,
+        )
+        out = encode("llm_response", {
+            "id": rid,
+            "content": content,
+            "prompt_tokens": pt,
+            "completion_tokens": ct,
+        }, nonce=nonce)
+    except Exception as e:
+        log.exception("delegate llm call failed for id=%s", rid)
+        out = encode("llm_error", {"id": rid, "error": str(e)}, nonce=nonce)
+
+    pane.send_keys(out, enter=True)
+    return True
+
+
 def cancel():
     """Signal all workers to stop."""
     _cancel_event.set()
