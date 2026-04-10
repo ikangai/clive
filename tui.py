@@ -18,12 +18,15 @@ Usage:
 """
 
 import io
+import json
 import os
+import shutil
 import subprocess
 import sys
 import threading
 import time
 
+import llm
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -40,7 +43,15 @@ from textual.widgets import (
     Static,
 )
 
-from llm import PROVIDERS as LLM_PROVIDERS
+from dashboard import render_lines
+from executor import execute_plan
+from llm import PROVIDERS as LLM_PROVIDERS, chat, get_client
+from models import SubtaskStatus
+from planner import create_plan
+from prompts import build_summarizer_prompt, build_triage_prompt
+from session import (
+    SOCKET_NAME, check_health, generate_session_id, setup_session,
+)
 from toolsets import (
     PROFILES,
     CATEGORIES,
@@ -285,7 +296,6 @@ class CliveApp(App):
             if n:
                 self._cancelled.set()
                 try:
-                    from session import SOCKET_NAME
                     subprocess.run(
                         ["tmux", "-L", SOCKET_NAME, "kill-session", "-t", "clive"],
                         capture_output=True,
@@ -335,7 +345,6 @@ class CliveApp(App):
             return
 
         elif cmd == "/dashboard":
-            from dashboard import render_lines
             for line in render_lines():
                 out.write(line)
 
@@ -353,7 +362,6 @@ class CliveApp(App):
         self._update_status()
 
     def _handle_provider(self, arg: str, out: RichLog) -> None:
-        import llm
 
         if not arg:
             out.write(f"[#6b7280]Current:[/] {llm.PROVIDER_NAME} ({llm.MODEL})")
@@ -389,7 +397,6 @@ class CliveApp(App):
         self._update_status()
 
     def _handle_model(self, arg: str, out: RichLog) -> None:
-        import llm
 
         if not arg:
             out.write(f"[#6b7280]Current:[/] {llm.MODEL} ({llm.PROVIDER_NAME})")
@@ -405,7 +412,6 @@ class CliveApp(App):
 
     def _build_clive_context(self) -> str:
         """Build rich context about clive's actual configuration for triage."""
-        import llm
         lines = []
 
         lines.append("CURRENT CONFIGURATION:")
@@ -693,7 +699,6 @@ class CliveApp(App):
         self._update_status()
 
     def _update_status(self) -> None:
-        import llm
         parts = [
             f"[#6b7280]profile[/] {self._spec}",
             f"[#6b7280]llm[/] {llm.PROVIDER_NAME}/{llm.MODEL}",
@@ -773,14 +778,6 @@ class CliveApp(App):
             self.call_from_thread(self._finish_task, task_info)
 
     def _execute_task_inner(self, task: str, task_info: dict, out: RichLog) -> None:
-        import json as _json
-        from session import setup_session, check_health, generate_session_id
-        from planner import create_plan
-        from executor import execute_plan
-        from models import SubtaskStatus
-        from llm import get_client, chat
-        from prompts import build_summarizer_prompt, build_triage_prompt
-
         session_id = generate_session_id()
         session_dir = f"/tmp/clive/{session_id}"
 
@@ -799,7 +796,7 @@ class CliveApp(App):
             clean = triage_raw.strip()
             if clean.startswith("```"):
                 clean = clean.split("\n", 1)[1].rsplit("```", 1)[0].strip()
-            triage = _json.loads(clean)
+            triage = json.loads(clean)
         except Exception:
             # If triage fails, fall through to execute
             triage = {"action": "execute", "task": task}
@@ -933,9 +930,9 @@ class CliveApp(App):
         self.call_from_thread(out.write, "")
 
         # Cleanup session directory
-        import shutil as _shutil
+        
         if session_dir and os.path.isdir(session_dir):
-            _shutil.rmtree(session_dir, ignore_errors=True)
+            shutil.rmtree(session_dir, ignore_errors=True)
 
 
 if __name__ == "__main__":
