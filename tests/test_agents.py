@@ -224,3 +224,24 @@ def test_delegate_override_appears_before_clive_command(monkeypatch):
     idx_clive = cmd.find("clive.py")
     assert idx_provider != -1 and idx_clive != -1
     assert idx_provider < idx_clive
+
+
+# ─── LLM_BASE_URL / GOOGLE_API_KEY forwarding ────────────────────────────────
+
+def test_google_api_key_is_forwarded(monkeypatch):
+    """Gemini support — GOOGLE_API_KEY must be in the forwarded env list."""
+    monkeypatch.setenv("LLM_PROVIDER", "gemini")
+    monkeypatch.setenv("GOOGLE_API_KEY", "g-fake")
+    cmd = build_agent_ssh_cmd("host", config={})
+    assert "SendEnv=GOOGLE_API_KEY" in cmd
+
+
+def test_llm_base_url_is_forwarded(monkeypatch):
+    """When the outer uses LLM_BASE_URL to point at a proxy, the
+    remote should see the same base url so it can reach the same
+    endpoint (assuming network reachability)."""
+    monkeypatch.setenv("LLM_PROVIDER", "openrouter")
+    monkeypatch.setenv("OPENROUTER_API_KEY", "sk-x")
+    monkeypatch.setenv("LLM_BASE_URL", "http://proxy:8080/v1")
+    cmd = build_agent_ssh_cmd("host", config={})
+    assert "SendEnv=LLM_BASE_URL" in cmd

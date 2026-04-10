@@ -30,8 +30,10 @@ _FORWARD_ENVS = [
     "ANTHROPIC_API_KEY",
     "OPENAI_API_KEY",
     "OPENROUTER_API_KEY",
+    "GOOGLE_API_KEY",
     "LLM_PROVIDER",
     "AGENT_MODEL",
+    "LLM_BASE_URL",
 ]
 
 # Outer provider names that cannot be reached from a remote host

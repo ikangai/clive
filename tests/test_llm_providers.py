@@ -43,3 +43,26 @@ def test_reload_cleanup_leaves_fresh_state():
     assert llm.PROVIDER_NAME != "delegate", (
         f"stale PROVIDER_NAME leaked: {llm.PROVIDER_NAME!r}"
     )
+
+
+# ─── LLM_BASE_URL override ──────────────────────────────────────────────────
+
+def test_llm_base_url_overrides_provider_default(monkeypatch):
+    """A user running a local proxy / self-hosted endpoint should be
+    able to point at it without editing llm.py. LLM_BASE_URL, when
+    set, takes precedence over the provider's built-in base_url."""
+    monkeypatch.setenv("LLM_PROVIDER", "openrouter")
+    monkeypatch.setenv("LLM_BASE_URL", "http://my-proxy:8080/v1")
+    monkeypatch.setenv("OPENROUTER_API_KEY", "sk-x")
+    import importlib, llm
+    importlib.reload(llm)
+    try:
+        client = llm.get_client()
+        # openai SDK exposes .base_url on the client
+        assert str(client.base_url).startswith("http://my-proxy:8080")
+    finally:
+        llm._client_cache = None
+        monkeypatch.delenv("LLM_PROVIDER", raising=False)
+        monkeypatch.delenv("LLM_BASE_URL", raising=False)
+        monkeypatch.delenv("OPENROUTER_API_KEY", raising=False)
+        importlib.reload(llm)
