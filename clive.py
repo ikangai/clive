@@ -57,6 +57,7 @@ from llm import get_client, chat
 from prompts import build_summarizer_prompt, build_classifier_prompt
 from config import get_unconfigured, run_setup, find_config_schema, is_configured
 from models import ClassifierResult
+import summarizer
 
 
 # ─── Tier 0: Regex-based direct command detection ────────────────────────────
@@ -143,11 +144,11 @@ def _classify(task: str, session_ctx: dict) -> ClassifierResult | None:
 def _find_cached_plan(task: str, panes: dict) -> Plan | None:
     """Look up session log for a similar successful plan to reuse."""
     import json as _json
-    if not os.path.exists(SESSION_LOG):
+    if not os.path.exists(summarizer.SESSION_LOG):
         return None
     try:
         # Read last 50 entries
-        with open(SESSION_LOG, "r") as f:
+        with open(summarizer.SESSION_LOG, "r") as f:
             entries = [_json.loads(l) for l in f.readlines()[-50:] if l.strip()]
 
         # Find entries with high similarity (SequenceMatcher is more robust than word overlap)
@@ -414,42 +415,19 @@ def _run_inner(task, toolset_spec, output_format, max_tokens, session_dir, _clea
         return "Cancelled"
 
     # Check for failures with skipped dependents → attempt replan
-    failed = [r for r in results if r.status == SubtaskStatus.FAILED]
-    skipped = [r for r in results if r.status == SubtaskStatus.SKIPPED]
-    if failed and skipped and len(failed) <= 2:
-        step("Replanning")
-        detail("Some subtasks failed, attempting recovery...")
-        failure_context = "\n".join(
-            f"  Subtask {r.subtask_id} FAILED: {r.summary}" for r in failed
-        )
-        remaining = "\n".join(
-            f"  Subtask {r.subtask_id} SKIPPED: {r.summary}" for r in skipped
-        )
-        replan_task = (
-            f"Original task: {task}\n\n"
-            f"These subtasks failed:\n{failure_context}\n\n"
-            f"These subtasks were skipped:\n{remaining}\n\n"
-            f"Find an alternative approach to complete the remaining work. "
-            f"Account for the failures — try a different method."
-        )
-        try:
-            replan = create_plan(replan_task, panes, tool_status, tools_summary=tools_summary)
-            if replan.subtasks:
-                detail("Replanned — executing recovery subtasks...")
-                tokens_used = sum(r.prompt_tokens + r.completion_tokens for r in results)
-                replan_budget = max(max_tokens - tokens_used, 5000)
-                recovery_results = execute_plan(replan, panes, tool_status, on_event=_progress_event, session_dir=session_dir, max_tokens=replan_budget)
-                results.extend(recovery_results)
-        except Exception as e:
-            detail(f"Replan failed: {e}")
+    results = summarizer.attempt_recovery(
+        task, results, execute_plan,
+        panes=panes, tool_status=tool_status, tools_summary=tools_summary,
+        on_event=_progress_event, session_dir=session_dir, max_tokens=max_tokens,
+    )
 
     # Summarization (skip for single-subtask plans — result IS the summary)
     if len(results) == 1 and results[0].status == SubtaskStatus.COMPLETED:
         # Prefer user-created output files over raw terminal output
-        summary = _read_output_files(session_dir, results[0]) or results[0].summary
+        summary = summarizer.read_output_files(session_dir, results[0]) or results[0].summary
     else:
         step("Summarizing")
-        summary = _summarize(task, results, output_format=output_format, session_dir=session_dir)
+        summary = summarizer.summarize(task, results, output_format=output_format, session_dir=session_dir)
 
     elapsed = time.time() - start_time
     total_pt = sum(r.prompt_tokens for r in results)
@@ -480,7 +458,7 @@ def _run_inner(task, toolset_spec, output_format, max_tokens, session_dir, _clea
     result(indented)
 
     # Cross-run session log — record task, plan shape, tokens, time
-    _log_session(task, plan, results, elapsed, total_pt + total_ct)
+    summarizer.log_session(task, plan, results, elapsed, total_pt + total_ct)
 
     # Cleanup session directory (unless --keep-session or REPL mode)
     import shutil
@@ -488,88 +466,6 @@ def _run_inner(task, toolset_spec, output_format, max_tokens, session_dir, _clea
         shutil.rmtree(session_dir, ignore_errors=True)
 
     return summary
-
-
-SESSION_LOG = os.path.expanduser("~/.clive_session_log.jsonl")
-
-
-def _log_session(task: str, plan, results: list, elapsed: float, total_tokens: int):
-    """Append a session record for cross-run learning."""
-    import json as _json
-    entry = {
-        "timestamp": time.strftime("%Y-%m-%dT%H:%M:%S"),
-        "task": task[:200],
-        "subtasks": len(plan.subtasks),
-        "modes": [s.mode for s in plan.subtasks],
-        "steps": [{"desc": s.description[:100], "pane": s.pane, "mode": s.mode} for s in plan.subtasks],
-        "completed": sum(1 for r in results if r.status == SubtaskStatus.COMPLETED),
-        "failed": sum(1 for r in results if r.status == SubtaskStatus.FAILED),
-        "tokens": total_tokens,
-        "elapsed_s": round(elapsed, 1),
-    }
-    try:
-        with open(SESSION_LOG, "a") as f:
-            f.write(_json.dumps(entry) + "\n")
-    except OSError:
-        pass
-
-
-def _read_output_files(session_dir: str, result) -> str:
-    """Read user-created output files tracked by the subtask result."""
-    if not session_dir:
-        return ""
-    import os
-    content_parts = []
-    for f in result.output_files or []:
-        path = f.get("path", "")
-        if not path or not os.path.isfile(path):
-            continue
-        if os.path.basename(path).startswith("_"):
-            continue
-        try:
-            with open(path, "r", errors="replace") as fh:
-                text = fh.read(4000)
-            if text.strip():
-                content_parts.append(text.strip())
-        except OSError:
-            continue
-    return "\n".join(content_parts) if content_parts else ""
-
-
-def _summarize(task: str, results: list, output_format: str = "default", session_dir: str = "") -> str:
-    """Final LLM call to synthesize all subtask results."""
-    client = get_client()
-
-    result_text = "\n\n".join(
-        f"Subtask {r.subtask_id} [{r.status.value}]: {r.summary}"
-        for r in results
-    )
-
-    # Read key output files for richer summarization
-    file_context = ""
-    if session_dir:
-        from file_inspect import sniff_session_files
-        import os
-        all_files = []
-        for r in results:
-            all_files.extend(sniff_session_files(session_dir, r.subtask_id))
-        # Include preview of top files (up to 500 chars total)
-        previews = []
-        total_chars = 0
-        for f in all_files:
-            if f.get("preview") and total_chars < 500:
-                previews.append(f"  {f['path']}: {f['preview'][:200]}")
-                total_chars += len(previews[-1])
-        if previews:
-            file_context = "\n\nKey output files:\n" + "\n".join(previews)
-
-    messages = [
-        {"role": "system", "content": build_summarizer_prompt(output_format)},
-        {"role": "user", "content": f"Original task: {task}\n\nSubtask results:\n{result_text}{file_context}"},
-    ]
-
-    content, _, _ = chat(client, messages)
-    return content
 
 
 # --- Entry Point --------------------------------------------------------------
