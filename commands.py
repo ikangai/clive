@@ -62,3 +62,36 @@ def dispatch(name: str, arg: str, app, out) -> bool:
 def clear() -> None:
     """Reset the registry. Test helper only."""
     _REGISTRY.clear()
+
+
+def render_help(profiles: str, categories: str, providers: str) -> str:
+    """Render the slash-command help block from the registry.
+
+    Returns a Rich-markup string suitable for ``RichLog.write()``. The
+    column widths are computed from the widest registered "name + args"
+    so newly registered commands stay aligned without manual tweaking.
+    """
+    entries = all_commands()
+    if not entries:
+        return "[#6b7280]No commands registered.[/]"
+
+    # Visible width of "<name> <args_hint>" (no markup characters)
+    def visible_len(c: SlashCommand) -> int:
+        return len(c.name) + (1 + len(c.args_hint) if c.args_hint else 0)
+
+    col_width = max(visible_len(c) for c in entries) + 2
+
+    lines = ["[#d97706]Slash commands:[/]"]
+    for c in entries:
+        left_markup = f"[#c9c9d6]{c.name}[/]"
+        if c.args_hint:
+            left_markup += f" [#6b7280]{c.args_hint}[/]"
+        pad = " " * max(2, col_width - visible_len(c))
+        lines.append(f"  {left_markup}{pad}{c.summary}")
+    lines.append("")
+    lines.append(f"[#d97706]Profiles:[/]   {profiles}")
+    lines.append(f"[#d97706]Categories:[/]  {categories}")
+    lines.append(f"[#d97706]Providers:[/]   {providers}")
+    lines.append("")
+    lines.append("[#6b7280]Type anything else to run it as a task.[/]")
+    return "\n".join(lines)

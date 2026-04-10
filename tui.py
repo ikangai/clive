@@ -61,7 +61,7 @@ from toolsets import (
     check_commands,
     build_tools_summary,
 )
-from tui_theme import LOGO, HELP_TEXT, CLIVE_THEME, CSS
+from tui_theme import LOGO, CLIVE_THEME, CSS
 from tui_helpers import build_clive_context, show_tools
 from tui_task_runner import run_task_inner
 from tui_actions import (
@@ -79,7 +79,7 @@ from tui_actions import (
 
 
 def _cmd_help(app, arg, out) -> None:
-    out.write(HELP_TEXT.format(
+    out.write(commands.render_help(
         profiles=", ".join(PROFILES),
         categories=", ".join(sorted(CATEGORIES)),
         providers=", ".join(LLM_PROVIDERS),
