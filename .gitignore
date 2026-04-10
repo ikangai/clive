@@ -2,4 +2,6 @@
 .venv/
 __pycache__/
 autoresearch-results.tsv
-autoresearch-results.tsv
+.DS_Store
+.clive/audit/
+.eval_cache/
