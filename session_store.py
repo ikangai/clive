@@ -51,6 +51,31 @@ def _infer_title(task: str, max_len: int = 60) -> str:
     return t
 
 
+def complete_last_task(sid: str, summary: str | None = None,
+                       status: str = "done",
+                       sessions_dir: Path | None = None) -> bool:
+    """Mark the most recent task on a session as completed.
+
+    Typical flow: ``record_task(sid, task)`` before executing, then
+    ``complete_last_task(sid, summary=..., status="done"|"failed")`` after.
+    Returns False if the session doesn't exist or has no tasks.
+    """
+    data = get(sid, sessions_dir)
+    if data is None:
+        return False
+    tasks = data.get("tasks") or []
+    if not tasks:
+        return False
+    last = tasks[-1]
+    if summary is not None:
+        last["summary"] = summary
+    last["status"] = status
+    last["completed_at"] = time.time()
+    data["updated_at"] = time.time()
+    _path(sid, sessions_dir).write_text(json.dumps(data, indent=2))
+    return True
+
+
 def record_task(sid: str, task: str, summary: str | None = None,
                 status: str = "pending",
                 sessions_dir: Path | None = None) -> bool:

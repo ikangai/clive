@@ -1,7 +1,10 @@
 """Tests for the persistent chat-session store."""
 import json
 
-from session_store import new, get, list_sessions, delete, append_message, record_task
+from session_store import (
+    new, get, list_sessions, delete, append_message, record_task,
+    complete_last_task,
+)
 
 
 def test_new_creates_file(tmp_path):
@@ -174,3 +177,57 @@ def test_record_task_multiple_tasks_append(tmp_path):
     record_task(sid, "task three", sessions_dir=tmp_path)
     data = get(sid, sessions_dir=tmp_path)
     assert [t["task"] for t in data["tasks"]] == ["task one", "task two", "task three"]
+
+
+def test_complete_last_task_sets_summary_and_status(tmp_path):
+    sid = new(sessions_dir=tmp_path)
+    record_task(sid, "list files", sessions_dir=tmp_path)
+    ok = complete_last_task(sid, summary="found 5 files", status="done",
+                            sessions_dir=tmp_path)
+    assert ok is True
+    data = get(sid, sessions_dir=tmp_path)
+    last = data["tasks"][-1]
+    assert last["summary"] == "found 5 files"
+    assert last["status"] == "done"
+    assert "completed_at" in last
+
+
+def test_complete_last_task_only_updates_last(tmp_path):
+    sid = new(sessions_dir=tmp_path)
+    record_task(sid, "first", sessions_dir=tmp_path)
+    record_task(sid, "second", sessions_dir=tmp_path)
+    complete_last_task(sid, summary="second done", sessions_dir=tmp_path)
+    data = get(sid, sessions_dir=tmp_path)
+    assert data["tasks"][0]["summary"] is None
+    assert data["tasks"][0]["status"] == "pending"
+    assert data["tasks"][1]["summary"] == "second done"
+    assert data["tasks"][1]["status"] == "done"
+
+
+def test_complete_last_task_failed_status(tmp_path):
+    sid = new(sessions_dir=tmp_path)
+    record_task(sid, "risky", sessions_dir=tmp_path)
+    complete_last_task(sid, summary="oops", status="failed",
+                       sessions_dir=tmp_path)
+    data = get(sid, sessions_dir=tmp_path)
+    assert data["tasks"][-1]["status"] == "failed"
+
+
+def test_complete_last_task_returns_false_without_tasks(tmp_path):
+    sid = new(sessions_dir=tmp_path)
+    assert complete_last_task(sid, sessions_dir=tmp_path) is False
+
+
+def test_complete_last_task_returns_false_for_missing(tmp_path):
+    assert complete_last_task("nope", sessions_dir=tmp_path) is False
+
+
+def test_complete_last_task_updates_updated_at(tmp_path):
+    sid = new(sessions_dir=tmp_path)
+    record_task(sid, "task", sessions_dir=tmp_path)
+    before = get(sid, sessions_dir=tmp_path)["updated_at"]
+    import time as _t
+    _t.sleep(0.01)
+    complete_last_task(sid, summary="done", sessions_dir=tmp_path)
+    after = get(sid, sessions_dir=tmp_path)["updated_at"]
+    assert after > before
