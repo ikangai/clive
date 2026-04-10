@@ -32,31 +32,38 @@ Environment:
 """
 
 import argparse
+import json
 import os
 import re as _re
+import shutil
 import signal
 import sys
 import time
+from difflib import SequenceMatcher
 
+import libtmux
 from dotenv import load_dotenv
 
 load_dotenv()
 
 from output import progress, step, detail, activity, finish, result
-from session import setup_session, check_health, generate_session_id, SESSION_NAME
+from session import (
+    setup_session, check_health, generate_session_id, add_pane,
+    SESSION_NAME, SOCKET_NAME,
+)
 from toolsets import (
     resolve_toolset, check_commands, build_tools_summary,
     print_availability, list_toolsets, list_categories,
     find_category, normalize_tool_name,
-    DEFAULT_TOOLSET, PROFILES, CATEGORIES, PANES, COMMANDS,
+    DEFAULT_TOOLSET, PROFILES, CATEGORIES, PANES, COMMANDS, ENDPOINTS,
 )
 from planner import create_plan, display_plan
-from executor import execute_plan
-from models import SubtaskStatus, Plan, Subtask
-from llm import get_client, chat
+from executor import execute_plan, cancel as cancel_executor, reset_cancel, is_cancelled
+from router import route_task
+from models import SubtaskStatus, Plan, Subtask, ClassifierResult
+from llm import get_client, chat, CLASSIFIER_MODEL, PROVIDER_NAME, MODEL
 from prompts import build_summarizer_prompt, build_classifier_prompt
 from config import get_unconfigured, run_setup, find_config_schema, is_configured
-from models import ClassifierResult
 import summarizer
 
 
@@ -81,11 +88,8 @@ def _is_direct(task: str, num_panes: int) -> bool:
 
 def _classify(task: str, session_ctx: dict) -> ClassifierResult | None:
     """Tier 1: Use a fast/cheap model to classify intent and route."""
-    from llm import CLASSIFIER_MODEL
     if CLASSIFIER_MODEL == "none":
         return None
-
-    import json as _json
 
     panes = session_ctx["panes"]
     available_cmds = session_ctx.get("available_cmds", [])
@@ -124,7 +128,7 @@ def _classify(task: str, session_ctx: dict) -> ClassifierResult | None:
         if text.startswith("json"):
             text = text[4:].strip()
 
-        data = _json.loads(text)
+        data = json.loads(text)
         detail(f"Classifier: {pt + ct} tokens, mode={data.get('mode')}")
         return ClassifierResult(
             mode=data.get("mode", "script"),
@@ -143,16 +147,14 @@ def _classify(task: str, session_ctx: dict) -> ClassifierResult | None:
 
 def _find_cached_plan(task: str, panes: dict) -> Plan | None:
     """Look up session log for a similar successful plan to reuse."""
-    import json as _json
     if not os.path.exists(summarizer.SESSION_LOG):
         return None
     try:
         # Read last 50 entries
         with open(summarizer.SESSION_LOG, "r") as f:
-            entries = [_json.loads(l) for l in f.readlines()[-50:] if l.strip()]
+            entries = [json.loads(l) for l in f.readlines()[-50:] if l.strip()]
 
         # Find entries with high similarity (SequenceMatcher is more robust than word overlap)
-        from difflib import SequenceMatcher
         for entry in reversed(entries):
             if entry.get("failed", 0) > 0:
                 continue  # skip failed plans
@@ -195,7 +197,6 @@ def _find_cached_plan(task: str, panes: dict) -> Plan | None:
 
 
 def run(task: str, toolset_spec: str = DEFAULT_TOOLSET, output_format: str = "default", max_tokens: int = 50000, session_ctx=None, session_dir=None):
-    from executor import cancel as cancel_executor, reset_cancel
     reset_cancel()
 
     owns_session = session_ctx is None
@@ -208,7 +209,6 @@ def run(task: str, toolset_spec: str = DEFAULT_TOOLSET, output_format: str = "de
 
     # Graceful shutdown handler
     def _cleanup(signum=None, frame=None):
-        import shutil
         if signum:
             # Signal workers to stop first, then clean up
             cancel_executor()
@@ -217,8 +217,6 @@ def run(task: str, toolset_spec: str = DEFAULT_TOOLSET, output_format: str = "de
             progress("\nShutting down...")
         if owns_session:
             try:
-                import libtmux
-                from session import SOCKET_NAME
                 server = libtmux.Server(socket_name=SOCKET_NAME)
                 for s in server.sessions.filter(session_name=_state["session_name"]):
                     s.kill()
@@ -260,7 +258,6 @@ def _setup_session(toolset_spec, session_dir, _state):
     """Set up tmux session and return reusable session context."""
     resolved = resolve_toolset(toolset_spec)
 
-    from llm import PROVIDER_NAME, MODEL
     step(f"Setting up session ({MODEL} · {PROVIDER_NAME})")
 
     session, panes, actual_session_name = setup_session(resolved["panes"], session_dir=session_dir)
@@ -315,7 +312,6 @@ def _expand_toolset(category: str, session_ctx: dict) -> bool:
     if not cat_def:
         return False
 
-    from session import add_pane
     session = session_ctx.get("session")
     session_dir = session_ctx.get("session_dir")
 
@@ -344,7 +340,6 @@ def _expand_toolset(category: str, session_ctx: dict) -> bool:
         session_ctx["missing_cmds"].extend(miss)
 
     # Add new endpoints
-    from toolsets import ENDPOINTS
     for ep_id in cat_def.get("endpoints", []):
         ep_def = ENDPOINTS.get(ep_id)
         if ep_def and not any(e["name"] == ep_id for e in session_ctx["endpoints"]):
@@ -380,7 +375,6 @@ def _run_inner(task, toolset_spec, output_format, max_tokens, session_dir, _clea
     start_time = time.time()
 
     # ─── Three-Tier Intent Resolution ──────────────────────────────────
-    from router import route_task
     plan, early_return = route_task(
         task, session_ctx, max_tokens,
         is_direct_fn=_is_direct,
@@ -409,7 +403,6 @@ def _run_inner(task, toolset_spec, output_format, max_tokens, session_dir, _clea
     results = execute_plan(plan, panes, tool_status, on_event=_progress_event, session_dir=session_dir, max_tokens=max_tokens)
 
     # Early exit if cancelled
-    from executor import is_cancelled
     if is_cancelled():
         step("Cancelled")
         return "Cancelled"
@@ -437,12 +430,11 @@ def _run_inner(task, toolset_spec, output_format, max_tokens, session_dir, _clea
 
     # Wrap --json output with structured metadata
     if output_format == "json":
-        import json as _json
         try:
-            parsed = _json.loads(summary)
+            parsed = json.loads(summary)
         except (ValueError, TypeError):
             parsed = summary
-        summary = _json.dumps({
+        summary = json.dumps({
             "result": parsed,
             "success": completed == total,
             "subtasks": {"completed": completed, "total": total},
@@ -461,7 +453,6 @@ def _run_inner(task, toolset_spec, output_format, max_tokens, session_dir, _clea
     summarizer.log_session(task, plan, results, elapsed, total_pt + total_ct)
 
     # Cleanup session directory (unless --keep-session or REPL mode)
-    import shutil
     if owns_session and os.path.isdir(session_dir) and not os.environ.get("CLIVE_KEEP_SESSION"):
         shutil.rmtree(session_dir, ignore_errors=True)
 
@@ -599,8 +590,7 @@ if __name__ == "__main__":
     args = parser.parse_args()
 
     # Pre-flight checks
-    import shutil as _shutil
-    if not _shutil.which("tmux"):
+    if not shutil.which("tmux"):
         print("Error: tmux not found. Install it first:", file=sys.stderr)
         print("  macOS:  brew install tmux", file=sys.stderr)
         print("  Ubuntu: sudo apt install tmux", file=sys.stderr)
@@ -869,10 +859,10 @@ if __name__ == "__main__":
     if args.status:
         health_path = os.path.expanduser("~/.clive/health.json")
         if os.path.exists(health_path):
-            import json as _json
+            import json as json
             from server.health import format_health_dict
             with open(health_path) as f:
-                health = _json.load(f)
+                health = json.load(f)
             print(format_health_dict(health))
         else:
             print("No server running (health file not found)")
@@ -1088,10 +1078,7 @@ if __name__ == "__main__":
                       session_dir=session_dir)
 
         def _repl_cleanup():
-            import shutil
             try:
-                import libtmux
-                from session import SOCKET_NAME
                 server = libtmux.Server(socket_name=SOCKET_NAME)
                 for s in server.sessions.filter(session_name=_repl_state["session_name"]):
                     s.kill()
@@ -1173,7 +1160,6 @@ if __name__ == "__main__":
             print("Error: --dry-run requires a task argument.", file=sys.stderr)
             raise SystemExit(1)
         resolved = resolve_toolset(args.toolset)
-        from session import setup_session
         session, panes, dry_session_name = setup_session(resolved["panes"], session_dir="/tmp/clive/dryrun")
         available_cmds, _ = check_commands(resolved["commands"])
         tools_summary = build_tools_summary(
@@ -1190,14 +1176,11 @@ if __name__ == "__main__":
         print(f"\n(dry run — {len(plan.subtasks)} subtask(s), not executed)")
         # Cleanup
         try:
-            import libtmux
-            from session import SOCKET_NAME
             server = libtmux.Server(socket_name=SOCKET_NAME)
             for s in server.sessions.filter(session_name=dry_session_name):
                 s.kill()
         except Exception:
             pass
-        import shutil
         shutil.rmtree("/tmp/clive/dryrun", ignore_errors=True)
         raise SystemExit(0)
 
