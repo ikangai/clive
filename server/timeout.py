@@ -18,7 +18,7 @@ class TimeoutConfig:
     """Timeout configuration for remote agent connections."""
     connect_timeout: int = 30      # seconds to establish SSH connection
     task_timeout: int = 300        # max seconds for entire task
-    stall_timeout: int = 60        # seconds without TURN:/PROGRESS: → stall
+    stall_timeout: int = 60        # seconds without any protocol frame → stall
 
 
 @dataclass
@@ -45,7 +45,7 @@ class StallDetector:
         self.task_start = time.time()
 
     def record_activity(self):
-        """Record that activity was observed (TURN:, PROGRESS:, screen change)."""
+        """Record that activity was observed (any protocol frame or screen change)."""
         self.last_activity = time.time()
 
     def is_stalled(self) -> bool:

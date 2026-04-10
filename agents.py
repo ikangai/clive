@@ -112,7 +112,7 @@ def resolve_agent(host: str, registry_path: str | None = None,
         "app_type": "agent",
         "description": (
             f"Remote clive instance at {actual_host}. "
-            f"Peer conversation via TURN: protocol."
+            f"Peer conversation via framed protocol (see protocol.py)."
         ),
         "host": actual_host,
         "connect_timeout": config.get("timeout", 5),

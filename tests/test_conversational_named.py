@@ -40,7 +40,7 @@ def test_named_instance_survives_deregister_reregister(tmp_path):
 
 
 def test_turn_protocol_markers():
-    """Verify TURN:/CONTEXT:/DONE: protocol markers are importable."""
+    """Verify framed protocol emitters are importable."""
     from output import emit_turn, emit_context
     # These functions should exist and be callable
     assert callable(emit_turn)

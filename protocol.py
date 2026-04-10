@@ -17,8 +17,11 @@ from __future__ import annotations
 import base64
 import binascii
 import json
+import logging
 import re
 from dataclasses import dataclass
+
+_log = logging.getLogger(__name__)
 
 _PREFIX = "<<<CLIVE:"
 _SUFFIX = ">>>"
@@ -77,16 +80,22 @@ def decode_all(screen: str) -> list[Frame]:
     for m in _FRAME_RE.finditer(screen):
         kind = m.group("kind")
         if kind not in KINDS:
+            _log.debug("dropping frame with unknown kind: %r", kind)
             continue
+        b64 = m.group("b64")
         try:
-            raw = base64.b64decode(m.group("b64"), validate=True)
-        except (binascii.Error, ValueError):
+            raw = base64.b64decode(b64, validate=True)
+        except (binascii.Error, ValueError) as e:
+            _log.debug("dropping %s frame: bad base64 (%s)", kind, e)
             continue
         try:
             payload = json.loads(raw.decode("utf-8"))
-        except (UnicodeDecodeError, json.JSONDecodeError):
+        except (UnicodeDecodeError, json.JSONDecodeError) as e:
+            _log.debug("dropping %s frame: bad json (%s)", kind, e)
             continue
         if not isinstance(payload, dict):
+            _log.debug("dropping %s frame: payload is %s, not dict",
+                       kind, type(payload).__name__)
             continue
         frames.append(Frame(kind=kind, payload=payload))
     return frames

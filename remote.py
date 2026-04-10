@@ -16,37 +16,52 @@ File transfer: after turn=done, local scp's any declared files from remote.
 Architecture:
   local clive → SSH pane → remote clive --conversational → framed output → parse
 """
+import logging
 import os
 import subprocess
-import time
 
 from output import progress
 from protocol import decode_all, latest
+
+_log = logging.getLogger(__name__)
 
 
 def parse_turn_state(screen: str) -> str | None:
     """Parse the latest turn state from framed screen content.
 
     Returns "thinking", "waiting", "done", "failed", or None.
+
+    None is returned both when no turn frame exists and when the latest
+    turn frame's state field is missing or not a string; the malformed
+    case logs a warning so it is visible in debug output.
     """
     frame = latest(decode_all(screen), "turn")
     if frame is None:
         return None
     state = frame.payload.get("state")
-    return state.lower() if isinstance(state, str) else None
+    if not isinstance(state, str):
+        _log.warning("turn frame with non-string state: %r", state)
+        return None
+    return state.lower()
 
 
 def parse_question(screen: str) -> str | None:
     """Parse the latest question from framed screen content.
 
     Returns the question text, or None if no question frame is found
-    or the question text is missing/empty.
+    or the question text is missing/empty. Non-string text is logged
+    as a warning to surface protocol misuse.
     """
     frame = latest(decode_all(screen), "question")
     if frame is None:
         return None
     text = frame.payload.get("text")
-    if not isinstance(text, str) or not text.strip():
+    if text is None:
+        return None
+    if not isinstance(text, str):
+        _log.warning("question frame with non-string text: %r", text)
+        return None
+    if not text.strip():
         return None
     return text
 
@@ -58,7 +73,13 @@ def parse_context(screen: str) -> dict | None:
 
 
 def parse_remote_files(screen: str) -> list[str]:
-    """Parse all file declarations in order of appearance."""
+    """Parse all file declarations in order of appearance.
+
+    Semantics: cumulative. Every call returns EVERY file frame present
+    in the supplied screen, in the order they appear. Callers polling
+    the same pane repeatedly must deduplicate (e.g. track a "seen" set)
+    to avoid re-processing files on every poll.
+    """
     out = []
     for f in decode_all(screen):
         if f.kind == "file":
@@ -69,7 +90,11 @@ def parse_remote_files(screen: str) -> list[str]:
 
 
 def parse_remote_progress(screen: str) -> list[str]:
-    """Parse all progress declarations in order of appearance."""
+    """Parse all progress declarations in order of appearance.
+
+    Semantics: cumulative — see parse_remote_files for caller-side
+    deduplication guidance.
+    """
     out = []
     for f in decode_all(screen):
         if f.kind == "progress":
