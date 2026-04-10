@@ -129,3 +129,44 @@ def test_build_ssh_cmd_forwards_env():
             os.environ["ANTHROPIC_API_KEY"] = old
         else:
             del os.environ["ANTHROPIC_API_KEY"]
+
+
+# ─── Session nonce injection ─────────────────────────────────────────────────
+
+def test_build_ssh_cmd_injects_frame_nonce():
+    """SSH command should set CLIVE_FRAME_NONCE to a fresh random value.
+
+    The nonce is embedded as a remote-side env assignment so the inner's
+    encode() picks it up via os.environ — no reliance on SendEnv, which
+    would need sshd AcceptEnv configuration.
+    """
+    cmd = build_agent_ssh_cmd("myhost", {})
+    assert "CLIVE_FRAME_NONCE=" in cmd
+    # Extract the nonce value from the remote command
+    import re
+    m = re.search(r"CLIVE_FRAME_NONCE=([A-Za-z0-9_-]+)", cmd)
+    assert m is not None
+    nonce = m.group(1)
+    # A 128-bit urlsafe nonce is ~22 characters
+    assert len(nonce) >= 20
+
+
+def test_resolve_agent_exposes_nonce_on_pane_def():
+    """The pane_def returned by resolve_agent must carry the same nonce
+    that was injected into the SSH command, so downstream parsers can
+    use it to authenticate frames from this specific inner."""
+    pane_def = resolve_agent("somehost")
+    assert "frame_nonce" in pane_def
+    assert pane_def["frame_nonce"] in pane_def["cmd"]
+
+
+def test_build_ssh_cmd_nonces_are_unique_per_call():
+    """Each SSH invocation must have a fresh nonce — reusing nonces
+    across instances would let an attacker replay frames from a
+    compromised inner into a sibling's pane."""
+    import re
+    c1 = build_agent_ssh_cmd("h1", {})
+    c2 = build_agent_ssh_cmd("h1", {})
+    n1 = re.search(r"CLIVE_FRAME_NONCE=([A-Za-z0-9_-]+)", c1).group(1)
+    n2 = re.search(r"CLIVE_FRAME_NONCE=([A-Za-z0-9_-]+)", c2).group(1)
+    assert n1 != n2

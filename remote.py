@@ -26,16 +26,22 @@ from protocol import decode_all, latest
 _log = logging.getLogger(__name__)
 
 
-def parse_turn_state(screen: str) -> str | None:
+def parse_turn_state(screen: str, nonce: str = "") -> str | None:
     """Parse the latest turn state from framed screen content.
 
     Returns "thinking", "waiting", "done", "failed", or None.
+
+    ``nonce`` must be the session nonce the outer injected into the
+    inner whose pane is being read. Frames carrying any other nonce
+    are silently dropped. Default ``""`` means "accept only
+    unauthenticated frames" — suitable for tests and the pre-Phase-2
+    transition, not for production pane readers.
 
     None is returned both when no turn frame exists and when the latest
     turn frame's state field is missing or not a string; the malformed
     case logs a warning so it is visible in debug output.
     """
-    frame = latest(decode_all(screen), "turn")
+    frame = latest(decode_all(screen, nonce=nonce), "turn")
     if frame is None:
         return None
     state = frame.payload.get("state")
@@ -45,14 +51,15 @@ def parse_turn_state(screen: str) -> str | None:
     return state.lower()
 
 
-def parse_question(screen: str) -> str | None:
+def parse_question(screen: str, nonce: str = "") -> str | None:
     """Parse the latest question from framed screen content.
 
     Returns the question text, or None if no question frame is found
     or the question text is missing/empty. Non-string text is logged
-    as a warning to surface protocol misuse.
+    as a warning to surface protocol misuse. See parse_turn_state for
+    ``nonce`` semantics.
     """
-    frame = latest(decode_all(screen), "question")
+    frame = latest(decode_all(screen, nonce=nonce), "question")
     if frame is None:
         return None
     text = frame.payload.get("text")
@@ -66,22 +73,27 @@ def parse_question(screen: str) -> str | None:
     return text
 
 
-def parse_context(screen: str) -> dict | None:
-    """Parse the latest context payload from framed screen content."""
-    frame = latest(decode_all(screen), "context")
+def parse_context(screen: str, nonce: str = "") -> dict | None:
+    """Parse the latest context payload from framed screen content.
+
+    See parse_turn_state for ``nonce`` semantics.
+    """
+    frame = latest(decode_all(screen, nonce=nonce), "context")
     return frame.payload if frame is not None else None
 
 
-def parse_remote_files(screen: str) -> list[str]:
+def parse_remote_files(screen: str, nonce: str = "") -> list[str]:
     """Parse all file declarations in order of appearance.
 
     Semantics: cumulative. Every call returns EVERY file frame present
     in the supplied screen, in the order they appear. Callers polling
     the same pane repeatedly must deduplicate (e.g. track a "seen" set)
     to avoid re-processing files on every poll.
+
+    See parse_turn_state for ``nonce`` semantics.
     """
     out = []
-    for f in decode_all(screen):
+    for f in decode_all(screen, nonce=nonce):
         if f.kind == "file":
             name = f.payload.get("name")
             if isinstance(name, str):
@@ -89,14 +101,14 @@ def parse_remote_files(screen: str) -> list[str]:
     return out
 
 
-def parse_remote_progress(screen: str) -> list[str]:
+def parse_remote_progress(screen: str, nonce: str = "") -> list[str]:
     """Parse all progress declarations in order of appearance.
 
     Semantics: cumulative — see parse_remote_files for caller-side
-    deduplication guidance.
+    deduplication guidance. See parse_turn_state for ``nonce`` semantics.
     """
     out = []
-    for f in decode_all(screen):
+    for f in decode_all(screen, nonce=nonce):
         if f.kind == "progress":
             text = f.payload.get("text")
             if isinstance(text, str):

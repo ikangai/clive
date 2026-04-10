@@ -7,11 +7,19 @@ SSH commands with API key forwarding (BYOLLM).
 Address format: clive@<host> where host is [\\w.\\-]+
 Registry: ~/.clive/agents.yaml (optional)
 SSH: no -t flag (no TTY) → inner clive auto-detects conversational mode
+
+Session nonce (see protocol.py): every SSH invocation generates a fresh
+random nonce and injects it into the remote env as CLIVE_FRAME_NONCE.
+The inner's encode() picks it up automatically; the outer keeps the
+nonce on the returned pane_def so its pane reader can authenticate
+frames from that specific inner. This closes the "LLM inside inner
+fabricates a fake protocol frame" attack surface.
 """
 import os
 import re
 from pathlib import Path
 
+from protocol import generate_nonce
 from registry import get_instance
 
 DEFAULT_REGISTRY = os.path.expanduser("~/.clive/agents.yaml")
@@ -104,7 +112,8 @@ def resolve_agent(host: str, registry_path: str | None = None,
     config = registry.get(host, {})
 
     actual_host = config.get("host", host)
-    cmd = build_agent_ssh_cmd(actual_host, config)
+    nonce = generate_nonce()
+    cmd = build_agent_ssh_cmd(actual_host, config, nonce=nonce)
 
     return {
         "name": f"agent-{host}",
@@ -117,15 +126,25 @@ def resolve_agent(host: str, registry_path: str | None = None,
         "host": actual_host,
         "connect_timeout": config.get("timeout", 5),
         "category": "agent",
+        "frame_nonce": nonce,
     }
 
 
-def build_agent_ssh_cmd(host: str, config: dict) -> str:
+def build_agent_ssh_cmd(host: str, config: dict, nonce: str | None = None) -> str:
     """Build SSH command for clive-to-clive connection.
 
     No -t flag (no TTY) → inner clive auto-detects conversational mode.
     Forwards API key env vars via SendEnv (BYOLLM).
+
+    ``nonce`` is the session nonce injected into the remote env as
+    CLIVE_FRAME_NONCE so the inner's framed-protocol emitters carry
+    an authenticated value. If None, a fresh nonce is generated; pass
+    an explicit value when you also need to remember it (e.g. on the
+    pane_def) — see resolve_agent().
     """
+    if nonce is None:
+        nonce = generate_nonce()
+
     parts = ["ssh"]
 
     # SSH key
@@ -144,10 +163,14 @@ def build_agent_ssh_cmd(host: str, config: dict) -> str:
     # Host
     parts.append(host)
 
-    # Remote command
+    # Remote command. CLIVE_FRAME_NONCE is prefixed as a remote env
+    # assignment so we do not depend on SendEnv / AcceptEnv — the
+    # generated nonce is not sensitive (it authenticates within a
+    # single session) and visible as `ps` output on the remote is
+    # acceptable.
     clive_path = config.get("path", DEFAULT_CLIVE_PATH)
     toolset = config.get("toolset")
-    remote_parts = [clive_path, "--conversational"]
+    remote_parts = [f"CLIVE_FRAME_NONCE={nonce}", clive_path, "--conversational"]
     if toolset:
         remote_parts.extend(["-t", toolset])
 
