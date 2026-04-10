@@ -192,6 +192,40 @@ def test_complete_arg_no_completer_returns_empty():
     assert commands.complete_arg("/status", "") == []
 
 
+def test_format_command_list_groups_by_source():
+    lines = commands.format_command_list()
+    text = "\n".join(lines)
+    # Section headers
+    assert "core" in text
+    assert "session" in text
+    # Every command listed
+    for c in commands.all_commands():
+        assert c.name in text, f"{c.name} missing from inline listing"
+
+
+def test_format_command_list_core_before_session():
+    lines = commands.format_command_list()
+    text = "\n".join(lines)
+    assert text.index("core") < text.index("session"), (
+        "core commands should come before session commands in the listing"
+    )
+
+
+def test_suggest_typo_close_match():
+    """Common typos should return the intended command."""
+    assert "/profile" in commands.suggest("/profil")
+    assert "/provider" in commands.suggest("/provide")
+
+
+def test_suggest_unknown_command_returns_empty_for_gibberish():
+    assert commands.suggest("/xyzabc") == []
+
+
+def test_suggest_respects_limit():
+    result = commands.suggest("/s", limit=2)
+    assert len(result) <= 2
+
+
 def test_no_if_cmd_ladder_in_tui_or_session_store():
     """Regression guard: the branch-count metric must stay at 0."""
     import re

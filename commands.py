@@ -91,6 +91,44 @@ def complete_arg(name: str, arg_prefix: str) -> list[str]:
     return cmd.complete(arg_prefix)
 
 
+def format_command_list() -> list[str]:
+    """Return a compact inline listing of every registered command.
+
+    One line per command, grouped by source. Used when the user types a
+    bare ``/`` in the TUI to get quick discovery without the full help block.
+    """
+    lines: list[str] = []
+    entries = all_commands()
+    if not entries:
+        return ["[#6b7280]No commands registered.[/]"]
+
+    # Group by source (core first, then session, then anything else)
+    order = {"core": 0, "session": 1}
+    entries = sorted(entries, key=lambda c: (order.get(c.source, 99), c.name))
+
+    name_width = max(len(c.name) for c in entries) + 2
+    last_source: str | None = None
+    for c in entries:
+        if c.source != last_source:
+            if last_source is not None:
+                lines.append("")
+            lines.append(f"[#d97706]{c.source}[/]")
+            last_source = c.source
+        pad = " " * (name_width - len(c.name))
+        lines.append(f"  [#c9c9d6]{c.name}[/]{pad}{c.summary}")
+    return lines
+
+
+def suggest(unknown_name: str, limit: int = 3) -> list[str]:
+    """Return up to ``limit`` registered command names close to ``unknown_name``.
+
+    Uses ``difflib.get_close_matches`` — a simple Levenshtein-ish similarity
+    that's good enough for "did you mean" hints on typos like /profil or /help2.
+    """
+    import difflib
+    return difflib.get_close_matches(unknown_name, list(_REGISTRY.keys()), n=limit, cutoff=0.6)
+
+
 def render_help(profiles: str, categories: str, providers: str) -> str:
     """Render the slash-command help block from the registry.
 

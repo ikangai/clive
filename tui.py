@@ -365,7 +365,22 @@ class CliveApp(App):
         parts = text.split(None, 1)
         name = parts[0].lower()
         arg = parts[1].strip() if len(parts) > 1 else ""
-        if not commands.dispatch(name, arg, self, out):
+
+        # Bare "/" → list available commands inline (quick discovery)
+        if name == "/":
+            for line in commands.format_command_list():
+                out.write(line)
+            return
+
+        if commands.dispatch(name, arg, self, out):
+            return
+
+        # Unknown command — offer a "did you mean" suggestion if we can find one
+        suggestions = commands.suggest(name)
+        if suggestions:
+            hint = ", ".join(suggestions[:3])
+            out.write(f"[#ef4444]Unknown command: {name}[/] — did you mean {hint}?")
+        else:
             out.write(f"[#ef4444]Unknown command: {name}[/] — try /help")
 
     def _resolve_profile(self) -> None:
