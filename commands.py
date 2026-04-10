@@ -119,6 +119,34 @@ def format_command_list() -> list[str]:
     return lines
 
 
+def build_slash_hint(name: str, arg: str, typing_arg: bool) -> str:
+    """Return a Rich-markup status-bar hint for a partial ``/…`` input.
+
+    Called from TUI's ``on_input_changed`` handler. Three modes:
+
+    - Exact match AND user typing an arg → show ``<name> <hint>  → <completions>``
+    - Exact match, no arg context → show ``<name> <hint>  <summary>``
+    - No exact match → show up to 4 candidate command names
+
+    Returns an empty string when there's nothing useful to display.
+    """
+    exact = get(name)
+    if exact and typing_arg:
+        completions = complete_arg(name, arg.strip())[:6]
+        if completions:
+            return (
+                f"[#d97706]{exact.name}[/] [#6b7280]{exact.args_hint}[/]  "
+                f"→ {'  '.join(completions)}"
+            )
+        return f"[#d97706]{exact.name}[/] [#6b7280]{exact.args_hint}[/]  {exact.summary}"
+    if exact:
+        return f"[#d97706]{exact.name}[/] [#6b7280]{exact.args_hint}[/]  {exact.summary}"
+    matches = complete_command_name(name)[:4]
+    if matches:
+        return "[#6b7280]matches:[/] " + "  ".join(matches)
+    return ""
+
+
 def suggest(unknown_name: str, limit: int = 3) -> list[str]:
     """Return up to ``limit`` registered command names close to ``unknown_name``.
 

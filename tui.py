@@ -294,7 +294,35 @@ class CliveApp(App):
         event.input.value = ""
         if not text:
             return
+        # Restore the normal status bar after the user submits — the hint
+        # only lives while the user is mid-typing a slash command.
+        self._update_status()
         self._handle_input(text)
+
+    def on_input_changed(self, event: Input.Changed) -> None:
+        """Live discovery hint: show matching commands while typing /..."""
+        if event.input.id != "prompt-input":
+            return
+        text = event.value
+        if not text.startswith("/"):
+            # Not a slash command — restore normal status
+            self._update_status()
+            return
+        # Split into (name, arg)
+        parts = text.split(None, 1)
+        name = parts[0].lower()
+        arg = parts[1] if len(parts) > 1 else ""
+        hint = self._build_slash_hint(name, arg, typing_arg=len(parts) > 1 or text.endswith(" "))
+        if hint:
+            self.query_one("#status-bar", Static).update(hint)
+        else:
+            self._update_status()
+
+    def _build_slash_hint(self, name: str, arg: str, typing_arg: bool) -> str:
+        """Thin wrapper around commands.build_slash_hint() — kept as an App
+        method so the Input.Changed callback has a natural dispatch point,
+        but the logic lives in commands.py where it's independently testable."""
+        return commands.build_slash_hint(name, arg, typing_arg)
 
     def _handle_input(self, text: str) -> None:
         out = self.query_one("#output", RichLog)

@@ -226,6 +226,40 @@ def test_suggest_respects_limit():
     assert len(result) <= 2
 
 
+def test_build_slash_hint_exact_match_no_arg():
+    """Exact /help match without typing arg → show summary."""
+    hint = commands.build_slash_hint("/help", "", typing_arg=False)
+    assert "/help" in hint
+    assert "Show this help" in hint
+
+
+def test_build_slash_hint_exact_match_with_arg_completions():
+    """Exact /evolve + typing_arg → show argument completions."""
+    hint = commands.build_slash_hint("/evolve", "", typing_arg=True)
+    assert "shell" in hint
+    assert "browser" in hint
+    assert "all" in hint
+
+
+def test_build_slash_hint_exact_match_arg_prefix_filters():
+    hint = commands.build_slash_hint("/evolve", "sh", typing_arg=True)
+    assert "shell" in hint
+    assert "browser" not in hint
+
+
+def test_build_slash_hint_partial_name_match():
+    """/pr → matches /profile and /provider."""
+    hint = commands.build_slash_hint("/pr", "", typing_arg=False)
+    assert "matches:" in hint
+    assert "/profile" in hint
+    assert "/provider" in hint
+
+
+def test_build_slash_hint_empty_for_gibberish():
+    hint = commands.build_slash_hint("/zzxq", "", typing_arg=False)
+    assert hint == ""
+
+
 def test_no_if_cmd_ladder_in_tui_or_session_store():
     """Regression guard: the branch-count metric must stay at 0."""
     import re
