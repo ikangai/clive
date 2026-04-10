@@ -7,6 +7,7 @@ import re
 import shlex
 import threading
 import time
+import uuid
 from concurrent.futures import ThreadPoolExecutor, Future
 
 log = logging.getLogger(__name__)
@@ -14,9 +15,10 @@ log = logging.getLogger(__name__)
 from output import progress
 from models import Plan, Subtask, SubtaskStatus, SubtaskResult, PaneInfo
 from completion import wait_for_ready, wrap_command
-from llm import get_client, chat
+from llm import get_client, chat, SCRIPT_MODEL
 from session import capture_pane
 from screen_diff import compute_screen_diff
+from prompts import build_script_prompt
 
 # Per-pane locks: only one subtask can use a pane at a time
 _pane_locks: dict[str, threading.Lock] = {}
@@ -173,6 +175,92 @@ def run_subtask_direct(
 
 # ─── Script Mode Worker ─────────────────────────────────────────────────────
 
+def _resolve_script_language(script: str, session_dir: str, subtask_id: str, default_path: str) -> tuple[str, str]:
+    """Detect script language from shebang. Returns (script_path, executor)."""
+    if script.startswith("#!/usr/bin/env python") or script.startswith("#!/usr/bin/python"):
+        return os.path.join(session_dir, f"_script_{subtask_id}.py"), "python3"
+    return default_path, "bash"
+
+
+def _audit_script_generation(subtask_id: str, attempt: int, script_path: str) -> None:
+    """Best-effort audit logging — failures don't block execution."""
+    try:
+        from selfmod.audit import log_attempt
+        log_attempt(
+            proposal_id=f"script_{subtask_id}_{attempt}",
+            action="script_generate",
+            files=[script_path],
+            tier="OPEN",
+            roles={},
+            gate_result={"allowed": True, "reason": "script generation"},
+            outcome="generated",
+            details=f"Script for subtask {subtask_id}, attempt {attempt}",
+        )
+    except Exception:
+        pass
+
+
+def _execute_script_in_pane(pane_info: PaneInfo, script_executor: str, script_path: str,
+                            session_dir: str, subtask_id: str) -> tuple[str, int | None, str]:
+    """Run a script in the pane and parse its exit code. Returns (screen, exit_code, nonce)."""
+    nonce = uuid.uuid4().hex[:4]
+    marker = f"___DONE_{subtask_id}_{nonce}___"
+    script_cmd = _wrap_for_sandbox(
+        f'{script_executor} {script_path}', session_dir, sandboxed=pane_info.sandboxed,
+    )
+    combined = f'{script_cmd}; echo "EXIT:$? {marker}"'
+    pane_info.pane.send_keys(combined, enter=True)
+    screen, _method = wait_for_ready(pane_info, marker=marker, max_wait=60.0)
+    logging.debug(f"[{subtask_id}] Script attempt: {screen[-80:]}")
+
+    exit_code: int | None = None
+    for line in screen.splitlines():
+        if marker in line and "EXIT:" in line:
+            try:
+                exit_code = int(line.split("EXIT:")[1].split()[0])
+            except (ValueError, IndexError):
+                pass
+    return screen, exit_code, nonce
+
+
+def _extract_script_output(screen: str, nonce: str, script_path: str, session_dir: str) -> str:
+    """Strip markers, prompts and command echoes from the captured screen output."""
+    nonce_frag = nonce + "___"
+    output_lines = [
+        l for l in screen.splitlines()
+        if l.strip()
+        and nonce_frag not in l
+        and "___DONE_" not in l
+        and "AGENT_READY" not in l
+        and "export PS1=" not in l
+        and not l.strip().startswith("EXIT:")
+    ]
+    cmd_echo = os.path.basename(script_path)
+    while output_lines and (
+        output_lines[0].strip().startswith(("$ bash ", "$ sh ", "$ python "))
+        or output_lines[0].strip().startswith("$ /")
+        or cmd_echo in output_lines[0]
+        or output_lines[0].strip() == session_dir
+        or output_lines[0].strip() == os.path.basename(session_dir)
+    ):
+        output_lines.pop(0)
+    return "\n".join(output_lines)[-2000:] if output_lines else "Done (no output)"
+
+
+def _write_script_success_artifacts(session_dir: str, subtask_id: str, summary: str,
+                                    attempt: int, screen: str) -> None:
+    """Persist the success result.json and execution log."""
+    result_path = os.path.join(session_dir, f"_result_{subtask_id}.json")
+    write_file(result_path, json.dumps({
+        "status": "success",
+        "subtask_id": subtask_id,
+        "summary": summary,
+        "turns_used": attempt,
+    }, indent=2))
+    log_path = os.path.join(session_dir, f"_log_{subtask_id}.txt")
+    write_file(log_path, screen)
+
+
 def run_subtask_script(
     subtask: Subtask,
     pane_info: PaneInfo,
@@ -182,7 +270,6 @@ def run_subtask_script(
 ) -> SubtaskResult:
     """Execute a subtask in script mode: generate → execute → verify → repair loop."""
     log.info(f"Subtask {subtask.id}: script mode, pane={subtask.pane}")
-    from prompts import build_script_prompt
     client = get_client()
     total_pt = 0
     total_ct = 0
@@ -195,16 +282,12 @@ def run_subtask_script(
         dependency_context=dep_context,
         session_dir=session_dir,
     )
-
     messages = [
         {"role": "system", "content": system_prompt},
         {"role": "user", "content": f"Generate the script. Goal: {subtask.description}"},
     ]
-
-    # Script path determined by language after extraction
     default_script_path = os.path.join(session_dir, f"_script_{subtask.id}.sh")
 
-    from llm import SCRIPT_MODEL
     lock = _pane_locks.setdefault(subtask.pane, threading.Lock())
     with lock:
         for attempt in range(1, subtask.max_turns + 1):
@@ -218,7 +301,6 @@ def run_subtask_script(
             total_pt += pt
             total_ct += ct
             messages.append({"role": "assistant", "content": reply})
-
             _emit(on_event, "turn", subtask.id, attempt, f"script gen attempt {attempt}")
             _emit(on_event, "tokens", subtask.id, pt, ct)
 
@@ -229,93 +311,20 @@ def run_subtask_script(
                 messages.append({"role": "user", "content": "Error: could not extract script. Respond with a bash script inside ```bash ``` markers."})
                 continue
 
-            # Detect language from shebang and set path/executor accordingly
-            if script.startswith("#!/usr/bin/env python") or script.startswith("#!/usr/bin/python"):
-                script_path = os.path.join(session_dir, f"_script_{subtask.id}.py")
-                script_executor = "python3"
-            else:
-                script_path = default_script_path
-                script_executor = "bash"
-
-            # Write and execute script (also log to audit trail if available)
+            script_path, script_executor = _resolve_script_language(
+                script, session_dir, subtask.id, default_script_path,
+            )
             write_file(script_path, script)
             os.chmod(script_path, 0o755)
-            try:
-                from selfmod.audit import log_attempt
-                log_attempt(
-                    proposal_id=f"script_{subtask.id}_{attempt}",
-                    action="script_generate",
-                    files=[script_path],
-                    tier="OPEN",
-                    roles={},
-                    gate_result={"allowed": True, "reason": "script generation"},
-                    outcome="generated",
-                    details=f"Script for subtask {subtask.id}, attempt {attempt}",
-                )
-            except Exception:
-                pass  # audit logging is best-effort
+            _audit_script_generation(subtask.id, attempt, script_path)
 
-            # Execute script and capture exit code in one round-trip
-            import uuid as _uuid
-            nonce = _uuid.uuid4().hex[:4]
-            marker = f"___DONE_{subtask.id}_{nonce}___"
-            script_cmd = _wrap_for_sandbox(f'{script_executor} {script_path}', session_dir, sandboxed=pane_info.sandboxed)
-            combined = f'{script_cmd}; echo "EXIT:$? {marker}"'
-            pane_info.pane.send_keys(combined, enter=True)
-            screen, method = wait_for_ready(pane_info, marker=marker, max_wait=60.0)
-
-            logging.debug(f"[{subtask.id}] Script attempt {attempt}: {screen[-80:]}")
-
-            # Parse exit code from the combined marker line
-            exit_code = None
-            for line in screen.splitlines():
-                if marker in line and "EXIT:" in line:
-                    try:
-                        exit_part = line.split("EXIT:")[1].split()[0]
-                        exit_code = int(exit_part)
-                    except (ValueError, IndexError):
-                        pass
+            screen, exit_code, nonce = _execute_script_in_pane(
+                pane_info, script_executor, script_path, session_dir, subtask.id,
+            )
 
             if exit_code == 0:
-                # Write structured result
-                result_path = os.path.join(session_dir, f"_result_{subtask.id}.json")
-                # Extract meaningful output: skip marker lines, prompt lines, and the command echo
-                # The combined command can wrap across lines, so filter broadly
-                nonce_frag = nonce + "___"  # e.g. "da3___" — catches wrapped marker fragments
-                output_lines = [
-                    l for l in screen.splitlines()
-                    if l.strip()
-                    and marker not in l
-                    and nonce_frag not in l
-                    and "___DONE_" not in l
-                    and "AGENT_READY" not in l
-                    and "export PS1=" not in l
-                    and not l.strip().startswith("EXIT:")
-                ]
-                # Drop leading lines that echo the command invocation itself
-                # (the command + script path + marker can wrap across multiple lines)
-                cmd_echo = os.path.basename(script_path)
-                while output_lines and (
-                    output_lines[0].strip().startswith(("$ bash ", "$ sh ", "$ python "))
-                    or output_lines[0].strip().startswith("$ /")
-                    or cmd_echo in output_lines[0]
-                    or output_lines[0].strip() == session_dir
-                    or output_lines[0].strip() == os.path.basename(session_dir)
-                ):
-                    output_lines.pop(0)
-                # Use all remaining output as summary (trimmed to reasonable length)
-                summary = "\n".join(output_lines)[-2000:] if output_lines else "Done (no output)"
-                write_file(result_path, json.dumps({
-                    "status": "success",
-                    "subtask_id": subtask.id,
-                    "summary": summary,
-                    "turns_used": attempt,
-                }, indent=2))
-
-                # Write execution log
-                log_path = os.path.join(session_dir, f"_log_{subtask.id}.txt")
-                write_file(log_path, screen)
-
+                summary = _extract_script_output(screen, nonce, script_path, session_dir)
+                _write_script_success_artifacts(session_dir, subtask.id, summary, attempt, screen)
                 return SubtaskResult(
                     subtask_id=subtask.id,
                     status=SubtaskStatus.COMPLETED,
@@ -334,7 +343,6 @@ def run_subtask_script(
             })
 
     final_screen = capture_pane(pane_info)
-    # Write failure log
     log_path = os.path.join(session_dir, f"_log_{subtask.id}.txt")
     write_file(log_path, final_screen)
 
