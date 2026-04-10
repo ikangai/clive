@@ -77,6 +77,88 @@ def save_lineage(driver_name: str, generation: int, score: float,
         json.dump(report_dict, f, indent=2)
 
 
+def _evaluate_variant(vf, driver_name, baseline_pass_rate, variant_idx, current_best_score):
+    """Evaluate a variant twice, returning conservative (worst-of-2) stats."""
+    scores, reports, report_dicts = [], [], []
+    for _run_idx in range(2):
+        report, report_dict = run_evals_with_driver(vf, driver_name)
+        scores.append(fitness_score(report, baseline_pass_rate=baseline_pass_rate))
+        reports.append(report)
+        report_dicts.append(report_dict)
+
+    score = min(scores)
+    worst_idx = scores.index(score)
+    best_report = reports[worst_idx]
+    best_dict = report_dicts[worst_idx]
+    cost = best_report.estimated_cost()
+    cost_str = f", ${cost:.4f}" if cost > 0 else ""
+    status = "+" if score > current_best_score else "-"
+    print(f"    [{status}] score={score:.3f} (runs: {scores[0]:.3f}, {scores[1]:.3f}) "
+          f"({best_report.passed_tasks}/{best_report.total_tasks} passed, "
+          f"{best_report.avg_turn_efficiency:.0%} turn eff, "
+          f"{best_report.total_tokens:,} tokens{cost_str})", file=sys.stderr)
+    return score, scores, best_report, best_dict, cost
+
+
+def _run_generation(gen, num_generations, num_variants, current_best_file, eval_summary,
+                    current_best_score, baseline_pass_rate, driver_name):
+    """Run one generation: generate variants, evaluate each, return best."""
+    print(f"Generation {gen}/{num_generations}:", file=sys.stderr)
+    print(f"  Generating {num_variants} variants...", file=sys.stderr)
+    variant_files = generate_variants(current_best_file, eval_summary, num_variants)
+
+    gen_results = []
+    gen_best_score = current_best_score
+    gen_best_file = None
+    gen_best_dict = None
+
+    for i, vf in enumerate(variant_files):
+        print(f"  Evaluating variant {i+1}/{num_variants} (2 runs)...", file=sys.stderr)
+        score, scores, best_report, best_dict, cost = _evaluate_variant(
+            vf, driver_name, baseline_pass_rate, i, current_best_score,
+        )
+        gen_results.append({
+            "variant": i,
+            "score": round(score, 3),
+            "scores": [round(s, 3) for s in scores],
+            "passed": best_report.passed_tasks,
+            "total": best_report.total_tasks,
+            "turn_efficiency": round(best_report.avg_turn_efficiency, 3),
+            "tokens": best_report.total_tokens,
+            "cost_usd": round(cost, 4),
+        })
+        if score > gen_best_score:
+            gen_best_score = score
+            gen_best_file = vf
+            gen_best_dict = best_dict
+
+    return gen_results, gen_best_score, gen_best_file, gen_best_dict, variant_files
+
+
+def _cleanup_variants(variant_files, keep_file):
+    """Remove all variant files except the one currently held as best."""
+    for vf in variant_files:
+        if vf != keep_file:
+            try:
+                os.unlink(vf)
+            except OSError:
+                pass
+
+
+def _apply_best_driver(driver_name, driver_file, current_best_file, baseline_score,
+                      current_best_score, dry_run):
+    """Copy the best variant over the driver file if it beat the baseline."""
+    if current_best_score > baseline_score and not dry_run:
+        shutil.copy2(current_best_file, driver_file)
+        print(f"APPLIED: {driver_name}.md updated (score {baseline_score:.3f} -> {current_best_score:.3f})", file=sys.stderr)
+        return True
+    if current_best_score > baseline_score:
+        print(f"DRY RUN: would update {driver_name}.md (score {baseline_score:.3f} -> {current_best_score:.3f})", file=sys.stderr)
+    else:
+        print(f"NO CHANGE: no variant beat baseline ({baseline_score:.3f})", file=sys.stderr)
+    return False
+
+
 def evolve_driver(
     driver_name: str,
     num_variants: int = 3,
@@ -96,7 +178,6 @@ def evolve_driver(
     print(f"EVOLVING: {driver_name} ({num_variants} variants x {num_generations} generations)", file=sys.stderr)
     print(f"{'=' * 60}\n", file=sys.stderr)
 
-    # Baseline: evaluate current driver
     print(f"Baseline eval...", file=sys.stderr)
     baseline_report, baseline_dict = run_evals_with_driver(driver_file, driver_name)
     baseline_score = fitness_score(baseline_report)
@@ -108,106 +189,36 @@ def evolve_driver(
 
     current_best_file = driver_file
     current_best_score = baseline_score
-    current_best_dict = baseline_dict
     eval_summary = format_eval_summary(baseline_dict)
-
     generations = []
 
     for gen in range(1, num_generations + 1):
-        print(f"Generation {gen}/{num_generations}:", file=sys.stderr)
-
-        # Generate variants
-        print(f"  Generating {num_variants} variants...", file=sys.stderr)
-        variant_files = generate_variants(current_best_file, eval_summary, num_variants)
-
-        gen_results = []
-        gen_best_score = current_best_score
-        gen_best_file = None
-        gen_best_dict = None
-
-        for i, vf in enumerate(variant_files):
-            print(f"  Evaluating variant {i+1}/{num_variants} (2 runs)...", file=sys.stderr)
-
-            # Run twice, take minimum score (conservative selection)
-            scores = []
-            reports = []
-            report_dicts = []
-            for run_idx in range(2):
-                report, report_dict = run_evals_with_driver(vf, driver_name)
-                s = fitness_score(report, baseline_pass_rate=baseline_pass_rate)
-                scores.append(s)
-                reports.append(report)
-                report_dicts.append(report_dict)
-
-            # Conservative: take worst of 2 runs, and its corresponding report
-            score = min(scores)
-            worst_idx = scores.index(score)
-            best_report = reports[worst_idx]
-            best_dict = report_dicts[worst_idx]
-
-            cost = best_report.estimated_cost()
-            cost_str = f", ${cost:.4f}" if cost > 0 else ""
-            status = "+" if score > current_best_score else "-"
-            print(f"    [{status}] score={score:.3f} (runs: {scores[0]:.3f}, {scores[1]:.3f}) "
-                  f"({best_report.passed_tasks}/{best_report.total_tasks} passed, "
-                  f"{best_report.avg_turn_efficiency:.0%} turn eff, "
-                  f"{best_report.total_tokens:,} tokens{cost_str})", file=sys.stderr)
-
-            gen_results.append({
-                "variant": i,
-                "score": round(score, 3),
-                "scores": [round(s, 3) for s in scores],
-                "passed": best_report.passed_tasks,
-                "total": best_report.total_tasks,
-                "turn_efficiency": round(best_report.avg_turn_efficiency, 3),
-                "tokens": best_report.total_tokens,
-                "cost_usd": round(cost, 4),
-            })
-
-            if score > gen_best_score:
-                gen_best_score = score
-                gen_best_file = vf
-                gen_best_dict = best_dict
-
-        # Select best of this generation
+        gen_results, gen_best_score, gen_best_file, gen_best_dict, variant_files = _run_generation(
+            gen, num_generations, num_variants, current_best_file, eval_summary,
+            current_best_score, baseline_pass_rate, driver_name,
+        )
         improved = gen_best_score > current_best_score
         if improved and gen_best_file:
             current_best_score = gen_best_score
             current_best_file = gen_best_file
-            current_best_dict = gen_best_dict
             eval_summary = format_eval_summary(gen_best_dict)
             save_lineage(driver_name, gen, gen_best_score, gen_best_file, gen_best_dict)
             print(f"  -> Improved: {gen_best_score:.3f}\n", file=sys.stderr)
         else:
             print(f"  -> No improvement (best: {gen_best_score:.3f})\n", file=sys.stderr)
-
         generations.append({
             "generation": gen,
             "best_score": round(gen_best_score, 3),
             "improved": improved,
             "variants": gen_results,
         })
+        _cleanup_variants(variant_files, current_best_file)
 
-        # Cleanup temp files
-        for vf in variant_files:
-            if vf != current_best_file:
-                try:
-                    os.unlink(vf)
-                except OSError:
-                    pass
+    applied = _apply_best_driver(
+        driver_name, driver_file, current_best_file,
+        baseline_score, current_best_score, dry_run,
+    )
 
-    # Apply best if improved
-    applied = False
-    if current_best_score > baseline_score and not dry_run:
-        shutil.copy2(current_best_file, driver_file)
-        applied = True
-        print(f"APPLIED: {driver_name}.md updated (score {baseline_score:.3f} -> {current_best_score:.3f})", file=sys.stderr)
-    elif current_best_score > baseline_score:
-        print(f"DRY RUN: would update {driver_name}.md (score {baseline_score:.3f} -> {current_best_score:.3f})", file=sys.stderr)
-    else:
-        print(f"NO CHANGE: no variant beat baseline ({baseline_score:.3f})", file=sys.stderr)
-
-    # Cleanup remaining temp files
     if current_best_file != driver_file:
         try:
             os.unlink(current_best_file)
@@ -222,11 +233,9 @@ def evolve_driver(
         "applied": applied,
         "generations": generations,
     }
-
     print(f"\n{'=' * 60}", file=sys.stderr)
     print(json.dumps(summary, indent=2))
     print(f"{'=' * 60}\n", file=sys.stderr)
-
     return summary
 
 
