@@ -34,6 +34,12 @@ _FORWARD_ENVS = [
     "AGENT_MODEL",
 ]
 
+# Outer provider names that cannot be reached from a remote host
+# without network tunneling. When the outer is on one of these, we
+# transparently switch the remote to LLM_PROVIDER=delegate so the
+# inner routes inference back through the conversational channel.
+_LOCAL_PROVIDERS = frozenset({"lmstudio", "ollama"})
+
 _ADDR_RE = re.compile(r"clive@([\w.\-]+)")
 
 
@@ -163,14 +169,27 @@ def build_agent_ssh_cmd(host: str, config: dict, nonce: str | None = None) -> st
     # Host
     parts.append(host)
 
-    # Remote command. CLIVE_FRAME_NONCE is prefixed as a remote env
-    # assignment so we do not depend on SendEnv / AcceptEnv — the
-    # generated nonce is not sensitive (it authenticates within a
-    # single session) and visible as `ps` output on the remote is
-    # acceptable.
+    # Remote command. Env-var assignments are prefixed on the remote
+    # command itself (not SSH SendEnv / AcceptEnv) so we do not depend
+    # on sshd config on the remote.
+    #   - CLIVE_FRAME_NONCE authenticates the framed protocol for
+    #     this specific session; not sensitive beyond the session,
+    #     acceptable to be visible in remote `ps` output.
+    #   - LLM_PROVIDER=delegate + AGENT_MODEL=delegate force the inner
+    #     to route inference back through the conversational channel
+    #     when the outer is on a local-only provider (LMStudio,
+    #     Ollama). Cloud providers are reachable from the remote
+    #     directly and get their env vars forwarded via SendEnv above.
     clive_path = config.get("path", DEFAULT_CLIVE_PATH)
     toolset = config.get("toolset")
-    remote_parts = [f"CLIVE_FRAME_NONCE={nonce}", clive_path, "--conversational"]
+    remote_parts = [f"CLIVE_FRAME_NONCE={nonce}"]
+
+    outer_provider = os.environ.get("LLM_PROVIDER", "").lower()
+    if outer_provider in _LOCAL_PROVIDERS:
+        remote_parts.append("LLM_PROVIDER=delegate")
+        remote_parts.append("AGENT_MODEL=delegate")
+
+    remote_parts.extend([clive_path, "--conversational"])
     if toolset:
         remote_parts.extend(["-t", toolset])
 

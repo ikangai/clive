@@ -170,3 +170,57 @@ def test_build_ssh_cmd_nonces_are_unique_per_call():
     n1 = re.search(r"CLIVE_FRAME_NONCE=([A-Za-z0-9_-]+)", c1).group(1)
     n2 = re.search(r"CLIVE_FRAME_NONCE=([A-Za-z0-9_-]+)", c2).group(1)
     assert n1 != n2
+
+
+# ─── Local-provider → delegate auto-override ─────────────────────────────────
+
+def test_local_provider_forces_delegate(monkeypatch):
+    """When the outer is on LMStudio (localhost-only), the remote
+    cannot reach it without tunneling. build_agent_ssh_cmd must
+    override LLM_PROVIDER=delegate on the remote so the inner routes
+    inference back through the conversational channel."""
+    monkeypatch.setenv("LLM_PROVIDER", "lmstudio")
+    cmd = build_agent_ssh_cmd("prod.example.com", config={})
+    assert "LLM_PROVIDER=delegate" in cmd
+    assert "AGENT_MODEL=delegate" in cmd
+    assert "--conversational" in cmd
+
+
+def test_ollama_also_forces_delegate(monkeypatch):
+    monkeypatch.setenv("LLM_PROVIDER", "ollama")
+    cmd = build_agent_ssh_cmd("prod.example.com", config={})
+    assert "LLM_PROVIDER=delegate" in cmd
+
+
+def test_cloud_provider_does_not_force_delegate(monkeypatch):
+    """Cloud providers (Anthropic, OpenAI, OpenRouter, Gemini) are
+    reachable from the remote directly — forward the env vars via
+    SendEnv and let the remote call the cloud endpoint itself. No
+    delegate override."""
+    monkeypatch.setenv("LLM_PROVIDER", "openrouter")
+    monkeypatch.setenv("OPENROUTER_API_KEY", "sk-fake")
+    cmd = build_agent_ssh_cmd("prod.example.com", config={})
+    assert "SendEnv=LLM_PROVIDER" in cmd
+    assert "SendEnv=OPENROUTER_API_KEY" in cmd
+    assert "LLM_PROVIDER=delegate" not in cmd
+
+
+def test_anthropic_does_not_force_delegate(monkeypatch):
+    monkeypatch.setenv("LLM_PROVIDER", "anthropic")
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-ant")
+    cmd = build_agent_ssh_cmd("prod.example.com", config={})
+    assert "LLM_PROVIDER=delegate" not in cmd
+    assert "SendEnv=ANTHROPIC_API_KEY" in cmd
+
+
+def test_delegate_override_appears_before_clive_command(monkeypatch):
+    """The LLM_PROVIDER=delegate assignment must sit in the remote
+    command string BEFORE the clive.py invocation so the env var is
+    visible when the inner reads it at startup."""
+    monkeypatch.setenv("LLM_PROVIDER", "lmstudio")
+    cmd = build_agent_ssh_cmd("host", config={})
+    # The remote command is quoted; find the opening quote and check ordering
+    idx_provider = cmd.find("LLM_PROVIDER=delegate")
+    idx_clive = cmd.find("clive.py")
+    assert idx_provider != -1 and idx_clive != -1
+    assert idx_provider < idx_clive
