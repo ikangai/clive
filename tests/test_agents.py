@@ -245,3 +245,26 @@ def test_llm_base_url_is_forwarded(monkeypatch):
     monkeypatch.setenv("LLM_BASE_URL", "http://proxy:8080/v1")
     cmd = build_agent_ssh_cmd("host", config={})
     assert "SendEnv=LLM_BASE_URL" in cmd
+
+
+# ─── SSH ControlMaster connection pooling ────────────────────────────────────
+
+def test_ssh_cmd_enables_controlmaster(monkeypatch):
+    """Agent panes open many rapid SSH connections (delegate round
+    trips, scp for file transfer, reconnects). ControlMaster pools
+    them over a single SSH channel so handshakes don't dominate
+    latency. The first connection creates the master socket; every
+    subsequent ssh/scp to the same host hitches a ride."""
+    monkeypatch.setenv("LLM_PROVIDER", "openrouter")
+    cmd = build_agent_ssh_cmd("host", config={})
+    assert "ControlMaster=auto" in cmd
+    assert "ControlPath=" in cmd
+    assert "ControlPersist=" in cmd
+
+
+def test_ssh_cmd_controlpath_uses_clive_ssh_dir():
+    """Control sockets live under ~/.clive/ssh/ so they are isolated
+    from the user's normal SSH control sockets and cleaned up by a
+    single rm -rf if something wedges."""
+    cmd = build_agent_ssh_cmd("host", config={})
+    assert ".clive/ssh" in cmd

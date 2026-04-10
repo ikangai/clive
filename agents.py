@@ -168,6 +168,21 @@ def build_agent_ssh_cmd(host: str, config: dict, nonce: str | None = None) -> st
     # Connection options
     parts.extend(["-o BatchMode=yes", "-o ConnectTimeout=10"])
 
+    # Connection pooling: reuse a single SSH channel for rapid agent
+    # traffic (delegate round trips, scp, reconnects). The first
+    # connection creates the master socket; subsequent ssh/scp to the
+    # same host attach to it in milliseconds instead of re-doing the
+    # full handshake. Control sockets live under ~/.clive/ssh/ so
+    # they are namespaced away from the user's existing control
+    # sockets and can be wiped with a single rm -rf if something wedges.
+    ctl_dir = os.path.expanduser("~/.clive/ssh")
+    os.makedirs(ctl_dir, exist_ok=True, mode=0o700)
+    parts.extend([
+        "-o ControlMaster=auto",
+        f"-o ControlPath={ctl_dir}/%C",
+        "-o ControlPersist=60s",
+    ])
+
     # Host
     parts.append(host)
 
