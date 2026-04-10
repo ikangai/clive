@@ -36,9 +36,26 @@ def new(title: str | None = None, sessions_dir: Path | None = None) -> str:
         "title": title or "",
         "created_at": now,
         "updated_at": now,
+        "messages": [],
     }
     _path(sid, sessions_dir).write_text(json.dumps(entry, indent=2))
     return sid
+
+
+def append_message(sid: str, role: str, content: str,
+                   sessions_dir: Path | None = None) -> bool:
+    """Append a message to a session's transcript. Returns True if appended."""
+    data = get(sid, sessions_dir)
+    if data is None:
+        return False
+    data.setdefault("messages", []).append({
+        "role": role,
+        "content": content,
+        "ts": time.time(),
+    })
+    data["updated_at"] = time.time()
+    _path(sid, sessions_dir).write_text(json.dumps(data, indent=2))
+    return True
 
 
 def get(sid: str, sessions_dir: Path | None = None) -> dict | None:

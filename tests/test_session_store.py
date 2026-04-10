@@ -1,7 +1,7 @@
 """Tests for the persistent chat-session store."""
 import json
 
-from session_store import new, get, list_sessions, delete
+from session_store import new, get, list_sessions, delete, append_message
 
 
 def test_new_creates_file(tmp_path):
@@ -76,3 +76,45 @@ def test_sessions_dir_created_if_missing(tmp_path):
     target = tmp_path / "deep" / "nested"
     sid = new(sessions_dir=target)
     assert (target / f"{sid}.json").exists()
+
+
+def test_new_session_has_empty_messages_list(tmp_path):
+    sid = new(sessions_dir=tmp_path)
+    data = get(sid, sessions_dir=tmp_path)
+    assert data is not None
+    assert data["messages"] == []
+
+
+def test_append_message_persists(tmp_path):
+    sid = new(sessions_dir=tmp_path)
+    ok = append_message(sid, "user", "hello world", sessions_dir=tmp_path)
+    assert ok is True
+    data = get(sid, sessions_dir=tmp_path)
+    assert data is not None
+    assert len(data["messages"]) == 1
+    assert data["messages"][0]["role"] == "user"
+    assert data["messages"][0]["content"] == "hello world"
+    assert "ts" in data["messages"][0]
+
+
+def test_append_message_returns_false_for_missing(tmp_path):
+    assert append_message("nope", "user", "x", sessions_dir=tmp_path) is False
+
+
+def test_append_message_ordered(tmp_path):
+    sid = new(sessions_dir=tmp_path)
+    append_message(sid, "user", "first", sessions_dir=tmp_path)
+    append_message(sid, "assistant", "second", sessions_dir=tmp_path)
+    append_message(sid, "user", "third", sessions_dir=tmp_path)
+    data = get(sid, sessions_dir=tmp_path)
+    assert [m["content"] for m in data["messages"]] == ["first", "second", "third"]
+
+
+def test_append_message_updates_updated_at(tmp_path):
+    sid = new(sessions_dir=tmp_path)
+    before = get(sid, sessions_dir=tmp_path)["updated_at"]
+    import time as _t
+    _t.sleep(0.01)
+    append_message(sid, "user", "hi", sessions_dir=tmp_path)
+    after = get(sid, sessions_dir=tmp_path)["updated_at"]
+    assert after > before
