@@ -4,6 +4,7 @@ import json
 from session_store import (
     new, get, list_sessions, delete, append_message, record_task,
     complete_last_task, list_sorted, most_recent, format_session_line,
+    build_recap_text,
 )
 
 
@@ -289,3 +290,63 @@ def test_format_session_line_untitled(tmp_path):
     line = format_session_line(data)
     assert "(untitled)" in line
     assert "0 tasks" in line
+
+
+def test_build_recap_text_empty_session(tmp_path):
+    sid = new(sessions_dir=tmp_path)
+    data = get(sid, sessions_dir=tmp_path)
+    assert build_recap_text(data) == ""
+
+
+def test_build_recap_text_shows_title(tmp_path):
+    sid = new(title="my chat", sessions_dir=tmp_path)
+    record_task(sid, "first task", sessions_dir=tmp_path)
+    complete_last_task(sid, summary="done 1", sessions_dir=tmp_path)
+    data = get(sid, sessions_dir=tmp_path)
+    recap = build_recap_text(data)
+    assert "my chat" in recap
+    assert "first task" in recap
+    assert "done 1" in recap
+
+
+def test_build_recap_text_limits_to_last_n(tmp_path):
+    sid = new(sessions_dir=tmp_path)
+    for i in range(5):
+        record_task(sid, f"task {i}", sessions_dir=tmp_path)
+        complete_last_task(sid, summary=f"summary {i}", sessions_dir=tmp_path)
+    data = get(sid, sessions_dir=tmp_path)
+    recap = build_recap_text(data, last_n=2)
+    assert "task 3" in recap
+    assert "task 4" in recap
+    assert "task 0" not in recap
+    assert "task 1" not in recap
+    assert "2 of 5" in recap
+
+
+def test_build_recap_text_includes_status(tmp_path):
+    sid = new(sessions_dir=tmp_path)
+    record_task(sid, "risky thing", sessions_dir=tmp_path)
+    complete_last_task(sid, summary="kaboom", status="failed",
+                       sessions_dir=tmp_path)
+    data = get(sid, sessions_dir=tmp_path)
+    recap = build_recap_text(data)
+    assert "[failed]" in recap
+
+
+def test_build_recap_text_pending_task_no_arrow(tmp_path):
+    sid = new(sessions_dir=tmp_path)
+    record_task(sid, "open task", sessions_dir=tmp_path)
+    data = get(sid, sessions_dir=tmp_path)
+    recap = build_recap_text(data)
+    assert "open task" in recap
+    assert "[pending]" in recap
+    assert "\u2192" not in recap  # no summary arrow when no summary
+
+
+def test_build_recap_text_last_n_clamped(tmp_path):
+    sid = new(sessions_dir=tmp_path)
+    record_task(sid, "only", sessions_dir=tmp_path)
+    data = get(sid, sessions_dir=tmp_path)
+    # last_n=0 should still show at least 1
+    recap = build_recap_text(data, last_n=0)
+    assert "only" in recap

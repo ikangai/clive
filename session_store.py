@@ -153,6 +153,31 @@ def most_recent(sessions_dir: Path | None = None) -> dict | None:
     return sorted_list[0] if sorted_list else None
 
 
+def build_recap_text(session: dict, last_n: int = 3) -> str:
+    """Render a compact recap of the last N tasks of a session.
+
+    Used when resuming a chat session: the recap is prepended to the next
+    planner call so the LLM has context about prior user intent and outcomes.
+    Returns an empty string if the session has no tasks (nothing to recap).
+    """
+    tasks = session.get("tasks") or []
+    if not tasks:
+        return ""
+    last_n = max(1, last_n)
+    recent = tasks[-last_n:]
+    title = session.get("title") or "(untitled)"
+    lines = [f"Resuming session: {title}", f"Prior tasks ({len(recent)} of {len(tasks)}):"]
+    for i, t in enumerate(recent, start=1):
+        status = t.get("status", "pending")
+        task_text = t.get("task", "")
+        summary = t.get("summary")
+        line = f"  {i}. [{status}] {task_text}"
+        if summary:
+            line += f" \u2192 {summary}"
+        lines.append(line)
+    return "\n".join(lines)
+
+
 def format_session_line(session: dict) -> str:
     """Render a one-line summary of a session for UI listings.
 
