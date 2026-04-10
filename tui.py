@@ -777,11 +777,8 @@ class CliveApp(App):
             devnull.close()
             self.call_from_thread(self._finish_task, task_info)
 
-    def _execute_task_inner(self, task: str, task_info: dict, out: RichLog) -> None:
-        session_id = generate_session_id()
-        session_dir = f"/tmp/clive/{session_id}"
-
-        # Triage: classify the input before executing
+    def _tui_triage(self, task: str, task_info: dict, out: RichLog) -> dict:
+        """Run the triage prompt. Returns a dict with action/task/response/question."""
         client = get_client()
         clive_context = self._build_clive_context()
         triage_msgs = [
@@ -792,15 +789,64 @@ class CliveApp(App):
             triage_raw, pt, ct = chat(client, triage_msgs, max_tokens=512)
             task_info["pt"] += pt
             task_info["ct"] += ct
-            # Parse JSON from response (strip markdown fences if present)
             clean = triage_raw.strip()
             if clean.startswith("```"):
                 clean = clean.split("\n", 1)[1].rsplit("```", 1)[0].strip()
-            triage = json.loads(clean)
+            return json.loads(clean)
         except Exception:
-            # If triage fails, fall through to execute
-            triage = {"action": "execute", "task": task}
+            return {"action": "execute", "task": task}
 
+    def _tui_show_plan(self, plan, out: RichLog) -> None:
+        """Render a plan's subtasks to the RichLog."""
+        self.call_from_thread(out.write, "")
+        for s in plan.subtasks:
+            deps = f" [#3a3a4a]→ {', '.join(s.depends_on)}[/]" if s.depends_on else ""
+            self.call_from_thread(
+                out.write,
+                f"  [#3a3a4a]○[/] [#c9c9d6]{s.id}[/] [#6b7280]{s.pane}[/] {s.description[:55]}{deps}",
+            )
+        self.call_from_thread(out.write, "")
+
+    def _tui_summarize_results(self, task: str, results, task_info: dict) -> str:
+        """Final LLM call to synthesize results. Returns the summary string."""
+        try:
+            client = get_client()
+            result_text = "\n\n".join(
+                f"Subtask {r.subtask_id} [{r.status.value}]: {r.summary}"
+                for r in results
+            )
+            messages = [
+                {"role": "system", "content": build_summarizer_prompt()},
+                {"role": "user", "content": f"Original task: {task}\n\nSubtask results:\n{result_text}"},
+            ]
+            summary, pt, ct = chat(client, messages)
+            task_info["pt"] += pt
+            task_info["ct"] += ct
+            return summary
+        except Exception as e:
+            return f"Summarization failed: {e}"
+
+    def _tui_render_summary(self, summary: str, results, task_info: dict, out: RichLog) -> None:
+        """Print the final summary line + body to the RichLog."""
+        completed = sum(1 for r in results if r.status == SubtaskStatus.COMPLETED)
+        total = len(results)
+        elapsed = time.time() - task_info["start"]
+        total_tokens = task_info["pt"] + task_info["ct"]
+        self.call_from_thread(out.write, "")
+        self.call_from_thread(
+            out.write,
+            f"[#22c55e]✓ {completed}/{total} subtasks[/] [#3a3a4a]in {elapsed:.1f}s · {total_tokens:,} tokens[/]",
+        )
+        self.call_from_thread(out.write, "")
+        for line in summary.split("\n"):
+            self.call_from_thread(out.write, line)
+        self.call_from_thread(out.write, "")
+
+    def _execute_task_inner(self, task: str, task_info: dict, out: RichLog) -> None:
+        session_id = generate_session_id()
+        session_dir = f"/tmp/clive/{session_id}"
+
+        triage = self._tui_triage(task, task_info, out)
         action = triage.get("action", "execute")
 
         if action == "answer":
@@ -812,125 +858,58 @@ class CliveApp(App):
 
         if action == "clarify":
             question = triage.get("question", "Could you provide more details?")
-            self.call_from_thread(
-                out.write,
-                f"\n[#d97706]?[/] {question}\n",
-            )
-            # Store pending state so next input continues this task
+            self.call_from_thread(out.write, f"\n[#d97706]?[/] {question}\n")
             self._pending = {"task": task}
             return
 
-        # action == "execute" — may have a refined task description
+        # action == "execute"
         task = triage.get("task", task)
-        task_info["desc"] = task  # update with refined version
+        task_info["desc"] = task
 
-        # Setup
-        self.call_from_thread(
-            out.write, "[#6b7280]Setting up session...[/]"
-        )
-
+        self.call_from_thread(out.write, "[#6b7280]Setting up session...[/]")
         try:
             session, panes, _session_name = setup_session(self._resolved["panes"], session_dir=session_dir)
             tool_status = check_health(panes)
         except Exception as e:
-            self.call_from_thread(
-                out.write, f"[#ef4444]✗ Session failed: {e}[/]"
-            )
+            self.call_from_thread(out.write, f"[#ef4444]✗ Session failed: {e}[/]")
             return
 
         tools_summary = build_tools_summary(
             tool_status, self._available_cmds, self._resolved["endpoints"]
         )
-
         if self._cancelled.is_set():
             return
 
-        # Plan
         self.call_from_thread(out.write, "[#6b7280]Planning...[/]")
-
         try:
-            plan = create_plan(
-                task, panes, tool_status, tools_summary=tools_summary
-            )
+            plan = create_plan(task, panes, tool_status, tools_summary=tools_summary)
         except Exception as e:
-            self.call_from_thread(
-                out.write, f"[#ef4444]✗ Planning failed: {e}[/]"
-            )
+            self.call_from_thread(out.write, f"[#ef4444]✗ Planning failed: {e}[/]")
             return
 
-        # Show plan
-        self.call_from_thread(out.write, "")
-        for s in plan.subtasks:
-            deps = f" [#3a3a4a]→ {', '.join(s.depends_on)}[/]" if s.depends_on else ""
-            self.call_from_thread(
-                out.write,
-                f"  [#3a3a4a]○[/] [#c9c9d6]{s.id}[/] [#6b7280]{s.pane}[/] {s.description[:55]}{deps}",
-            )
-        self.call_from_thread(out.write, "")
-
+        self._tui_show_plan(plan, out)
         if self._cancelled.is_set():
             return
 
-        # Execute
         try:
             results = execute_plan(
                 plan, panes, tool_status,
                 on_event=lambda et, *a: self._on_event(et, task_info, *a),
-                session_dir=session_dir
+                session_dir=session_dir,
             )
         except Exception as e:
-            self.call_from_thread(
-                out.write, f"[#ef4444]✗ Execution failed: {e}[/]"
-            )
+            self.call_from_thread(out.write, f"[#ef4444]✗ Execution failed: {e}[/]")
             return
 
         if self._cancelled.is_set():
             return
 
-        # Summarize
         self.call_from_thread(out.write, "")
-        self.call_from_thread(
-            out.write, "[#6b7280]Summarizing...[/]"
-        )
-
-        try:
-            client = get_client()
-            result_text = "\n\n".join(
-                f"Subtask {r.subtask_id} [{r.status.value}]: {r.summary}"
-                for r in results
-            )
-            messages = [
-                {"role": "system", "content": build_summarizer_prompt()},
-                {
-                    "role": "user",
-                    "content": f"Original task: {task}\n\nSubtask results:\n{result_text}",
-                },
-            ]
-            summary, pt, ct = chat(client, messages)
-            task_info["pt"] += pt
-            task_info["ct"] += ct
-        except Exception as e:
-            summary = f"Summarization failed: {e}"
-
-        completed = sum(
-            1 for r in results if r.status == SubtaskStatus.COMPLETED
-        )
-        total = len(results)
-        elapsed = time.time() - task_info["start"]
-        total_tokens = task_info["pt"] + task_info["ct"]
-
-        self.call_from_thread(out.write, "")
-        self.call_from_thread(
-            out.write,
-            f"[#22c55e]✓ {completed}/{total} subtasks[/] [#3a3a4a]in {elapsed:.1f}s · {total_tokens:,} tokens[/]",
-        )
-        self.call_from_thread(out.write, "")
-        for line in summary.split("\n"):
-            self.call_from_thread(out.write, line)
-        self.call_from_thread(out.write, "")
+        self.call_from_thread(out.write, "[#6b7280]Summarizing...[/]")
+        summary = self._tui_summarize_results(task, results, task_info)
+        self._tui_render_summary(summary, results, task_info, out)
 
         # Cleanup session directory
-        
         if session_dir and os.path.isdir(session_dir):
             shutil.rmtree(session_dir, ignore_errors=True)
 
