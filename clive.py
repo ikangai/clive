@@ -222,73 +222,106 @@ if __name__ == "__main__":
         and not args.bool
         and args.task
     ):
-        from output import set_conversational, emit_turn, emit_context, emit_question
+        from output import set_conversational, emit_turn, emit_context, emit_question, emit_alive
         set_conversational(True)
 
         # Named instances loop: run task(s), then wait for more on stdin
         keep_alive = bool(_instance_name)
 
-        # Read task from args (SSH command) or stdin
-        task = args.task
-        if not task:
-            try:
-                task = sys.stdin.readline().strip()
-            except EOFError:
-                if not keep_alive:
+        # Keepalive ticker: emit an `alive` frame every 15 seconds for
+        # the entire lifetime of the conversational block. Lets the
+        # outer (or any supervisor reading the pane) distinguish a
+        # slow-but-working inner from a wedged one. Daemon thread so
+        # SystemExit tears it down without lingering.
+        import threading
+        _alive_stop = threading.Event()
+
+        def _alive_ticker():
+            while not _alive_stop.is_set():
+                try:
+                    emit_alive()
+                except Exception:
+                    # stdout closed / broken pipe — outer is gone. No
+                    # point in continuing to tick. The main thread will
+                    # notice the EOF on its own stdin read.
+                    return
+                _alive_stop.wait(15.0)
+
+        _alive_thread = threading.Thread(
+            target=_alive_ticker, name="clive-alive-ticker", daemon=True,
+        )
+        _alive_thread.start()
+
+        try:
+            # Read task from args (SSH command) or — only in
+            # non-keep-alive mode — one line from stdin. In keep-alive
+            # mode we skip the initial readline and let the loop below
+            # handle stdin, so that control words like "exit" / "quit"
+            # / "/stop" work on the FIRST line the user sends, not just
+            # on subsequent ones.
+            task = args.task
+            if not task and not keep_alive:
+                try:
+                    task = sys.stdin.readline().strip()
+                except EOFError:
                     emit_turn("failed")
                     raise SystemExit(1)
-                task = None
 
-        if task:
-            emit_turn("thinking")
-            try:
-                summary = run(
-                    task,
-                    toolset_spec=args.toolset,
-                    output_format="default",
-                    max_tokens=args.max_tokens,
-                )
-                emit_context({"result": summary})
-                emit_turn("done")
-            except Exception as e:
-                emit_context({"error": str(e)})
+            if task:
+                emit_turn("thinking")
+                try:
+                    summary = run(
+                        task,
+                        toolset_spec=args.toolset,
+                        output_format="default",
+                        max_tokens=args.max_tokens,
+                    )
+                    emit_context({"result": summary})
+                    emit_turn("done")
+                except Exception as e:
+                    emit_context({"error": str(e)})
+                    emit_turn("failed")
+                    if not keep_alive:
+                        raise SystemExit(1)
+            elif not keep_alive:
+                emit_context({"error": "No task provided"})
                 emit_turn("failed")
-                if not keep_alive:
-                    raise SystemExit(1)
-        elif not keep_alive:
-            emit_context({"error": "No task provided"})
-            emit_turn("failed")
-            raise SystemExit(1)
+                raise SystemExit(1)
 
-        if not keep_alive:
-            raise SystemExit(0)
+            if not keep_alive:
+                raise SystemExit(0)
 
-        # Named instance: loop, waiting for tasks on stdin
-        while True:
-            try:
-                line = sys.stdin.readline()
-            except EOFError:
-                break
-            if not line:  # EOF
-                break
-            task = line.strip()
-            if not task:
-                continue
-            if task.lower() in ("exit", "quit", "/stop"):
-                break
-            emit_turn("thinking")
-            try:
-                summary = run(
-                    task,
-                    toolset_spec=args.toolset,
-                    output_format="default",
-                    max_tokens=args.max_tokens,
-                )
-                emit_context({"result": summary})
-                emit_turn("done")
-            except Exception as e:
-                emit_context({"error": str(e)})
-                emit_turn("failed")
+            # Named instance: loop, waiting for tasks on stdin
+            while True:
+                try:
+                    line = sys.stdin.readline()
+                except EOFError:
+                    break
+                if not line:  # EOF
+                    break
+                task = line.strip()
+                if not task:
+                    continue
+                if task.lower() in ("exit", "quit", "/stop"):
+                    break
+                emit_turn("thinking")
+                try:
+                    summary = run(
+                        task,
+                        toolset_spec=args.toolset,
+                        output_format="default",
+                        max_tokens=args.max_tokens,
+                    )
+                    emit_context({"result": summary})
+                    emit_turn("done")
+                except Exception as e:
+                    emit_context({"error": str(e)})
+                    emit_turn("failed")
+        finally:
+            # Signal the ticker to stop. Daemon=True means it dies with
+            # the process anyway, but signalling lets it exit its
+            # blocking wait() promptly for a cleaner shutdown.
+            _alive_stop.set()
 
         raise SystemExit(0)
 
