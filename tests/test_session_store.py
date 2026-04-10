@@ -3,7 +3,7 @@ import json
 
 from session_store import (
     new, get, list_sessions, delete, append_message, record_task,
-    complete_last_task,
+    complete_last_task, list_sorted, most_recent, format_session_line,
 )
 
 
@@ -231,3 +231,61 @@ def test_complete_last_task_updates_updated_at(tmp_path):
     complete_last_task(sid, summary="done", sessions_dir=tmp_path)
     after = get(sid, sessions_dir=tmp_path)["updated_at"]
     assert after > before
+
+
+def test_list_sorted_most_recent_first(tmp_path):
+    import time as _t
+    a = new(title="oldest", sessions_dir=tmp_path)
+    _t.sleep(0.01)
+    b = new(title="middle", sessions_dir=tmp_path)
+    _t.sleep(0.01)
+    c = new(title="newest", sessions_dir=tmp_path)
+    sorted_list = list_sorted(sessions_dir=tmp_path)
+    assert [s["id"] for s in sorted_list] == [c, b, a]
+
+
+def test_list_sorted_empty(tmp_path):
+    assert list_sorted(sessions_dir=tmp_path) == []
+
+
+def test_list_sorted_updates_on_append(tmp_path):
+    import time as _t
+    a = new(title="a", sessions_dir=tmp_path)
+    _t.sleep(0.01)
+    b = new(title="b", sessions_dir=tmp_path)
+    # b is newer after creation
+    assert list_sorted(sessions_dir=tmp_path)[0]["id"] == b
+    # Touching a via record_task should promote it
+    _t.sleep(0.01)
+    record_task(a, "new work", sessions_dir=tmp_path)
+    assert list_sorted(sessions_dir=tmp_path)[0]["id"] == a
+
+
+def test_most_recent_returns_latest(tmp_path):
+    import time as _t
+    new(title="one", sessions_dir=tmp_path)
+    _t.sleep(0.01)
+    latest = new(title="two", sessions_dir=tmp_path)
+    assert most_recent(sessions_dir=tmp_path)["id"] == latest
+
+
+def test_most_recent_none_when_empty(tmp_path):
+    assert most_recent(sessions_dir=tmp_path) is None
+
+
+def test_format_session_line_contains_fields(tmp_path):
+    sid = new(title="hello world", sessions_dir=tmp_path)
+    record_task(sid, "do stuff", sessions_dir=tmp_path)
+    data = get(sid, sessions_dir=tmp_path)
+    line = format_session_line(data)
+    assert sid in line
+    assert "hello world" in line
+    assert "1 tasks" in line
+
+
+def test_format_session_line_untitled(tmp_path):
+    sid = new(sessions_dir=tmp_path)
+    data = get(sid, sessions_dir=tmp_path)
+    line = format_session_line(data)
+    assert "(untitled)" in line
+    assert "0 tasks" in line

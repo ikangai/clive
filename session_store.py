@@ -138,6 +138,36 @@ def list_sessions(sessions_dir: Path | None = None) -> list[dict]:
     return result
 
 
+def list_sorted(sessions_dir: Path | None = None) -> list[dict]:
+    """Return sessions sorted by ``updated_at`` descending (most recent first)."""
+    return sorted(
+        list_sessions(sessions_dir),
+        key=lambda s: s.get("updated_at", 0),
+        reverse=True,
+    )
+
+
+def most_recent(sessions_dir: Path | None = None) -> dict | None:
+    """Return the most recently updated session, or None if no sessions exist."""
+    sorted_list = list_sorted(sessions_dir)
+    return sorted_list[0] if sorted_list else None
+
+
+def format_session_line(session: dict) -> str:
+    """Render a one-line summary of a session for UI listings.
+
+    Format: ``<id>  <updated_at iso>  <task_count> tasks  <title>``
+    Kept deterministic so tests can assert the exact string shape.
+    """
+    import datetime as _dt
+    sid = session.get("id", "?")[:12]
+    updated = session.get("updated_at", 0)
+    ts = _dt.datetime.fromtimestamp(updated).strftime("%Y-%m-%d %H:%M")
+    n = len(session.get("tasks") or [])
+    title = session.get("title") or "(untitled)"
+    return f"{sid}  {ts}  {n:>3} tasks  {title}"
+
+
 def delete(sid: str, sessions_dir: Path | None = None) -> bool:
     p = _path(sid, sessions_dir)
     if p.exists():
