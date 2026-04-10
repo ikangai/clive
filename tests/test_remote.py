@@ -111,3 +111,10 @@ def test_build_command_escapes_quotes():
     assert "TODO" in cmd
     # Should be properly escaped for shell
     assert "'" in cmd
+
+
+# ─── Legacy removal regression ───────────────────────────────────────────────
+
+def test_parse_remote_result_no_longer_exported():
+    import remote
+    assert not hasattr(remote, "parse_remote_result")

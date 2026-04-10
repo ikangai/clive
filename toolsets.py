@@ -154,7 +154,7 @@ PANES = {
         "app_type": "agent",
         "description": (
             "Remote clive instance. Send tasks as plain text, read results. "
-            "Uses DONE: JSON protocol for structured responses."
+            "Uses framed conversational protocol (see protocol.py)."
         ),
         "host": "deploy@agents.example.com",
         "connect_timeout": 5,

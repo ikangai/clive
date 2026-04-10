@@ -1,18 +1,18 @@
 # server/conversational.py
 """Conversational protocol handler for clive-to-clive communication.
 
-Protocol:
+Emits framed sentinel messages (see protocol.py). Legacy DONE: / TURN: /
+CONTEXT: / QUESTION: line prefixes are gone — framed only.
+
   Input:  One task per line on stdin
-  Output: TURN: thinking|done|failed|waiting
-          CONTEXT: {json}
-          DONE: {json}
-          QUESTION: text
-          PROGRESS: text
+  Output: framed <<<CLIVE:turn:...>>>, <<<CLIVE:context:...>>>,
+          <<<CLIVE:question:...>>>, <<<CLIVE:progress:...>>>
 """
 
-import json
 import logging
 from typing import Callable
+
+from protocol import encode
 
 log = logging.getLogger(__name__)
 
@@ -30,7 +30,7 @@ class ConversationalHandler:
 
     def handle_task(self, task: str):
         """Process a single task through the conversational protocol."""
-        self.emit_fn("TURN: thinking")
+        self.emit_fn(encode("turn", {"state": "thinking"}))
 
         try:
             result = self.run_fn(
@@ -39,18 +39,17 @@ class ConversationalHandler:
                 max_tokens=self.max_tokens,
                 session_ctx=self._session_ctx,
             )
-            self.emit_fn(f"CONTEXT: {json.dumps({'result': result})}")
-            self.emit_fn(f"DONE: {json.dumps({'status': 'success', 'summary': result.get('summary', str(result)) if isinstance(result, dict) else str(result)})}")
-            self.emit_fn("TURN: done")
+            self.emit_fn(encode("context", {"result": result}))
+            self.emit_fn(encode("turn", {"state": "done"}))
         except Exception as e:
-            self.emit_fn(f"CONTEXT: {json.dumps({'error': str(e)})}")
-            self.emit_fn("TURN: failed")
+            self.emit_fn(encode("context", {"error": str(e)}))
+            self.emit_fn(encode("turn", {"state": "failed"}))
             log.error("Task failed: %s", e)
 
     def ask_question(self, question: str):
-        """Emit a question to the caller and wait for response."""
-        self.emit_fn("TURN: waiting")
-        self.emit_fn(f"QUESTION: {question}")
+        """Emit a question frame and signal that we are waiting for input."""
+        self.emit_fn(encode("turn", {"state": "waiting"}))
+        self.emit_fn(encode("question", {"text": question}))
 
     def run_loop(self, input_stream):
         """Run the conversational loop, reading tasks from input_stream.
