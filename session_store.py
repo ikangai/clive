@@ -153,6 +153,80 @@ def most_recent(sessions_dir: Path | None = None) -> dict | None:
     return sorted_list[0] if sorted_list else None
 
 
+def set_title(sid: str, title: str, sessions_dir: Path | None = None) -> bool:
+    """Rename a session. Returns False if the session doesn't exist."""
+    data = get(sid, sessions_dir)
+    if data is None:
+        return False
+    data["title"] = title
+    data["updated_at"] = time.time()
+    _path(sid, sessions_dir).write_text(json.dumps(data, indent=2))
+    return True
+
+
+def dispatch_session_slash(task: str, current_sid: str | None,
+                           sessions_dir: Path | None = None
+                           ) -> tuple[bool, list[str], str | None]:
+    """Dispatch REPL slash commands that affect the active session.
+
+    Recognized commands:
+      ``/sessions``           — list all sessions
+      ``/new``                — create and switch to a new session
+      ``/resume <id>``        — switch to an existing session by id
+      ``/title <text>``       — rename the current session
+      ``/session`` / ``/id``  — show the current session id
+
+    Returns ``(handled, lines, new_sid)``:
+      - ``handled``: True if the input was a session slash command
+      - ``lines``:   human-readable output lines (to print)
+      - ``new_sid``: the session id to use after this dispatch; None if no
+        active session, or ``current_sid`` unchanged if not switched.
+    """
+    if not task or not task.startswith("/"):
+        return False, [], current_sid
+    parts = task.strip().split(maxsplit=1)
+    cmd = parts[0]
+    arg = parts[1] if len(parts) > 1 else ""
+
+    if cmd == "/sessions":
+        sessions = list_sorted(sessions_dir)
+        if not sessions:
+            return True, ["(no sessions)"], current_sid
+        return True, [format_session_line(s) for s in sessions], current_sid
+
+    if cmd == "/new":
+        sid = new(title=arg or None, sessions_dir=sessions_dir)
+        return True, [f"new session: {sid}"], sid
+
+    if cmd == "/resume":
+        if not arg:
+            return True, ["usage: /resume <session-id>"], current_sid
+        data = get(arg, sessions_dir=sessions_dir)
+        if data is None:
+            return True, [f"no such session: {arg}"], current_sid
+        lines = [f"resumed: {arg}"]
+        recap = build_recap_text(data)
+        if recap:
+            lines.append(recap)
+        return True, lines, arg
+
+    if cmd == "/title":
+        if current_sid is None:
+            return True, ["no active session"], current_sid
+        if not arg:
+            return True, ["usage: /title <new title>"], current_sid
+        if set_title(current_sid, arg, sessions_dir=sessions_dir):
+            return True, [f"title set: {arg}"], current_sid
+        return True, [f"failed to set title on {current_sid}"], current_sid
+
+    if cmd in ("/session", "/id"):
+        if current_sid is None:
+            return True, ["no active session"], current_sid
+        return True, [f"active session: {current_sid}"], current_sid
+
+    return False, [], current_sid
+
+
 def handle_session_args(args, sessions_dir: Path | None = None) -> tuple[bool, list[str]]:
     """Pure handler for session-related CLI flags.
 

@@ -5,6 +5,7 @@ from session_store import (
     new, get, list_sessions, delete, append_message, record_task,
     complete_last_task, list_sorted, most_recent, format_session_line,
     build_recap_text, run_task_in_session, handle_session_args,
+    dispatch_session_slash, set_title,
 )
 
 
@@ -488,3 +489,133 @@ def test_handle_session_args_resume_valid_but_empty(tmp_path):
     assert any(sid in ln for ln in lines)
     # Empty session: no recap block, just the header
     assert len(lines) == 1
+
+
+def test_set_title_updates_existing(tmp_path):
+    sid = new(title="old", sessions_dir=tmp_path)
+    assert set_title(sid, "new name", sessions_dir=tmp_path) is True
+    assert get(sid, sessions_dir=tmp_path)["title"] == "new name"
+
+
+def test_set_title_returns_false_for_missing(tmp_path):
+    assert set_title("ghost", "x", sessions_dir=tmp_path) is False
+
+
+def test_dispatch_slash_non_slash_not_handled(tmp_path):
+    handled, lines, new_sid = dispatch_session_slash("regular task", "sid1",
+                                                      sessions_dir=tmp_path)
+    assert handled is False
+    assert lines == []
+    assert new_sid == "sid1"
+
+
+def test_dispatch_slash_sessions_empty(tmp_path):
+    handled, lines, new_sid = dispatch_session_slash("/sessions", None,
+                                                      sessions_dir=tmp_path)
+    assert handled is True
+    assert lines == ["(no sessions)"]
+    assert new_sid is None
+
+
+def test_dispatch_slash_sessions_lists(tmp_path):
+    a = new(title="alpha", sessions_dir=tmp_path)
+    b = new(title="beta", sessions_dir=tmp_path)
+    handled, lines, _ = dispatch_session_slash("/sessions", None,
+                                                sessions_dir=tmp_path)
+    assert handled is True
+    joined = "\n".join(lines)
+    assert a in joined and b in joined
+
+
+def test_dispatch_slash_new_creates_and_switches(tmp_path):
+    handled, lines, new_sid = dispatch_session_slash("/new", None,
+                                                      sessions_dir=tmp_path)
+    assert handled is True
+    assert new_sid is not None
+    assert new_sid in lines[0]
+    assert get(new_sid, sessions_dir=tmp_path) is not None
+
+
+def test_dispatch_slash_new_with_title(tmp_path):
+    handled, _, new_sid = dispatch_session_slash("/new named chat", None,
+                                                  sessions_dir=tmp_path)
+    assert handled is True
+    data = get(new_sid, sessions_dir=tmp_path)
+    assert data["title"] == "named chat"
+
+
+def test_dispatch_slash_resume_missing_arg(tmp_path):
+    handled, lines, new_sid = dispatch_session_slash("/resume", "old",
+                                                      sessions_dir=tmp_path)
+    assert handled is True
+    assert "usage" in lines[0]
+    assert new_sid == "old"  # unchanged
+
+
+def test_dispatch_slash_resume_nonexistent(tmp_path):
+    handled, lines, new_sid = dispatch_session_slash("/resume ghost", "old",
+                                                      sessions_dir=tmp_path)
+    assert handled is True
+    assert "no such session" in lines[0]
+    assert new_sid == "old"
+
+
+def test_dispatch_slash_resume_valid_switches(tmp_path):
+    target = new(title="target", sessions_dir=tmp_path)
+    record_task(target, "prior", sessions_dir=tmp_path)
+    handled, lines, new_sid = dispatch_session_slash(f"/resume {target}",
+                                                      "old",
+                                                      sessions_dir=tmp_path)
+    assert handled is True
+    assert new_sid == target
+    assert any(target in ln for ln in lines)
+    assert any("prior" in ln for ln in lines)  # recap shown
+
+
+def test_dispatch_slash_title_requires_active_session(tmp_path):
+    handled, lines, new_sid = dispatch_session_slash("/title whatever", None,
+                                                      sessions_dir=tmp_path)
+    assert handled is True
+    assert "no active session" in lines[0]
+    assert new_sid is None
+
+
+def test_dispatch_slash_title_updates(tmp_path):
+    sid = new(sessions_dir=tmp_path)
+    handled, lines, new_sid = dispatch_session_slash("/title my chat", sid,
+                                                      sessions_dir=tmp_path)
+    assert handled is True
+    assert new_sid == sid
+    assert get(sid, sessions_dir=tmp_path)["title"] == "my chat"
+    assert "my chat" in lines[0]
+
+
+def test_dispatch_slash_title_empty_arg(tmp_path):
+    sid = new(sessions_dir=tmp_path)
+    handled, lines, _ = dispatch_session_slash("/title", sid,
+                                                sessions_dir=tmp_path)
+    assert handled is True
+    assert "usage" in lines[0]
+
+
+def test_dispatch_slash_session_shows_id(tmp_path):
+    sid = new(sessions_dir=tmp_path)
+    handled, lines, _ = dispatch_session_slash("/session", sid,
+                                                sessions_dir=tmp_path)
+    assert handled is True
+    assert sid in lines[0]
+
+
+def test_dispatch_slash_session_no_active(tmp_path):
+    handled, lines, _ = dispatch_session_slash("/id", None,
+                                                sessions_dir=tmp_path)
+    assert handled is True
+    assert "no active session" in lines[0]
+
+
+def test_dispatch_slash_unknown_not_handled(tmp_path):
+    # Unrelated slash commands (like /dashboard) should pass through unchanged
+    handled, lines, new_sid = dispatch_session_slash("/dashboard", "x",
+                                                      sessions_dir=tmp_path)
+    assert handled is False
+    assert new_sid == "x"
