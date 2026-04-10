@@ -360,6 +360,189 @@ def _emit(on_event, *args):
             log.debug("on_event callback failed for %s", args[0] if args else "?", exc_info=True)
 
 
+class _ExecState:
+    """Shared mutable state for the DAG scheduler loop.
+
+    A small namespace bundle so the submit/collect/deadlock helpers can share
+    state without a 10-parameter signature. Only used inside execute_plan.
+    """
+    __slots__ = (
+        "plan", "panes", "on_event", "session_dir", "max_tokens",
+        "results", "futures", "subtask_map", "start_times", "result_files",
+        "wake_event", "pool",
+    )
+
+    def __init__(self, plan, panes, on_event, session_dir, max_tokens, pool, wake_event):
+        self.plan = plan
+        self.panes = panes
+        self.on_event = on_event
+        self.session_dir = session_dir
+        self.max_tokens = max_tokens
+        self.pool = pool
+        self.wake_event = wake_event
+        self.results: dict[str, SubtaskResult] = {}
+        self.futures: dict[str, Future] = {}
+        self.subtask_map = {s.id: s for s in plan.subtasks}
+        self.start_times: dict[str, float] = {}
+        self.result_files: dict[str, list[str]] = {}
+
+
+def _cancel_all_pending(state: "_ExecState") -> None:
+    """Mark every unfinished subtask as FAILED(Cancelled) and cancel its future."""
+    for sid in list(state.futures.keys()):
+        state.futures[sid].cancel()
+    for s in state.plan.subtasks:
+        if s.id not in state.results:
+            state.results[s.id] = SubtaskResult(
+                subtask_id=s.id, status=SubtaskStatus.FAILED,
+                summary="Cancelled", output_snippet="",
+            )
+
+
+def _submit_ready_subtasks(state: "_ExecState") -> None:
+    """Walk the DAG and submit every subtask whose dependencies are satisfied."""
+    for subtask in state.plan.subtasks:
+        if subtask.id in state.futures or subtask.id in state.results:
+            continue
+
+        # Check if any dependency failed → skip
+        deps_failed = any(
+            dep_id in state.results
+            and state.results[dep_id].status in (SubtaskStatus.FAILED, SubtaskStatus.SKIPPED)
+            for dep_id in subtask.depends_on
+        )
+        if deps_failed:
+            state.results[subtask.id] = SubtaskResult(
+                subtask_id=subtask.id,
+                status=SubtaskStatus.SKIPPED,
+                summary="Skipped: dependency failed",
+                output_snippet="",
+            )
+            subtask.status = SubtaskStatus.SKIPPED
+            logging.debug(f"SKIP [{subtask.id}] dependency failed")
+            _emit(state.on_event, "subtask_skip", subtask.id, "dependency failed")
+            continue
+
+        # Check all dependencies completed
+        deps_met = all(
+            dep_id in state.results and state.results[dep_id].status == SubtaskStatus.COMPLETED
+            for dep_id in subtask.depends_on
+        )
+        if not deps_met:
+            continue
+
+        # Build enriched dependency context (with file registry)
+        dep_context = _build_dependency_context(subtask, state.results, state.result_files)
+
+        # Submit to thread pool
+        subtask.status = SubtaskStatus.RUNNING
+        state.start_times[subtask.id] = time.time()
+        logging.debug(f"START [{subtask.id}] [{subtask.pane}] {subtask.description[:60]}")
+        _emit(state.on_event, "subtask_start", subtask.id, subtask.pane, subtask.description)
+        future = state.pool.submit(
+            run_subtask,
+            subtask=subtask,
+            pane_info=state.panes[subtask.pane],
+            dep_context=dep_context,
+            on_event=state.on_event,
+            session_dir=state.session_dir,
+        )
+        future.add_done_callback(lambda _f, ev=state.wake_event: ev.set())
+        state.futures[subtask.id] = future
+
+
+def _enforce_token_budget(state: "_ExecState") -> bool:
+    """Cancel pending work if token spend exceeds budget. Returns True if triggered."""
+    total_tokens = sum(r.prompt_tokens + r.completion_tokens for r in state.results.values())
+    if total_tokens <= state.max_tokens:
+        return False
+    progress(f"  TOKEN BUDGET EXCEEDED: {total_tokens:,} > {state.max_tokens:,}")
+    for remaining_sid in list(state.futures.keys()):
+        state.futures[remaining_sid].cancel()
+        del state.futures[remaining_sid]
+    for s in state.plan.subtasks:
+        if s.id not in state.results:
+            state.results[s.id] = SubtaskResult(
+                subtask_id=s.id,
+                status=SubtaskStatus.SKIPPED,
+                summary="Skipped: token budget exceeded",
+                output_snippet="",
+            )
+    return True
+
+
+def _collect_completed_futures(state: "_ExecState") -> tuple[bool, bool]:
+    """Drain finished futures. Returns (collected_any, budget_exceeded)."""
+    collected_any = False
+    for sid in list(state.futures.keys()):
+        future = state.futures[sid]
+        if not future.done():
+            continue
+        try:
+            result = future.result()
+        except Exception as e:
+            result = SubtaskResult(
+                subtask_id=sid,
+                status=SubtaskStatus.FAILED,
+                summary=f"Worker crashed: {e}",
+                output_snippet="",
+                error=str(e),
+            )
+        # Script→interactive fallback
+        subtask_obj = state.subtask_map[sid]
+        if (result.status == SubtaskStatus.FAILED
+                and subtask_obj.mode == "script"
+                and not subtask_obj._retried):
+            logging.debug(f"RETRY [{sid}] script failed, retrying as interactive")
+            _emit(state.on_event, "subtask_fail", sid, f"script failed, retrying interactive")
+            subtask_obj.mode = "interactive"
+            subtask_obj.max_turns = max(subtask_obj.max_turns, 10)
+            subtask_obj._retried = True
+            subtask_obj.status = SubtaskStatus.PENDING
+            del state.futures[sid]
+            collected_any = True
+            continue
+
+        state.results[sid] = result
+        state.subtask_map[sid].status = result.status
+        elapsed = time.time() - state.start_times.get(sid, time.time())
+        logging.debug(f"{'DONE' if result.status == SubtaskStatus.COMPLETED else 'FAIL'} [{sid}] {result.summary[:60]}")
+
+        if result.status == SubtaskStatus.COMPLETED:
+            _emit(state.on_event, "subtask_done", sid, result.summary, elapsed)
+            # Scan session dir for files written by this subtask
+            _track_result_files(sid, state.session_dir, state.result_files, result)
+        else:
+            _emit(state.on_event, "subtask_fail", sid, result.summary)
+            # Branch cancellation: cancel futures whose results are now useless
+            _cancel_orphaned_branches(sid, state.plan, state.results, state.futures, state.on_event)
+
+        del state.futures[sid]
+        collected_any = True
+
+        # Token budget enforcement
+        if _enforce_token_budget(state):
+            return collected_any, True
+
+    return collected_any, False
+
+
+def _mark_deadlocked(state: "_ExecState") -> None:
+    """Mark unresolved subtasks as FAILED(Deadlocked) when no futures remain."""
+    unresolved = [s.id for s in state.plan.subtasks if s.id not in state.results]
+    if not unresolved:
+        return
+    progress(f"  WARNING: Deadlocked — no running subtasks, {unresolved} unresolved")
+    for sid in unresolved:
+        state.results[sid] = SubtaskResult(
+            subtask_id=sid,
+            status=SubtaskStatus.FAILED,
+            summary="Deadlocked: could not start",
+            output_snippet="",
+        )
+        _emit(state.on_event, "subtask_fail", sid, "Deadlocked: could not start")
+
+
 def execute_plan(
     plan: Plan,
     panes: dict[str, PaneInfo],
@@ -389,187 +572,41 @@ def execute_plan(
     plan = _try_collapse_plan(plan)
 
     # Per-plan pane locks (scoped to this execution only)
-    plan_locks: dict[str, threading.Lock] = {}
-    for pane_name in panes:
-        plan_locks[pane_name] = threading.Lock()
-    # Use plan-local locks — don't pollute the module-level dict
+    plan_locks = {pane_name: threading.Lock() for pane_name in panes}
     _pane_locks.clear()
     _pane_locks.update(plan_locks)
 
-    results: dict[str, SubtaskResult] = {}
-    futures: dict[str, Future] = {}
-    subtask_map = {s.id: s for s in plan.subtasks}
-    start_times: dict[str, float] = {}
-
-    # Result file registry: track files written by each subtask
-    result_files: dict[str, list[str]] = {}
-
     panes_used = {s.pane for s in plan.subtasks}
     max_workers = max(len(panes_used), 1)
-
-    # Event-driven scheduling: wake instantly when a future completes
     wake_event = threading.Event()
 
-    def _on_future_done(fut):
-        wake_event.set()
-
     with ThreadPoolExecutor(max_workers=max_workers) as pool:
+        state = _ExecState(plan, panes, on_event, session_dir, max_tokens, pool, wake_event)
         while True:
-            # Check for cancellation
             if _cancel_event.is_set():
-                for sid in list(futures.keys()):
-                    futures[sid].cancel()
-                for s in plan.subtasks:
-                    if s.id not in results:
-                        results[s.id] = SubtaskResult(
-                            subtask_id=s.id, status=SubtaskStatus.FAILED,
-                            summary="Cancelled", output_snippet="",
-                        )
+                _cancel_all_pending(state)
                 break
 
-            # Find subtasks ready to run
-            for subtask in plan.subtasks:
-                if subtask.id in futures or subtask.id in results:
-                    continue
-
-                # Check if any dependency failed → skip
-                deps_failed = any(
-                    dep_id in results
-                    and results[dep_id].status in (SubtaskStatus.FAILED, SubtaskStatus.SKIPPED)
-                    for dep_id in subtask.depends_on
-                )
-                if deps_failed:
-                    results[subtask.id] = SubtaskResult(
-                        subtask_id=subtask.id,
-                        status=SubtaskStatus.SKIPPED,
-                        summary="Skipped: dependency failed",
-                        output_snippet="",
-                    )
-                    subtask.status = SubtaskStatus.SKIPPED
-                    logging.debug(f"SKIP [{subtask.id}] dependency failed")
-                    _emit(on_event, "subtask_skip", subtask.id, "dependency failed")
-                    continue
-
-                # Check all dependencies completed
-                deps_met = all(
-                    dep_id in results and results[dep_id].status == SubtaskStatus.COMPLETED
-                    for dep_id in subtask.depends_on
-                )
-                if not deps_met:
-                    continue
-
-                # Build enriched dependency context (with file registry)
-                dep_context = _build_dependency_context(subtask, results, result_files)
-
-                # Submit to thread pool
-                subtask.status = SubtaskStatus.RUNNING
-                start_times[subtask.id] = time.time()
-                logging.debug(f"START [{subtask.id}] [{subtask.pane}] {subtask.description[:60]}")
-                _emit(on_event, "subtask_start", subtask.id, subtask.pane, subtask.description)
-                future = pool.submit(
-                    run_subtask,
-                    subtask=subtask,
-                    pane_info=panes[subtask.pane],
-                    dep_context=dep_context,
-                    on_event=on_event,
-                    session_dir=session_dir,
-                )
-                future.add_done_callback(_on_future_done)
-                futures[subtask.id] = future
-
-            # Collect completed futures
-            collected_any = False
-            for sid in list(futures.keys()):
-                future = futures[sid]
-                if future.done():
-                    try:
-                        result = future.result()
-                    except Exception as e:
-                        result = SubtaskResult(
-                            subtask_id=sid,
-                            status=SubtaskStatus.FAILED,
-                            summary=f"Worker crashed: {e}",
-                            output_snippet="",
-                            error=str(e),
-                        )
-                    # Script→interactive fallback
-                    subtask_obj = subtask_map[sid]
-                    if (result.status == SubtaskStatus.FAILED
-                            and subtask_obj.mode == "script"
-                            and not subtask_obj._retried):
-                        logging.debug(f"RETRY [{sid}] script failed, retrying as interactive")
-                        _emit(on_event, "subtask_fail", sid, f"script failed, retrying interactive")
-                        subtask_obj.mode = "interactive"
-                        subtask_obj.max_turns = max(subtask_obj.max_turns, 10)
-                        subtask_obj._retried = True
-                        subtask_obj.status = SubtaskStatus.PENDING
-                        del futures[sid]
-                        collected_any = True
-                        continue
-
-                    results[sid] = result
-                    subtask_map[sid].status = result.status
-                    elapsed = time.time() - start_times.get(sid, time.time())
-                    logging.debug(f"{'DONE' if result.status == SubtaskStatus.COMPLETED else 'FAIL'} [{sid}] {result.summary[:60]}")
-
-                    if result.status == SubtaskStatus.COMPLETED:
-                        _emit(on_event, "subtask_done", sid, result.summary, elapsed)
-                        # Scan session dir for files written by this subtask
-                        _track_result_files(sid, session_dir, result_files, result)
-                    else:
-                        _emit(on_event, "subtask_fail", sid, result.summary)
-                        # Branch cancellation: cancel futures whose results are now useless
-                        _cancel_orphaned_branches(sid, plan, results, futures, on_event)
-
-                    del futures[sid]
-                    collected_any = True
-
-                    # Token budget enforcement
-                    total_tokens = sum(r.prompt_tokens + r.completion_tokens for r in results.values())
-                    if total_tokens > max_tokens:
-                        progress(f"  TOKEN BUDGET EXCEEDED: {total_tokens:,} > {max_tokens:,}")
-                        for remaining_sid in list(futures.keys()):
-                            futures[remaining_sid].cancel()
-                            del futures[remaining_sid]
-                        for s in plan.subtasks:
-                            if s.id not in results:
-                                results[s.id] = SubtaskResult(
-                                    subtask_id=s.id,
-                                    status=SubtaskStatus.SKIPPED,
-                                    summary="Skipped: token budget exceeded",
-                                    output_snippet="",
-                                )
-                        break
-
-            # All subtasks resolved?
-            if len(results) == len(plan.subtasks):
+            _submit_ready_subtasks(state)
+            collected_any, budget_exceeded = _collect_completed_futures(state)
+            if budget_exceeded:
                 break
 
-            # Re-check for newly unblocked subtasks before deadlock detection
+            if len(state.results) == len(plan.subtasks):
+                break
+
             if collected_any:
                 wake_event.clear()
                 continue
 
-            # Deadlock detection
-            if not futures:
-                unresolved = [s.id for s in plan.subtasks if s.id not in results]
-                if unresolved:
-                    progress(f"  WARNING: Deadlocked — no running subtasks, {unresolved} unresolved")
-                    for sid in unresolved:
-                        results[sid] = SubtaskResult(
-                            subtask_id=sid,
-                            status=SubtaskStatus.FAILED,
-                            summary="Deadlocked: could not start",
-                            output_snippet="",
-                        )
-                        _emit(on_event, "subtask_fail", sid, "Deadlocked: could not start")
+            if not state.futures:
+                _mark_deadlocked(state)
                 break
 
-            # Event-driven wait: wake instantly when a future completes
             wake_event.wait(timeout=0.5)
             wake_event.clear()
 
-    return [results[s.id] for s in plan.subtasks]
+    return [state.results[s.id] for s in plan.subtasks]
 
 
 
