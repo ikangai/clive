@@ -1,22 +1,28 @@
 """Tests for TUI /dashboard slash command."""
-import io
 import os
 
 
 def test_slash_dashboard_recognized():
-    """Verify /dashboard is handled in the command handler (not 'Unknown command')."""
-    # Import the tui module and check the command handler recognizes /dashboard
-    # We check the source code directly since we can't easily instantiate the TUI
-    with open(os.path.join(os.path.dirname(__file__), "..", "tui.py")) as f:
-        source = f.read()
-    assert '"/dashboard"' in source, "/dashboard not found in command handler"
+    """Verify /dashboard is registered in the slash-command registry.
+
+    Previously this test grepped tui.py source for the literal '"/dashboard"'.
+    After the registry refactor, command registration lives in tui_commands.py
+    and the authoritative check is "is /dashboard in the registry?" — which
+    is strictly more precise than a string search.
+    """
+    import tui  # noqa: F401 — side effect: registers all commands
+    import commands
+    assert commands.get("/dashboard") is not None, (
+        "/dashboard not registered in the slash-command registry"
+    )
 
 
 def test_dashboard_in_help_text():
-    """Verify /dashboard appears in HELP_TEXT."""
-    with open(os.path.join(os.path.dirname(__file__), "..", "tui.py")) as f:
-        source = f.read()
-    assert "/dashboard" in source, "/dashboard not in help text"
+    """Verify /dashboard appears in the rendered help output."""
+    import tui  # noqa: F401
+    import commands
+    rendered = commands.render_help(profiles="", categories="", providers="")
+    assert "/dashboard" in rendered, "/dashboard not in rendered help"
 
 
 def test_render_lines_returns_list(tmp_path):
