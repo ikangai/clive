@@ -4,7 +4,7 @@ import json
 from session_store import (
     new, get, list_sessions, delete, append_message, record_task,
     complete_last_task, list_sorted, most_recent, format_session_line,
-    build_recap_text,
+    build_recap_text, run_task_in_session,
 )
 
 
@@ -352,3 +352,64 @@ def test_build_recap_text_last_n_clamped(tmp_path):
     # last_n=0 should still show at least 1
     recap = build_recap_text(data, last_n=0)
     assert "only" in recap
+
+
+def test_run_task_in_session_happy_path(tmp_path):
+    sid = new(sessions_dir=tmp_path)
+    runner = lambda task: f"ran: {task}"
+    result = run_task_in_session(sid, "do the thing", runner,
+                                 sessions_dir=tmp_path)
+    assert result["status"] == "done"
+    assert result["result"] == "ran: do the thing"
+    assert result["error"] is None
+    data = get(sid, sessions_dir=tmp_path)
+    assert data["tasks"][-1]["status"] == "done"
+    assert data["tasks"][-1]["summary"] == "ran: do the thing"
+
+
+def test_run_task_in_session_catches_exceptions(tmp_path):
+    sid = new(sessions_dir=tmp_path)
+    def bad_runner(task):
+        raise RuntimeError("boom")
+    result = run_task_in_session(sid, "risky", bad_runner,
+                                 sessions_dir=tmp_path)
+    assert result["status"] == "failed"
+    assert result["error"] == "boom"
+    data = get(sid, sessions_dir=tmp_path)
+    assert data["tasks"][-1]["status"] == "failed"
+    assert data["tasks"][-1]["summary"] == "boom"
+
+
+def test_run_task_in_session_missing_session(tmp_path):
+    result = run_task_in_session("nope", "x", lambda t: "ok",
+                                 sessions_dir=tmp_path)
+    assert result["status"] == "no-session"
+    assert "nope" in result["error"]
+
+
+def test_run_task_in_session_none_result(tmp_path):
+    sid = new(sessions_dir=tmp_path)
+    result = run_task_in_session(sid, "void", lambda t: None,
+                                 sessions_dir=tmp_path)
+    assert result["status"] == "done"
+    data = get(sid, sessions_dir=tmp_path)
+    assert data["tasks"][-1]["summary"] is None
+
+
+def test_run_task_in_session_multiple_tasks(tmp_path):
+    sid = new(sessions_dir=tmp_path)
+    run_task_in_session(sid, "a", lambda t: "A", sessions_dir=tmp_path)
+    run_task_in_session(sid, "b", lambda t: "B", sessions_dir=tmp_path)
+    run_task_in_session(sid, "c", lambda t: "C", sessions_dir=tmp_path)
+    data = get(sid, sessions_dir=tmp_path)
+    assert len(data["tasks"]) == 3
+    assert [t["summary"] for t in data["tasks"]] == ["A", "B", "C"]
+    assert all(t["status"] == "done" for t in data["tasks"])
+
+
+def test_run_task_in_session_runner_receives_task(tmp_path):
+    sid = new(sessions_dir=tmp_path)
+    received = []
+    run_task_in_session(sid, "capture me", lambda t: received.append(t) or "ok",
+                        sessions_dir=tmp_path)
+    assert received == ["capture me"]

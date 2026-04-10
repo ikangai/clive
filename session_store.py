@@ -153,6 +153,34 @@ def most_recent(sessions_dir: Path | None = None) -> dict | None:
     return sorted_list[0] if sorted_list else None
 
 
+def run_task_in_session(sid: str, task: str, runner,
+                        sessions_dir: Path | None = None) -> dict:
+    """Execute a task under a session with automatic bookkeeping.
+
+    Records the task, invokes ``runner(task)``, catches any exception, then
+    records the outcome (done/failed) on the session. Returns a dict with
+    ``status``, ``result`` (runner return value or None), and ``error``
+    (exception message or None). Runner is any callable accepting a task
+    string — typically ``clive_core.run`` partially applied.
+
+    This is the single integration point the REPL (and CLI ``--resume``)
+    uses to bind execution to a persistent session.
+    """
+    recorded = record_task(sid, task, sessions_dir=sessions_dir)
+    if not recorded:
+        return {"status": "no-session", "result": None, "error": f"session {sid} not found"}
+    try:
+        result = runner(task)
+    except Exception as e:  # noqa: BLE001 — REPL must never crash on task errors
+        complete_last_task(sid, summary=str(e), status="failed",
+                           sessions_dir=sessions_dir)
+        return {"status": "failed", "result": None, "error": str(e)}
+    summary = str(result) if result is not None else None
+    complete_last_task(sid, summary=summary, status="done",
+                       sessions_dir=sessions_dir)
+    return {"status": "done", "result": result, "error": None}
+
+
 def build_recap_text(session: dict, last_n: int = 3) -> str:
     """Render a compact recap of the last N tasks of a session.
 
