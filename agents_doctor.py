@@ -77,14 +77,15 @@ def check_agent(host: str, config: dict) -> AgentCheck:
         # even reach the host.
         return result
 
-    # 3. Remote python3 + clive.py importable. We use the configured
-    # `path` (or the default) to locate clive on the remote.
-    clive_path = config.get("path", "python3 clive.py")
-    # Split to find the python interpreter; the rest is the script arg.
-    interp = clive_path.split()[0]
+    # 3. Remote clive is importable. The check's purpose is "can the
+    # remote find the clive module", which is independent of how
+    # clive is normally launched on that host. Always use `python3 -c`,
+    # NOT the configured `path` — a legitimate wrapper path like
+    # `/opt/clive/bin/clive` is not a Python interpreter and would
+    # silently fail the `-c` invocation.
     import_cmd = ssh_base + [
         actual_host,
-        f"{interp} -c 'import clive; print(\"ok\")'",
+        "python3 -c 'import clive; print(\"ok\")'",
     ]
     try:
         r = subprocess.run(import_cmd, capture_output=True, text=True, timeout=10)
@@ -105,17 +106,30 @@ def check_agent(host: str, config: dict) -> AgentCheck:
     try:
         r = subprocess.run(accept_cmd, capture_output=True, text=True, timeout=10)
         accepted_lc = r.stdout.lower()
-        missing = [
-            v for v in _FORWARD_ENVS
-            if os.environ.get(v) and v.lower() not in accepted_lc
-        ]
-        if missing:
+        if not accepted_lc.strip():
+            # sshd -T requires sudo on most distros. When run as an
+            # unprivileged user, sshd prints to stderr and exits non-
+            # zero; our `2>/dev/null | grep ... || true` swallows both,
+            # leaving stdout empty. Treat this as "could not verify"
+            # instead of "every env var is missing" — a false negative
+            # in the verification path, not the user-visible check.
             result.checks["accept_env"] = (
-                False,
-                f"remote sshd missing AcceptEnv for: {', '.join(missing)}",
+                True,
+                "could not verify (remote sshd -T returned empty output — "
+                "likely needs sudo to run)",
             )
         else:
-            result.checks["accept_env"] = (True, "all set envs accepted")
+            missing = [
+                v for v in _FORWARD_ENVS
+                if os.environ.get(v) and v.lower() not in accepted_lc
+            ]
+            if missing:
+                result.checks["accept_env"] = (
+                    False,
+                    f"remote sshd missing AcceptEnv for: {', '.join(missing)}",
+                )
+            else:
+                result.checks["accept_env"] = (True, "all set envs accepted")
     except Exception as e:
         # Not fatal — user may not have sudo on remote to read sshd -T,
         # or sshd may not be in PATH for their login shell. False

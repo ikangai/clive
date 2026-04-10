@@ -187,3 +187,159 @@ def test_handle_agents_doctor_empty_registry_exits_0(tmp_path, capsys, monkeypat
     assert exc.value.code == 0
     captured = capsys.readouterr()
     assert "No agents configured" in captured.out
+
+
+# ─── Regression: accept_env must not false-negative on empty sshd -T ─────────
+
+def test_accept_env_empty_sshd_output_is_could_not_verify(monkeypatch):
+    """Regression test for H1.
+
+    Most Linux distros require sudo to run `sshd -T`. Running it as a
+    regular user over SSH prints to stderr and exits non-zero. The
+    accept_cmd's `2>/dev/null | grep ... || true` dance swallows the
+    stderr and forces exit 0, so subprocess.run returns rc=0 with
+    stdout="". The previous implementation then computed
+    `missing = every _FORWARD_ENVS entry set in env` and reported
+    accept_env=False — a false positive that told users their remote
+    sshd was misconfigured when in fact nothing had been verified.
+
+    The docstring said "false positives on AcceptEnv are less bad
+    than false negatives"; the fix makes the code actually match
+    that intent by treating empty stdout as "could not verify".
+    """
+    import agents_doctor
+    monkeypatch.setenv("OPENROUTER_API_KEY", "sk-fake")
+    monkeypatch.setenv("LLM_PROVIDER", "openrouter")
+
+    def fake_run(argv, *args, **kwargs):
+        class R:
+            returncode = 0
+            stderr = ""
+            stdout = ""
+        # Let the earlier checks pass so we reach accept_env
+        cmd_str = " ".join(argv) if isinstance(argv, list) else argv
+        if "echo clive-doctor-ok" in cmd_str:
+            R.stdout = "clive-doctor-ok\n"
+        elif "import clive" in cmd_str:
+            R.stdout = "ok\n"
+        elif "sshd -T" in cmd_str:
+            # Simulated: sshd needs root, 2>/dev/null swallows, || true
+            # forces exit 0, leaving stdout empty.
+            R.stdout = ""
+        return R()
+
+    monkeypatch.setattr("subprocess.run", fake_run)
+
+    result = agents_doctor.check_agent("myhost", {})
+    ok, detail = result.checks["accept_env"]
+    assert ok is True, (
+        f"Empty sshd -T output must be treated as could-not-verify, "
+        f"not as missing-everything. Got: ({ok}, {detail!r})"
+    )
+    assert "could not verify" in detail.lower()
+
+
+def test_accept_env_populated_sshd_output_detects_actual_missing(monkeypatch):
+    """When sshd -T returns real output, the check must still detect
+    env vars that are genuinely missing from AcceptEnv."""
+    import agents_doctor
+    monkeypatch.setenv("OPENROUTER_API_KEY", "sk-fake")
+    monkeypatch.setenv("LLM_PROVIDER", "openrouter")
+
+    def fake_run(argv, *args, **kwargs):
+        class R:
+            returncode = 0
+            stderr = ""
+            stdout = ""
+        cmd_str = " ".join(argv) if isinstance(argv, list) else argv
+        if "echo clive-doctor-ok" in cmd_str:
+            R.stdout = "clive-doctor-ok\n"
+        elif "import clive" in cmd_str:
+            R.stdout = "ok\n"
+        elif "sshd -T" in cmd_str:
+            # sshd accepts LLM_PROVIDER but NOT OPENROUTER_API_KEY
+            R.stdout = "acceptenv LLM_PROVIDER\n"
+        return R()
+
+    monkeypatch.setattr("subprocess.run", fake_run)
+
+    result = agents_doctor.check_agent("myhost", {})
+    ok, detail = result.checks["accept_env"]
+    assert ok is False
+    assert "OPENROUTER_API_KEY" in detail
+
+
+def test_clive_installed_uses_python3_not_wrapper_path(monkeypatch):
+    """Regression test for M3.
+
+    The previous implementation did `clive_path.split()[0]` to pick
+    an "interpreter" — fine for the default "python3 clive.py" but
+    wrong for a legitimate wrapper path like "/opt/clive/bin/clive".
+    Such a path is NOT a Python interpreter and does not accept
+    -c, so the check would silently fail.
+
+    The check's purpose is "can the remote import clive?", which is
+    independent of how clive is normally launched. Always use
+    `python3 -c 'import clive; ...'`.
+    """
+    import agents_doctor
+    captured_cmds = []
+
+    def fake_run(argv, *args, **kwargs):
+        captured_cmds.append(list(argv) if isinstance(argv, list) else [argv])
+        class R:
+            returncode = 0
+            stderr = ""
+            stdout = ""
+        cmd_str = " ".join(argv) if isinstance(argv, list) else argv
+        if "echo clive-doctor-ok" in cmd_str:
+            R.stdout = "clive-doctor-ok\n"
+        elif "import clive" in cmd_str:
+            R.stdout = "ok\n"
+        return R()
+
+    monkeypatch.setattr("subprocess.run", fake_run)
+
+    # User's registry specifies a wrapper script path — NOT a python interp
+    agents_doctor.check_agent("myhost", {"path": "/opt/clive/bin/clive-wrapper"})
+
+    # Find the import check command among captured calls
+    import_cmd_strs = [
+        " ".join(argv) for argv in captured_cmds
+        if any("import clive" in arg for arg in argv)
+    ]
+    assert len(import_cmd_strs) == 1
+    import_cmd_str = import_cmd_strs[0]
+    assert "python3 -c" in import_cmd_str, (
+        f"clive-install check must use `python3 -c`, not a wrapper path. "
+        f"Got: {import_cmd_str}"
+    )
+    assert "/opt/clive/bin/clive-wrapper -c" not in import_cmd_str
+
+
+def test_accept_env_all_present_reports_ok(monkeypatch):
+    """When sshd -T has AcceptEnv for every outer-set env var, pass."""
+    import agents_doctor
+    monkeypatch.setenv("OPENROUTER_API_KEY", "sk-fake")
+    monkeypatch.setenv("LLM_PROVIDER", "openrouter")
+
+    def fake_run(argv, *args, **kwargs):
+        class R:
+            returncode = 0
+            stderr = ""
+            stdout = ""
+        cmd_str = " ".join(argv) if isinstance(argv, list) else argv
+        if "echo clive-doctor-ok" in cmd_str:
+            R.stdout = "clive-doctor-ok\n"
+        elif "import clive" in cmd_str:
+            R.stdout = "ok\n"
+        elif "sshd -T" in cmd_str:
+            R.stdout = "acceptenv LLM_PROVIDER OPENROUTER_API_KEY\n"
+        return R()
+
+    monkeypatch.setattr("subprocess.run", fake_run)
+
+    result = agents_doctor.check_agent("myhost", {})
+    ok, detail = result.checks["accept_env"]
+    assert ok is True
+    assert "all set envs accepted" in detail

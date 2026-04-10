@@ -78,13 +78,18 @@ def get_client():
     api_key = os.environ.get(api_key_env) if api_key_env else "not-needed"
 
     # LLM_BASE_URL, when set, overrides the provider's default base URL.
-    # Lets users point at a self-hosted proxy (e.g. LiteLLM) without
-    # editing the PROVIDERS dict. anthropic's SDK manages its own
-    # transport layer so we only apply the override to the openai path.
+    # Lets users point at a self-hosted proxy (LiteLLM, self-hosted
+    # Claude gateway, etc.) without editing the PROVIDERS dict. Both
+    # SDKs (openai and anthropic) accept a base_url constructor
+    # parameter — we thread the override through to whichever one
+    # the active provider uses.
     base_url_override = os.environ.get("LLM_BASE_URL")
 
     if PROVIDER_NAME == "anthropic":
-        _client_cache = anthropic.Anthropic(api_key=api_key)
+        kwargs = {"api_key": api_key}
+        if base_url_override:
+            kwargs["base_url"] = base_url_override
+        _client_cache = anthropic.Anthropic(**kwargs)
     else:
         base_url = base_url_override or _provider["base_url"]
         _client_cache = openai.OpenAI(base_url=base_url, api_key=api_key)

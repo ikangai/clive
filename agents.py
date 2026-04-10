@@ -15,6 +15,7 @@ nonce on the returned pane_def so its pane reader can authenticate
 frames from that specific inner. This closes the "LLM inside inner
 fabricates a fake protocol frame" attack surface.
 """
+import logging
 import os
 import re
 from pathlib import Path
@@ -22,8 +23,36 @@ from pathlib import Path
 from protocol import generate_nonce
 from registry import get_instance
 
+log = logging.getLogger(__name__)
+
 DEFAULT_REGISTRY = os.path.expanduser("~/.clive/agents.yaml")
 DEFAULT_CLIVE_PATH = "python3 clive.py"
+
+
+def ensure_ssh_control_dir() -> str | None:
+    """Create ~/.clive/ssh/ if missing. Return its absolute path, or
+    None if creation failed (e.g. ~/.clive exists as a regular file).
+
+    SSH ControlMaster connection pooling is an optimization, not a
+    correctness feature — when the directory can't be created, we
+    degrade to unpooled connections instead of crashing. Callers
+    (build_agent_ssh_cmd) check the return value and skip the
+    ControlMaster options when it's None.
+
+    Idempotent: repeated calls return the same path without
+    re-creating the directory.
+    """
+    ctl_dir = os.path.expanduser("~/.clive/ssh")
+    try:
+        os.makedirs(ctl_dir, exist_ok=True, mode=0o700)
+        return ctl_dir
+    except (OSError, PermissionError) as e:
+        log.warning(
+            "could not create SSH control dir %s: %s — "
+            "falling back to unpooled SSH connections",
+            ctl_dir, e,
+        )
+        return None
 
 # Env vars to forward via SSH SendEnv (BYOLLM)
 _FORWARD_ENVS = [
@@ -169,19 +198,19 @@ def build_agent_ssh_cmd(host: str, config: dict, nonce: str | None = None) -> st
     parts.extend(["-o BatchMode=yes", "-o ConnectTimeout=10"])
 
     # Connection pooling: reuse a single SSH channel for rapid agent
-    # traffic (delegate round trips, scp, reconnects). The first
-    # connection creates the master socket; subsequent ssh/scp to the
-    # same host attach to it in milliseconds instead of re-doing the
-    # full handshake. Control sockets live under ~/.clive/ssh/ so
-    # they are namespaced away from the user's existing control
-    # sockets and can be wiped with a single rm -rf if something wedges.
+    # traffic (delegate round trips, scp, reconnects). Control sockets
+    # live under ~/.clive/ssh/ (created at clive startup via
+    # ensure_ssh_control_dir, not as a side effect of this function).
+    # If the directory does not exist on disk, skip the ControlMaster
+    # options — SSH pooling is an optimization, not a correctness
+    # feature, and we prefer unpooled over a crash.
     ctl_dir = os.path.expanduser("~/.clive/ssh")
-    os.makedirs(ctl_dir, exist_ok=True, mode=0o700)
-    parts.extend([
-        "-o ControlMaster=auto",
-        f"-o ControlPath={ctl_dir}/%C",
-        "-o ControlPersist=60s",
-    ])
+    if os.path.isdir(ctl_dir):
+        parts.extend([
+            "-o ControlMaster=auto",
+            f"-o ControlPath={ctl_dir}/%C",
+            "-o ControlPersist=60s",
+        ])
 
     # Host
     parts.append(host)

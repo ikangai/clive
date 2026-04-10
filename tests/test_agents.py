@@ -249,22 +249,89 @@ def test_llm_base_url_is_forwarded(monkeypatch):
 
 # ─── SSH ControlMaster connection pooling ────────────────────────────────────
 
-def test_ssh_cmd_enables_controlmaster(monkeypatch):
+def test_ssh_cmd_enables_controlmaster_when_ctl_dir_exists(tmp_path, monkeypatch):
     """Agent panes open many rapid SSH connections (delegate round
     trips, scp for file transfer, reconnects). ControlMaster pools
     them over a single SSH channel so handshakes don't dominate
-    latency. The first connection creates the master socket; every
-    subsequent ssh/scp to the same host hitches a ride."""
+    latency. The ControlMaster options are emitted only when the
+    control socket dir exists on disk — if it's missing (clive not
+    yet run, or ensure_ssh_control_dir failed), we degrade to
+    unpooled SSH instead of pointing tmux at a nonexistent path."""
+    monkeypatch.setenv("HOME", str(tmp_path))
     monkeypatch.setenv("LLM_PROVIDER", "openrouter")
+    # Pre-create the control dir — startup hook's job in production,
+    # the test does it explicitly here.
+    (tmp_path / ".clive" / "ssh").mkdir(parents=True, mode=0o700)
     cmd = build_agent_ssh_cmd("host", config={})
     assert "ControlMaster=auto" in cmd
     assert "ControlPath=" in cmd
     assert "ControlPersist=" in cmd
 
 
-def test_ssh_cmd_controlpath_uses_clive_ssh_dir():
+def test_ssh_cmd_controlpath_uses_clive_ssh_dir(tmp_path, monkeypatch):
     """Control sockets live under ~/.clive/ssh/ so they are isolated
     from the user's normal SSH control sockets and cleaned up by a
     single rm -rf if something wedges."""
+    monkeypatch.setenv("HOME", str(tmp_path))
+    (tmp_path / ".clive" / "ssh").mkdir(parents=True, mode=0o700)
     cmd = build_agent_ssh_cmd("host", config={})
     assert ".clive/ssh" in cmd
+
+
+def test_ssh_cmd_skips_controlmaster_when_dir_missing(tmp_path, monkeypatch):
+    """Degraded mode: if ~/.clive/ssh does not exist, build_agent_ssh_cmd
+    must NOT emit ControlMaster options (pointing ssh at a nonexistent
+    ControlPath would log a warning per connection). Clive works
+    without pooling, just slower."""
+    monkeypatch.setenv("HOME", str(tmp_path))
+    # Deliberately do NOT create .clive/ssh
+    cmd = build_agent_ssh_cmd("host", config={})
+    assert "ControlMaster=auto" not in cmd
+    assert "ControlPath=" not in cmd
+    assert "ControlPersist=" not in cmd
+
+
+def test_build_agent_ssh_cmd_has_no_filesystem_side_effects(tmp_path, monkeypatch):
+    """Regression test for M2.
+
+    Previously, build_agent_ssh_cmd called os.makedirs on ~/.clive/ssh
+    as a side effect of building the SSH command string. Every test
+    invocation (and there are 20+) left the directory behind in the
+    user's real home. Pure string-builder functions must stay pure;
+    directory creation now lives in a startup hook in clive.py via
+    ensure_ssh_control_dir.
+    """
+    monkeypatch.setenv("HOME", str(tmp_path))
+    from agents import build_agent_ssh_cmd
+    build_agent_ssh_cmd("host", config={})
+    assert not (tmp_path / ".clive" / "ssh").exists(), (
+        "build_agent_ssh_cmd still creates ~/.clive/ssh as a side "
+        "effect — the directory creation should live in a startup "
+        "hook, not in this string-builder."
+    )
+
+
+def test_ensure_ssh_control_dir_creates_dir(tmp_path, monkeypatch):
+    """The startup helper that replaces the side effect must exist
+    and create the dir idempotently with mode 0o700."""
+    monkeypatch.setenv("HOME", str(tmp_path))
+    from agents import ensure_ssh_control_dir
+    p = ensure_ssh_control_dir()
+    assert (tmp_path / ".clive" / "ssh").is_dir()
+    # Second call is a no-op (idempotent) and returns the same path.
+    p2 = ensure_ssh_control_dir()
+    assert p == p2
+
+
+def test_ensure_ssh_control_dir_degrades_when_parent_is_file(tmp_path, monkeypatch):
+    """If ~/.clive exists as a regular file (edge case, e.g. user's
+    dotfile symlinked wrong), ensure_ssh_control_dir must not crash —
+    SSH pooling is an optimization, not a correctness feature, so
+    degrade gracefully."""
+    monkeypatch.setenv("HOME", str(tmp_path))
+    # Create ~/.clive as a FILE, not a directory
+    (tmp_path / ".clive").write_text("accidentally a file")
+    from agents import ensure_ssh_control_dir
+    # Must not raise; returns None to signal "no dir available".
+    result = ensure_ssh_control_dir()
+    assert result is None

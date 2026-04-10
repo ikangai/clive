@@ -66,3 +66,34 @@ def test_llm_base_url_overrides_provider_default(monkeypatch):
         monkeypatch.delenv("LLM_BASE_URL", raising=False)
         monkeypatch.delenv("OPENROUTER_API_KEY", raising=False)
         importlib.reload(llm)
+
+
+def test_llm_base_url_overrides_anthropic_default(monkeypatch):
+    """Regression test for M1.
+
+    Previously, the anthropic branch of get_client() constructed
+    anthropic.Anthropic(api_key=...) without forwarding LLM_BASE_URL —
+    users running a local Claude proxy (e.g. for logging, rate
+    limiting, or self-hosted models through an anthropic-compatible
+    gateway) would find their requests silently hitting
+    api.anthropic.com instead of their proxy.
+
+    The anthropic SDK does accept base_url as a constructor
+    parameter; we now thread LLM_BASE_URL through to it.
+    """
+    monkeypatch.setenv("LLM_PROVIDER", "anthropic")
+    monkeypatch.setenv("LLM_BASE_URL", "http://my-claude-proxy:7070")
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-ant-fake")
+    import importlib, llm
+    importlib.reload(llm)
+    try:
+        client = llm.get_client()
+        assert str(client.base_url).startswith("http://my-claude-proxy:7070"), (
+            f"anthropic client ignored LLM_BASE_URL; got {client.base_url!r}"
+        )
+    finally:
+        llm._client_cache = None
+        monkeypatch.delenv("LLM_PROVIDER", raising=False)
+        monkeypatch.delenv("LLM_BASE_URL", raising=False)
+        monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+        importlib.reload(llm)

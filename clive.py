@@ -94,6 +94,12 @@ if __name__ == "__main__":
         print("  Ubuntu: sudo apt install tmux", file=sys.stderr)
         raise SystemExit(1)
 
+    # Create the SSH ControlMaster directory used by agent panes.
+    # Runs once per clive process; best-effort (degrades to unpooled
+    # SSH if the dir cannot be created). See agents.ensure_ssh_control_dir.
+    from agents import ensure_ssh_control_dir
+    ensure_ssh_control_dir()
+
     # Check API key early (skip for list/version commands)
     from llm import _provider, PROVIDER_NAME
     _api_key_env = _provider.get("api_key_env")
