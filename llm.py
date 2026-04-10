@@ -61,9 +61,17 @@ CLASSIFIER_MODEL = os.getenv("CLASSIFIER_MODEL", "google/gemini-3-flash-preview"
 
 _client_cache = None
 
-def get_client() -> openai.OpenAI | anthropic.Anthropic:
+def get_client():
     global _client_cache
     if _client_cache is not None:
+        return _client_cache
+
+    # Delegate provider uses stdio, not HTTP — bail out of the api_key
+    # path entirely. The outer clive pays for inference; the inner
+    # just serializes requests and reads responses.
+    if PROVIDER_NAME == "delegate":
+        from delegate_client import DelegateClient
+        _client_cache = DelegateClient()
         return _client_cache
 
     api_key_env = _provider["api_key_env"]
@@ -78,13 +86,28 @@ def get_client() -> openai.OpenAI | anthropic.Anthropic:
 
 
 def chat(
-    client: openai.OpenAI | anthropic.Anthropic,
+    client,
     messages: list[dict],
     max_tokens: int = 1024,
     model: str | None = None,
     temperature: float | None = None,
 ) -> tuple[str, int, int]:
     """Send chat completion. Returns (content, prompt_tokens, completion_tokens)."""
+    # Delegate branch first — its transport is stdio, not HTTP, and
+    # the openai SDK duck-type is minimal enough that the shared code
+    # below would work, but splitting it out keeps the control flow
+    # obvious for future maintainers.
+    from delegate_client import DelegateClient
+    if isinstance(client, DelegateClient):
+        resp = client.chat.completions.create(
+            model=model or MODEL,
+            messages=messages,
+            max_tokens=max_tokens,
+            temperature=temperature,
+        )
+        content = resp.choices[0].message.content or ""
+        return content, resp.usage.prompt_tokens, resp.usage.completion_tokens
+
     if isinstance(client, anthropic.Anthropic):
         # Anthropic takes system as a top-level param, not in messages
         system = ""
@@ -126,7 +149,7 @@ def chat(
 
 
 def chat_stream(
-    client: openai.OpenAI | anthropic.Anthropic,
+    client,
     messages: list[dict],
     max_tokens: int = 1024,
     model: str | None = None,
@@ -138,6 +161,16 @@ def chat_stream(
     Useful for early command detection: the caller can parse the stream
     and act on the command before the full response is generated.
     """
+    # Delegate does not stream in v1 — fall back to non-streaming chat()
+    # and fire on_token exactly once with the full content. Streaming
+    # is a phase-2 follow-up.
+    from delegate_client import DelegateClient
+    if isinstance(client, DelegateClient):
+        content, pt, ct = chat(client, messages, max_tokens=max_tokens, model=model)
+        if on_token:
+            on_token(content)
+        return content, pt, ct
+
     if isinstance(client, anthropic.Anthropic):
         system = ""
         filtered = []
