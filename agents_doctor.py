@@ -96,29 +96,62 @@ def check_agent(host: str, config: dict) -> AgentCheck:
     except (subprocess.TimeoutExpired, OSError) as e:
         result.checks["clive_installed"] = (False, str(e))
 
-    # 4. AcceptEnv check — list what the remote sshd is configured to
-    # accept, and verify every env var in _FORWARD_ENVS that is set on
-    # the outer would actually be passed through.
+    # 4. AcceptEnv check. We need to distinguish three outcomes:
+    #
+    #   (a) sshd -T failed (typically "must be run as root" on
+    #       distros that require sudo). Report could-not-verify.
+    #   (b) sshd -T succeeded AND has AcceptEnv directives. Parse
+    #       them and check each _FORWARD_ENVS entry.
+    #   (c) sshd -T succeeded BUT sshd_config has no AcceptEnv
+    #       directive at all. Every outer-set var IS genuinely
+    #       missing; report missing.
+    #
+    # We distinguish (a) from (c) by capturing sshd -T's exit code
+    # in a sentinel echoed to stdout after the command. Both outcomes
+    # produce "no AcceptEnv lines" without this disambiguation — the
+    # Phase 3.5 fix conflated them and misreported (c) as could-not-
+    # verify.
     accept_cmd = ssh_base + [
         actual_host,
-        "sshd -T 2>/dev/null | grep -i acceptenv || true",
+        "sshd -T 2>/dev/null; echo '<<SSHD_EXIT>>' $?",
     ]
+    _SSHD_MARKER = "<<SSHD_EXIT>>"
     try:
         r = subprocess.run(accept_cmd, capture_output=True, text=True, timeout=10)
-        accepted_lc = r.stdout.lower()
-        if not accepted_lc.strip():
-            # sshd -T requires sudo on most distros. When run as an
-            # unprivileged user, sshd prints to stderr and exits non-
-            # zero; our `2>/dev/null | grep ... || true` swallows both,
-            # leaving stdout empty. Treat this as "could not verify"
-            # instead of "every env var is missing" — a false negative
-            # in the verification path, not the user-visible check.
+        # Find the exit marker. It's always the last line of stdout.
+        lines = r.stdout.splitlines()
+        sshd_exit = None
+        for line in reversed(lines):
+            if line.startswith(_SSHD_MARKER):
+                try:
+                    sshd_exit = int(line[len(_SSHD_MARKER):].strip())
+                except ValueError:
+                    pass
+                break
+
+        if sshd_exit is None:
+            # Shell pipeline didn't even run — the marker should
+            # always be present. Conservative fallback.
             result.checks["accept_env"] = (
                 True,
-                "could not verify (remote sshd -T returned empty output — "
-                "likely needs sudo to run)",
+                "could not verify (sshd -T marker missing from output)",
+            )
+        elif sshd_exit != 0:
+            # Case (a): sshd -T failed. Most commonly "must be run
+            # as root" on distros that enforce it.
+            result.checks["accept_env"] = (
+                True,
+                f"could not verify (sshd -T exited {sshd_exit}, "
+                f"typically means sudo is required on the remote)",
             )
         else:
+            # Cases (b) and (c): sshd -T succeeded. Collect AcceptEnv
+            # directive lines from the output (stripping the marker).
+            acceptenv_lines = [
+                ln.lower() for ln in lines
+                if ln.strip().lower().startswith("acceptenv")
+            ]
+            accepted_lc = "\n".join(acceptenv_lines)
             missing = [
                 v for v in _FORWARD_ENVS
                 if os.environ.get(v) and v.lower() not in accepted_lc
@@ -131,9 +164,6 @@ def check_agent(host: str, config: dict) -> AgentCheck:
             else:
                 result.checks["accept_env"] = (True, "all set envs accepted")
     except Exception as e:
-        # Not fatal — user may not have sudo on remote to read sshd -T,
-        # or sshd may not be in PATH for their login shell. False
-        # positives on AcceptEnv are less bad than false negatives.
         result.checks["accept_env"] = (True, f"could not verify ({e})")
 
     return result

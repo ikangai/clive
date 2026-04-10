@@ -116,32 +116,39 @@ def test_agents_doctor_flag_is_registered():
 
 
 def test_handle_agents_doctor_prints_report(tmp_path, capsys, monkeypatch):
-    """The handler runs the doctor and prints the formatted report."""
+    """The handler runs the doctor and prints the formatted report.
+
+    Uses a differentiated mock that returns sensible output for each
+    sub-command: echo succeeds, clive imports, sshd -T reports
+    could-not-verify (exit non-zero). This exercises the handler
+    wiring without depending on the env-var contents of the test
+    runner.
+    """
     import cli_handlers
-    from agents import _FORWARD_ENVS
     reg = tmp_path / "agents.yaml"
     reg.write_text("myhost:\n  host: 10.0.0.1\n")
-
-    # Point the handler at our temp registry via env override
     monkeypatch.setenv("CLIVE_AGENTS_REGISTRY", str(reg))
 
-    # Clear every env var the accept_env check would test, so the
-    # mocked sshd output (which lacks AcceptEnv lines) does not flag
-    # this test as failed. This test is about handler wiring, not
-    # about the accept_env logic.
-    for v in _FORWARD_ENVS:
-        monkeypatch.delenv(v, raising=False)
-
-    def fake_run(*args, **kwargs):
+    def fake_run(argv, *args, **kwargs):
         class R:
             returncode = 0
-            stdout = "clive-doctor-ok"
+            stdout = ""
             stderr = ""
+        cmd_str = " ".join(argv) if isinstance(argv, list) else argv
+        if "echo clive-doctor-ok" in cmd_str:
+            R.stdout = "clive-doctor-ok\n"
+        elif "import clive" in cmd_str:
+            R.stdout = "ok\n"
+        elif "sshd -T" in cmd_str:
+            # Could-not-verify path — exit 1 means the doctor reports
+            # the check as OK with an informational message, which
+            # keeps the handler exit code at 0 regardless of whether
+            # the test runner has OPENROUTER_API_KEY etc. set.
+            R.stdout = "<<SSHD_EXIT>> 1\n"
         return R()
 
     monkeypatch.setattr(subprocess, "run", fake_run)
 
-    # Simulate the argparse namespace
     class Args:
         agents_doctor = True
 
@@ -191,54 +198,6 @@ def test_handle_agents_doctor_empty_registry_exits_0(tmp_path, capsys, monkeypat
 
 # ─── Regression: accept_env must not false-negative on empty sshd -T ─────────
 
-def test_accept_env_empty_sshd_output_is_could_not_verify(monkeypatch):
-    """Regression test for H1.
-
-    Most Linux distros require sudo to run `sshd -T`. Running it as a
-    regular user over SSH prints to stderr and exits non-zero. The
-    accept_cmd's `2>/dev/null | grep ... || true` dance swallows the
-    stderr and forces exit 0, so subprocess.run returns rc=0 with
-    stdout="". The previous implementation then computed
-    `missing = every _FORWARD_ENVS entry set in env` and reported
-    accept_env=False — a false positive that told users their remote
-    sshd was misconfigured when in fact nothing had been verified.
-
-    The docstring said "false positives on AcceptEnv are less bad
-    than false negatives"; the fix makes the code actually match
-    that intent by treating empty stdout as "could not verify".
-    """
-    import agents_doctor
-    monkeypatch.setenv("OPENROUTER_API_KEY", "sk-fake")
-    monkeypatch.setenv("LLM_PROVIDER", "openrouter")
-
-    def fake_run(argv, *args, **kwargs):
-        class R:
-            returncode = 0
-            stderr = ""
-            stdout = ""
-        # Let the earlier checks pass so we reach accept_env
-        cmd_str = " ".join(argv) if isinstance(argv, list) else argv
-        if "echo clive-doctor-ok" in cmd_str:
-            R.stdout = "clive-doctor-ok\n"
-        elif "import clive" in cmd_str:
-            R.stdout = "ok\n"
-        elif "sshd -T" in cmd_str:
-            # Simulated: sshd needs root, 2>/dev/null swallows, || true
-            # forces exit 0, leaving stdout empty.
-            R.stdout = ""
-        return R()
-
-    monkeypatch.setattr("subprocess.run", fake_run)
-
-    result = agents_doctor.check_agent("myhost", {})
-    ok, detail = result.checks["accept_env"]
-    assert ok is True, (
-        f"Empty sshd -T output must be treated as could-not-verify, "
-        f"not as missing-everything. Got: ({ok}, {detail!r})"
-    )
-    assert "could not verify" in detail.lower()
-
-
 def test_accept_env_populated_sshd_output_detects_actual_missing(monkeypatch):
     """When sshd -T returns real output, the check must still detect
     env vars that are genuinely missing from AcceptEnv."""
@@ -257,8 +216,9 @@ def test_accept_env_populated_sshd_output_detects_actual_missing(monkeypatch):
         elif "import clive" in cmd_str:
             R.stdout = "ok\n"
         elif "sshd -T" in cmd_str:
-            # sshd accepts LLM_PROVIDER but NOT OPENROUTER_API_KEY
-            R.stdout = "acceptenv LLM_PROVIDER\n"
+            # sshd accepts LLM_PROVIDER but NOT OPENROUTER_API_KEY;
+            # exit 0 marker confirms sshd -T itself succeeded
+            R.stdout = "acceptenv LLM_PROVIDER\n<<SSHD_EXIT>> 0\n"
         return R()
 
     monkeypatch.setattr("subprocess.run", fake_run)
@@ -317,6 +277,89 @@ def test_clive_installed_uses_python3_not_wrapper_path(monkeypatch):
     assert "/opt/clive/bin/clive-wrapper -c" not in import_cmd_str
 
 
+def test_accept_env_sshd_ok_but_no_directive_reports_missing(monkeypatch):
+    """Regression test for M-A.
+
+    Case 3 from the Phase 3.5 review: remote sshd is fine, the user
+    has sudo (or doesn't need it), but sshd_config has no AcceptEnv
+    directive at all. `sshd -T` succeeds with exit 0 but the grep
+    filter finds nothing, so stdout is effectively empty of
+    AcceptEnv lines.
+
+    Under Phase 3.5's H1 fix, this was reported as "could not verify"
+    (same as case 1 — sudo required). M-A distinguishes the two by
+    capturing sshd -T's exit code: zero-with-no-AcceptEnv means the
+    check did run and the AcceptEnv list is genuinely empty, so
+    every forwarded env var IS missing and should be reported.
+    """
+    import agents_doctor
+    monkeypatch.setenv("OPENROUTER_API_KEY", "sk-fake")
+    monkeypatch.setenv("LLM_PROVIDER", "openrouter")
+
+    def fake_run(argv, *args, **kwargs):
+        class R:
+            returncode = 0
+            stderr = ""
+            stdout = ""
+        cmd_str = " ".join(argv) if isinstance(argv, list) else argv
+        if "echo clive-doctor-ok" in cmd_str:
+            R.stdout = "clive-doctor-ok\n"
+        elif "import clive" in cmd_str:
+            R.stdout = "ok\n"
+        elif "sshd -T" in cmd_str:
+            # sshd -T ran successfully (exit 0) but sshd_config had no
+            # AcceptEnv directives — simulate by emitting the marker
+            # with exit 0 and nothing else.
+            R.stdout = "<<SSHD_EXIT>> 0\n"
+        return R()
+
+    monkeypatch.setattr("subprocess.run", fake_run)
+
+    result = agents_doctor.check_agent("myhost", {})
+    ok, detail = result.checks["accept_env"]
+    assert ok is False, (
+        f"case-3 must be reported as missing, not 'could not verify'. "
+        f"Got: ({ok}, {detail!r})"
+    )
+    assert "missing AcceptEnv" in detail
+    assert "OPENROUTER_API_KEY" in detail or "LLM_PROVIDER" in detail
+
+
+def test_accept_env_sshd_failed_is_could_not_verify(monkeypatch):
+    """Regression test for M-A.
+
+    Case 1: sshd -T failed (non-zero exit, typically "must be run as
+    root"). The marker carries a non-zero code and the doctor reports
+    could-not-verify — unchanged behaviour from Phase 3.5 but now
+    driven by the explicit exit code rather than a stdout heuristic.
+    """
+    import agents_doctor
+    monkeypatch.setenv("OPENROUTER_API_KEY", "sk-fake")
+
+    def fake_run(argv, *args, **kwargs):
+        class R:
+            returncode = 0
+            stderr = ""
+            stdout = ""
+        cmd_str = " ".join(argv) if isinstance(argv, list) else argv
+        if "echo clive-doctor-ok" in cmd_str:
+            R.stdout = "clive-doctor-ok\n"
+        elif "import clive" in cmd_str:
+            R.stdout = "ok\n"
+        elif "sshd -T" in cmd_str:
+            # sshd exited non-zero — permission denied on most distros
+            R.stdout = "<<SSHD_EXIT>> 1\n"
+            R.stderr = "/usr/sbin/sshd: must be run as root\n"
+        return R()
+
+    monkeypatch.setattr("subprocess.run", fake_run)
+
+    result = agents_doctor.check_agent("myhost", {})
+    ok, detail = result.checks["accept_env"]
+    assert ok is True
+    assert "could not verify" in detail.lower()
+
+
 def test_accept_env_all_present_reports_ok(monkeypatch):
     """When sshd -T has AcceptEnv for every outer-set env var, pass."""
     import agents_doctor
@@ -334,7 +377,10 @@ def test_accept_env_all_present_reports_ok(monkeypatch):
         elif "import clive" in cmd_str:
             R.stdout = "ok\n"
         elif "sshd -T" in cmd_str:
-            R.stdout = "acceptenv LLM_PROVIDER OPENROUTER_API_KEY\n"
+            R.stdout = (
+                "acceptenv LLM_PROVIDER OPENROUTER_API_KEY\n"
+                "<<SSHD_EXIT>> 0\n"
+            )
         return R()
 
     monkeypatch.setattr("subprocess.run", fake_run)
