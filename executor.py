@@ -18,7 +18,8 @@ from completion import wait_for_ready, wrap_command
 from llm import get_client, chat, SCRIPT_MODEL
 from session import capture_pane
 from screen_diff import compute_screen_diff
-from prompts import build_script_prompt
+from command_extract import extract_command, extract_done
+from prompts import build_interactive_prompt, build_script_prompt
 
 # Per-pane locks: only one subtask can use a pane at a time
 _pane_locks: dict[str, threading.Lock] = {}
@@ -771,6 +772,20 @@ def _trim_messages(messages: list[dict], max_user_turns: int = 4) -> list[dict]:
 
 # ─── V2 Interactive Worker ────────────────────────────────────────────────────
 
+_SHELL_LIKE_APP_TYPES = {"shell", "data", "docs", "media", "browser", "files"}
+_EMPTY_REPLY_LIMIT = 2
+
+
+def _send_agent_command(cmd: str, subtask: Subtask, pane_info: PaneInfo, session_dir: str) -> str:
+    """Wrap, sandbox, send, and wait. Returns the resulting pane screen."""
+    if pane_info.app_type in _SHELL_LIKE_APP_TYPES:
+        cmd = _wrap_for_sandbox(cmd, session_dir, sandboxed=pane_info.sandboxed)
+    wrapped, marker = wrap_command(cmd, subtask.id)
+    pane_info.pane.send_keys(wrapped, enter=True)
+    screen, _method = wait_for_ready(pane_info, marker=marker)
+    return screen
+
+
 def run_subtask_interactive(
     subtask: Subtask,
     pane_info: PaneInfo,
@@ -784,13 +799,9 @@ def run_subtask_interactive(
     and the executor types it into the pane. No XML protocol, no side channels.
     The pane scrollback IS the session store.
     """
-    from command_extract import extract_command, extract_done
-    from prompts import build_interactive_prompt
-
     client = get_client()
     total_pt = total_ct = 0
     empty_reply_count = 0
-    EMPTY_REPLY_LIMIT = 2
 
     system_prompt = build_interactive_prompt(
         subtask_description=subtask.description,
@@ -800,12 +811,10 @@ def run_subtask_interactive(
         dependency_context=dep_context,
         session_dir=session_dir,
     )
-
     messages = [
         {"role": "system", "content": system_prompt},
         {"role": "user", "content": f"Begin. Goal: {subtask.description}"},
     ]
-
     prev_screen = None
 
     lock = _pane_locks.setdefault(subtask.pane, threading.Lock())
@@ -829,13 +838,12 @@ def run_subtask_interactive(
             total_pt += pt
             total_ct += ct
 
-            # Detect consecutive empty replies (LLM outage / broken provider)
             if not reply.strip():
                 empty_reply_count += 1
-                if empty_reply_count >= EMPTY_REPLY_LIMIT:
+                if empty_reply_count >= _EMPTY_REPLY_LIMIT:
                     return SubtaskResult(
                         subtask_id=subtask.id, status=SubtaskStatus.FAILED,
-                        summary=f"LLM returned {EMPTY_REPLY_LIMIT} consecutive empty responses",
+                        summary=f"LLM returned {_EMPTY_REPLY_LIMIT} consecutive empty responses",
                         output_snippet=screen[-500:] if screen else "",
                         turns_used=turn, prompt_tokens=total_pt, completion_tokens=total_ct,
                     )
@@ -843,11 +851,9 @@ def run_subtask_interactive(
             empty_reply_count = 0
 
             messages.append({"role": "assistant", "content": reply})
-
             _emit(on_event, "turn", subtask.id, turn, reply[:80])
             _emit(on_event, "tokens", subtask.id, pt, ct)
 
-            # Check completion
             done = extract_done(reply)
             if done is not None:
                 return SubtaskResult(
@@ -856,10 +862,9 @@ def run_subtask_interactive(
                     turns_used=turn, prompt_tokens=total_pt, completion_tokens=total_ct,
                 )
 
-            # Extract and execute command
             cmd = extract_command(reply)
             if not cmd:
-                continue  # no command, next turn observes screen
+                continue
 
             violation = _check_command_safety(cmd)
             if violation:
@@ -867,15 +872,7 @@ def run_subtask_interactive(
                 messages.append({"role": "user", "content": f"[BLOCKED] {violation}. Try a different approach."})
                 continue
 
-            # Sandbox wrapping for shell-like panes
-            _SHELL_LIKE = {"shell", "data", "docs", "media", "browser", "files"}
-            if pane_info.app_type in _SHELL_LIKE:
-                cmd = _wrap_for_sandbox(cmd, session_dir, sandboxed=pane_info.sandboxed)
-
-            wrapped, marker = wrap_command(cmd, subtask.id)
-            pane_info.pane.send_keys(wrapped, enter=True)
-            screen, method = wait_for_ready(pane_info, marker=marker)
-            prev_screen = screen  # update for next diff
+            prev_screen = _send_agent_command(cmd, subtask, pane_info, session_dir)
 
     # Exhausted turns
     final_screen = capture_pane(pane_info)

@@ -79,6 +79,62 @@ def parse_executable_steps(skill_content: str) -> list[dict]:
     return steps
 
 
+def _interpolate_params(text: str, params: dict) -> str:
+    """Replace {KEY} and {key} placeholders with values from params."""
+    for key, value in params.items():
+        text = text.replace(f"{{{key.upper()}}}", value)
+        text = text.replace(f"{{{key}}}", value)
+    return text
+
+
+def _parse_exit_code(screen: str, marker: str) -> int | None:
+    """Extract exit code from a wrapped command's marker line."""
+    for line in screen.splitlines():
+        if "EXIT:" in line and marker in line:
+            try:
+                return int(line.split("EXIT:")[1].split()[0])
+            except (ValueError, IndexError):
+                return None
+    return None
+
+
+def _check_step_result(step: dict, screen: str, marker: str, exit_code: int | None,
+                      params: dict, step_idx: int) -> bool:
+    """Evaluate a step's verification check. Returns True on pass."""
+    ctype = step["check_type"]
+    cvalue = step["check_value"]
+    if ctype == "exit_code":
+        if exit_code is None:
+            progress(f"    [skill step {step_idx}] WARNING: exit code not captured")
+            return False
+        return exit_code == int(cvalue)
+    if ctype == "file_exists":
+        target = _interpolate_params(cvalue, params)
+        return os.path.exists(target)
+    if ctype == "output_contains":
+        return cvalue in screen
+    if ctype == "valid_json":
+        try:
+            content_lines = [l for l in screen.splitlines() if marker not in l and l.strip()]
+            if not content_lines:
+                return False
+            json.loads(content_lines[-1])
+            return True
+        except (json.JSONDecodeError, IndexError):
+            return False
+    return True
+
+
+def _save_step_output(step: dict, screen: str, marker: str, params: dict, session_dir: str) -> None:
+    """Write the step's screen output to disk (minus markers)."""
+    save_path = _interpolate_params(step["save"], params)
+    if not save_path.startswith("/"):
+        save_path = os.path.join(session_dir, save_path)
+    clean = "\n".join(l for l in screen.splitlines() if marker not in l)
+    with open(save_path, "w") as f:
+        f.write(clean)
+
+
 def run_executable_skill(
     steps: list[dict],
     pane_info: PaneInfo,
@@ -97,69 +153,22 @@ def run_executable_skill(
     start_time = time.time()
 
     for i, step in enumerate(steps):
-        cmd = step["cmd"]
-        # Inject parameters
-        for key, value in params.items():
-            cmd = cmd.replace(f"{{{key.upper()}}}", value)
-            cmd = cmd.replace(f"{{{key}}}", value)
+        step_idx = i + 1
+        cmd = _interpolate_params(step["cmd"], params)
+        progress(f"    [skill step {step_idx}/{total_steps}] {cmd[:60]}")
 
-        progress(f"    [skill step {i+1}/{total_steps}] {cmd[:60]}")
-
-        # Execute command
         wrapped, marker = wrap_command(cmd, f"{subtask_id}_step{i}")
         pane_info.pane.send_keys(wrapped, enter=True)
-        screen, method = wait_for_ready(pane_info, marker=marker, max_wait=30.0)
+        screen, _method = wait_for_ready(pane_info, marker=marker, max_wait=30.0)
 
-        # Parse exit code
-        exit_code = None
-        for line in screen.splitlines():
-            if "EXIT:" in line and marker in line:
-                try:
-                    exit_code = int(line.split("EXIT:")[1].split()[0])
-                except (ValueError, IndexError):
-                    pass
+        exit_code = _parse_exit_code(screen, marker)
+        check_passed = _check_step_result(step, screen, marker, exit_code, params, step_idx)
 
-        # Check verification
-        check_passed = True
-        if step["check_type"] == "exit_code":
-            expected = int(step["check_value"])
-            if exit_code is None:
-                progress(f"    [skill step {i+1}] WARNING: exit code not captured")
-                check_passed = False
-            else:
-                check_passed = (exit_code == expected)
-        elif step["check_type"] == "file_exists":
-            target = step["check_value"]
-            for k, v in params.items():
-                target = target.replace(f"{{{k.upper()}}}", v).replace(f"{{{k}}}", v)
-            check_passed = os.path.exists(target)
-        elif step["check_type"] == "output_contains":
-            check_passed = step["check_value"] in screen
-        elif step["check_type"] == "valid_json":
-            try:
-                content_lines = [l for l in screen.splitlines() if marker not in l and l.strip()]
-                if not content_lines:
-                    check_passed = False  # no output to validate
-                else:
-                    json.loads(content_lines[-1])
-                    check_passed = True
-            except (json.JSONDecodeError, IndexError):
-                check_passed = False
-
-        # Save output if requested
         if step.get("save") and check_passed:
-            save_path = step["save"]
-            for k, v in params.items():
-                save_path = save_path.replace(f"{{{k.upper()}}}", v).replace(f"{{{k}}}", v)
-            if not save_path.startswith("/"):
-                save_path = os.path.join(session_dir, save_path)
-            # Save the screen content (minus markers)
-            clean = "\n".join(l for l in screen.splitlines() if marker not in l)
-            with open(save_path, "w") as f:
-                f.write(clean)
+            _save_step_output(step, screen, marker, params, session_dir)
 
         outputs.append({
-            "step": i + 1,
+            "step": step_idx,
             "cmd": cmd[:80],
             "exit_code": exit_code,
             "check": step.get("check", "none"),
@@ -168,13 +177,12 @@ def run_executable_skill(
 
         if check_passed:
             completed_steps += 1
-        else:
-            progress(f"    [skill step {i+1}] CHECK FAILED: {step.get('check', '?')}")
-            if step["on_fail"] == "skip":
-                continue
-            elif step["on_fail"] == "abort":
-                break
-            # Other on_fail actions (retry, llm_repair) could be added
+            continue
+
+        progress(f"    [skill step {step_idx}] CHECK FAILED: {step.get('check', '?')}")
+        if step["on_fail"] == "abort":
+            break
+        # "skip" falls through to the next iteration
 
     elapsed = time.time() - start_time
     all_passed = completed_steps == total_steps
@@ -187,7 +195,7 @@ def run_executable_skill(
         status=SubtaskStatus.COMPLETED if all_passed else SubtaskStatus.FAILED,
         summary=summary,
         output_snippet=json.dumps(outputs, indent=2)[-500:],
-        turns_used=0,  # no LLM calls on happy path
+        turns_used=0,
         prompt_tokens=0,
         completion_tokens=0,
         exit_code=0 if all_passed else 1,
