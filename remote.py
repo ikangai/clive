@@ -16,14 +16,21 @@ File transfer: after turn=done, local scp's any declared files from remote.
 Architecture:
   local clive → SSH pane → remote clive --conversational → framed output → parse
 """
+import base64
+import binascii
+import json
 import logging
 import os
 import subprocess
 
 from output import progress
-from protocol import decode_all, latest
+from protocol import KINDS, decode_all, latest, _FRAME_RE  # type: ignore[attr-defined]
 
 _log = logging.getLogger(__name__)
+
+# Kinds that we render into the LLM-facing decoded view. `alive` is
+# omitted because keepalives are supervisor signal, not LLM signal.
+_RENDERED_KINDS = frozenset(KINDS - {"alive"})
 
 
 def parse_turn_state(screen: str, nonce: str = "") -> str | None:
@@ -114,6 +121,84 @@ def parse_remote_progress(screen: str, nonce: str = "") -> list[str]:
             if isinstance(text, str):
                 out.append(text)
     return out
+
+
+# ─── Outer-side pane rendering ───────────────────────────────────────────────
+
+def _render_frame(kind: str, payload: dict) -> str:
+    """Format a single decoded frame as a human-readable pseudo-line.
+
+    The ``⎇ CLIVE»`` prefix is distinctive enough that the outer LLM
+    can be told to key on it when reading an agent pane. Shell output
+    cannot contain that exact sequence by accident.
+    """
+    if kind == "turn":
+        state = payload.get("state", "?")
+        return f"⎇ CLIVE» turn={state}"
+    if kind == "question":
+        text = payload.get("text", "")
+        return f'⎇ CLIVE» question: "{text}"'
+    if kind == "context":
+        return f"⎇ CLIVE» context: {json.dumps(payload, separators=(',', ':'))}"
+    if kind == "file":
+        name = payload.get("name", "?")
+        return f"⎇ CLIVE» file: {name}"
+    if kind == "progress":
+        text = payload.get("text", "")
+        return f"⎇ CLIVE» progress: {text}"
+    if kind in ("llm_request", "llm_response", "llm_error"):
+        # Delegation side-channel frames are handled by the executor's
+        # inference handler, not the LLM's reasoning loop. Render them
+        # terse so a human debugging a pane can see they happened,
+        # without cluttering the LLM's context with raw message bodies.
+        rid = payload.get("id", "?")
+        return f"⎇ CLIVE» {kind} id={rid}"
+    # Fallback for any future kind: render kind + compact payload
+    return f"⎇ CLIVE» {kind}: {json.dumps(payload, separators=(',', ':'))}"
+
+
+def render_agent_screen(screen: str, nonce: str) -> str:
+    """Transform an agent pane screen for LLM consumption.
+
+    Replaces every valid framed message (matching ``nonce``) with a
+    human-readable pseudo-line. Non-frame content (shell prompts, tool
+    output, error messages) is preserved verbatim. Frames with a wrong
+    or missing nonce are silently dropped — they are removed from the
+    output entirely, not rendered, because they come from an
+    untrusted source (a compromised inner's LLM, stray tool output, or
+    a replay attack).
+
+    The renderer is a thin boundary layer between the pane and the
+    outer LLM's reasoning loop. The LLM reads the returned string via
+    ``drivers/agent.md`` which describes the ``⎇ CLIVE»`` pseudo-line
+    grammar.
+    """
+    if not screen:
+        return ""
+
+    def _sub(m):
+        kind = m.group("kind")
+        frame_nonce = m.group("nonce")
+        b64 = m.group("b64")
+        if kind not in KINDS:
+            return ""  # unknown kind — drop
+        if frame_nonce != nonce:
+            _log.debug("render_agent_screen dropping %s frame: nonce mismatch",
+                       kind)
+            return ""  # forged / replay — drop
+        if kind not in _RENDERED_KINDS:
+            return ""  # suppressed for LLM (e.g. alive keepalives)
+        try:
+            raw = base64.b64decode(b64, validate=True)
+            payload = json.loads(raw.decode("utf-8"))
+        except (binascii.Error, ValueError, UnicodeDecodeError,
+                json.JSONDecodeError):
+            return ""  # malformed — drop
+        if not isinstance(payload, dict):
+            return ""
+        return _render_frame(kind, payload)
+
+    return _FRAME_RE.sub(_sub, screen)
 
 
 def scp_file(host: str, remote_path: str, local_dir: str, key: str | None = None) -> str | None:

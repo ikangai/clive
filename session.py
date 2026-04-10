@@ -81,6 +81,7 @@ def setup_session(
             description=tool["description"],
             name=tool["name"],
             idle_timeout=tool.get("idle_timeout", 2.0),
+            frame_nonce=tool.get("frame_nonce", ""),
         )
 
     # Set working directory to where clive was launched, create session dir for outputs
@@ -155,6 +156,7 @@ def add_pane(session: libtmux.Session, tool: dict, session_dir: str | None = Non
         description=tool["description"],
         name=tool["name"],
         idle_timeout=tool.get("idle_timeout", 2.0),
+        frame_nonce=tool.get("frame_nonce", ""),
     )
 
 
@@ -233,6 +235,7 @@ def ensure_agent_pane(
         description=config.get("description", f"Remote clive at {host}"),
         name=pane_name,
         idle_timeout=config.get("idle_timeout", 5.0),
+        frame_nonce=config.get("frame_nonce", ""),
     )
     panes[pane_name] = pane_info
 

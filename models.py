@@ -122,3 +122,8 @@ class PaneInfo:
     name: str
     idle_timeout: float = 2.0
     sandboxed: bool = False
+    # Session nonce used to authenticate framed protocol messages
+    # read from this pane. Set by resolve_agent() for agent panes;
+    # empty string for everything else (shell, data, media, etc.).
+    # See protocol.py and remote.render_agent_screen.
+    frame_nonce: str = ""

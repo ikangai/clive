@@ -15,6 +15,7 @@ from completion import wrap_command
 from llm import get_client
 from models import Subtask, SubtaskStatus, SubtaskResult, PaneInfo
 from prompts import build_interactive_prompt
+from remote import render_agent_screen
 from screen_diff import compute_screen_diff
 # NOTE: chat, capture_pane, wait_for_ready are looked up via executor.*
 # at call time so tests that patch executor.chat / capture_pane / wait_for_ready
@@ -137,6 +138,12 @@ def run_subtask_interactive(
                     output_snippet=prev_screen[-500:] if prev_screen else "",
                     turns_used=turn - 1, prompt_tokens=total_pt, completion_tokens=total_ct,
                 )
+            # For agent panes, decode framed protocol messages into
+            # human-readable pseudo-lines BEFORE the LLM sees them.
+            # The outer LLM never parses raw frames — it reads the
+            # decoded view described in drivers/agent.md.
+            if pane_info.app_type == "agent":
+                screen = render_agent_screen(screen, nonce=pane_info.frame_nonce)
             diff = compute_screen_diff(prev_screen, screen)
             prev_screen = screen
 
@@ -194,7 +201,15 @@ def run_subtask_interactive(
             # Surface non-zero exit codes explicitly so the LLM can't miss
             # them via the screen diff alone. The marker wraps every command
             # with `echo "EXIT:$? ___DONE_..."`, so the code is always present.
+            # NOTE: _parse_exit_code runs BEFORE the agent-pane render so
+            # that raw `EXIT:<n>` markers (injected by wrap_command) are
+            # still visible — the renderer strips frames, not shell output.
             exit_code = _parse_exit_code(prev_screen)
+            # Keep prev_screen in the same form as the decoded screen we
+            # will compare against on the next turn, so compute_screen_diff
+            # does not report "all frames disappeared" as noise.
+            if pane_info.app_type == "agent":
+                prev_screen = render_agent_screen(prev_screen, nonce=pane_info.frame_nonce)
             if exit_code is not None and exit_code != 0:
                 messages.append({
                     "role": "user",
