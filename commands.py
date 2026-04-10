@@ -22,6 +22,10 @@ class SlashCommand:
     args_hint: str = ""                     # optional arg syntax hint e.g. "<name|+cat>"
     handler: Callable = lambda app, arg, out: None
     source: str = "core"                    # "core", "session", "plugin:..."
+    complete: Callable[[str], list[str]] | None = None
+    """Optional argument completer. Takes the current arg prefix and returns
+    candidate completions. Used by future interactive discovery UI
+    (Claude-Code-style popup). ``None`` means "no completions for this arg"."""
 
 
 _REGISTRY: dict[str, SlashCommand] = {}
@@ -62,6 +66,29 @@ def dispatch(name: str, arg: str, app, out) -> bool:
 def clear() -> None:
     """Reset the registry. Test helper only."""
     _REGISTRY.clear()
+
+
+def complete_command_name(prefix: str) -> list[str]:
+    """Return command names that start with ``prefix``. Case-insensitive.
+
+    Feeds a future autocomplete popup: when the user types ``/pr``, return
+    ``["/profile", "/provider"]``.
+    """
+    if not prefix:
+        return list(_REGISTRY.keys())
+    prefix_lower = prefix.lower()
+    return [name for name in _REGISTRY if name.lower().startswith(prefix_lower)]
+
+
+def complete_arg(name: str, arg_prefix: str) -> list[str]:
+    """Return argument completions for ``name`` given current arg prefix.
+
+    Returns ``[]`` if the command is unknown or has no registered completer.
+    """
+    cmd = _REGISTRY.get(name)
+    if cmd is None or cmd.complete is None:
+        return []
+    return cmd.complete(arg_prefix)
 
 
 def render_help(profiles: str, categories: str, providers: str) -> str:

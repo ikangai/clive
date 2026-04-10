@@ -137,6 +137,61 @@ def test_tui_theme_no_longer_defines_help_text():
     )
 
 
+def test_complete_command_name_all():
+    """Empty prefix returns every registered command."""
+    result = commands.complete_command_name("")
+    assert len(result) == len(commands.all_commands())
+
+
+def test_complete_command_name_prefix():
+    """'/pr' should match /profile and /provider."""
+    result = commands.complete_command_name("/pr")
+    assert "/profile" in result
+    assert "/provider" in result
+    assert "/help" not in result
+
+
+def test_complete_command_name_case_insensitive():
+    assert "/PROFILE" not in commands.names(), "sanity: names stay lowercase"
+    assert "/profile" in commands.complete_command_name("/PR")
+
+
+def test_complete_arg_profile_returns_known_profiles():
+    """/profile completer should include the built-in profile names."""
+    from toolsets import PROFILES
+    result = commands.complete_arg("/profile", "")
+    # Every hardcoded profile should appear
+    for p in PROFILES:
+        assert p in result, f"profile {p} missing from /profile completions"
+
+
+def test_complete_arg_provider_returns_known_providers():
+    from llm import PROVIDERS
+    result = commands.complete_arg("/provider", "")
+    for name in PROVIDERS:
+        assert name in result, f"provider {name} missing from /provider completions"
+
+
+def test_complete_arg_evolve_fixed_choices():
+    result = commands.complete_arg("/evolve", "")
+    assert set(result) == {"shell", "browser", "all"}
+
+
+def test_complete_arg_evolve_prefix_filter():
+    assert commands.complete_arg("/evolve", "sh") == ["shell"]
+    assert commands.complete_arg("/evolve", "b") == ["browser"]
+
+
+def test_complete_arg_unknown_command_returns_empty():
+    assert commands.complete_arg("/nope", "") == []
+
+
+def test_complete_arg_no_completer_returns_empty():
+    """Commands without a registered completer return []."""
+    assert commands.complete_arg("/help", "") == []
+    assert commands.complete_arg("/status", "") == []
+
+
 def test_no_if_cmd_ladder_in_tui_or_session_store():
     """Regression guard: the branch-count metric must stay at 0."""
     import re

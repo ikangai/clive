@@ -186,6 +186,16 @@ def _register_session_commands() -> None:
         commands.register(c)
 
 
+def _prefix_filter(choices):
+    """Return a completer that filters ``choices`` by prefix (case-insensitive)."""
+    def _complete(arg_prefix: str) -> list[str]:
+        if not arg_prefix:
+            return list(choices)
+        p = arg_prefix.lower()
+        return [c for c in choices if c.lower().startswith(p)]
+    return _complete
+
+
 def _register_core_commands() -> None:
     """Register all built-in slash commands. Called once at module load.
 
@@ -193,10 +203,18 @@ def _register_core_commands() -> None:
     command lives here and only here. Adding "/history" means appending
     one SlashCommand(...) entry, not editing both HELP_TEXT and dispatch.
     """
+    # Argument completers — drive a future autocomplete popup. Kept as
+    # closures so changes to PROFILES/LLM_PROVIDERS reflect immediately.
+    profile_choices = lambda: sorted(PROFILES) + [f"+{c}" for c in sorted(CATEGORIES)]
+    provider_choices = lambda: sorted(LLM_PROVIDERS.keys())
+    evolve_choices = ["shell", "browser", "all"]
+
     core = [
         commands.SlashCommand("/help",      "Show this help",                         "",            _cmd_help),
-        commands.SlashCommand("/profile",   "Switch toolset profile or add category", "<name|+cat>", _cmd_profile),
-        commands.SlashCommand("/provider",  "Switch LLM provider",                    "<name>",      _cmd_provider),
+        commands.SlashCommand("/profile",   "Switch toolset profile or add category", "<name|+cat>", _cmd_profile,
+                              complete=lambda p: _prefix_filter(profile_choices())(p)),
+        commands.SlashCommand("/provider",  "Switch LLM provider",                    "<name>",      _cmd_provider,
+                              complete=lambda p: _prefix_filter(provider_choices())(p)),
         commands.SlashCommand("/model",     "Switch model",                           "<name>",      _cmd_model),
         commands.SlashCommand("/tools",     "Show available and missing tools",       "",            _cmd_tools),
         commands.SlashCommand("/install",   "Install missing CLI tools",              "",            _cmd_install),
@@ -206,7 +224,8 @@ def _register_core_commands() -> None:
         commands.SlashCommand("/selfmod",   "Self-modify clive (experimental)",       "<goal>",      _cmd_selfmod),
         commands.SlashCommand("/undo",      "Roll back last self-modification",       "",            _cmd_undo),
         commands.SlashCommand("/safe-mode", "Disable self-modification",              "",            _cmd_safe_mode),
-        commands.SlashCommand("/evolve",    "Evolve a driver (shell, browser, all)",  "<driver>",    _cmd_evolve),
+        commands.SlashCommand("/evolve",    "Evolve a driver (shell, browser, all)",  "<driver>",    _cmd_evolve,
+                              complete=_prefix_filter(evolve_choices)),
         commands.SlashCommand("/dashboard", "Show running clive instances",           "",            _cmd_dashboard),
     ]
     for c in core:
