@@ -19,6 +19,8 @@ is single-threaded per pane, so this is unnecessary.
 """
 from __future__ import annotations
 
+import os
+import select
 import sys
 import time
 import uuid
@@ -125,7 +127,6 @@ class DelegateClient:
                 # encode() would have used, so we only accept our own
                 # authenticated frames. Reading from env at call time
                 # so tests can monkeypatch between calls.
-                import os
                 frames = decode_all(buf, nonce=os.environ.get("CLIVE_FRAME_NONCE", ""))
                 for f in frames:
                     if f.kind == "llm_error" and f.payload.get("id") == rid:
@@ -139,7 +140,10 @@ class DelegateClient:
                                 completion_tokens=int(f.payload.get("completion_tokens", 0)),
                             ),
                         )
-            time.sleep(self._poll)
+            # No explicit time.sleep(self._poll) — _read_available uses
+            # select() with self._poll as its own timeout, so the loop
+            # already paces itself AND stays responsive to the deadline
+            # check above.
 
         raise TimeoutError(
             f"delegate LLM response timed out after {self._timeout}s (id={rid})"
@@ -148,15 +152,39 @@ class DelegateClient:
     def _read_available(self) -> str:
         """Read whatever is currently available on the input stream.
 
-        For StringIO in tests we can read everything that was pre-seeded.
-        For real stdin we fall back to readline() — the outer's
-        send_keys produces whole lines, so readline() does not block
-        past the next frame boundary.
+        Test fast path: when ``self._in`` is a StringIO (or anything
+        with ``getvalue``), read the full remainder in one shot. Tests
+        pre-seed buffers before calling, so greedy read is fine and
+        avoids the select() path entirely.
+
+        Production path: use ``select.select()`` with a short timeout
+        (self._poll) to check readability BEFORE calling readline().
+        This is load-bearing for liveness: if we called readline()
+        directly on a silent stdin, the call would block until a
+        newline arrived, and the caller's deadline check would never
+        run — a crashed or hung outer would wedge the inner forever.
+        With select() as the sleep mechanism, the caller's while loop
+        wakes every poll_interval and checks its deadline.
         """
-        if hasattr(self._in, "getvalue"):  # StringIO — read remainder
+        if hasattr(self._in, "getvalue"):  # StringIO / BytesIO — test path
             return self._in.read()
-        line = self._in.readline()
-        return line
+        # select() needs a file-like with fileno(). Real sys.stdin has
+        # one; if a caller injects an object without, we fall back to
+        # readline (and accept the liveness hazard — they opted in).
+        try:
+            fd_ok = callable(getattr(self._in, "fileno", None))
+        except Exception:
+            fd_ok = False
+        if not fd_ok:
+            return self._in.readline()
+        try:
+            ready, _, _ = select.select([self._in], [], [], self._poll)
+        except (OSError, ValueError):
+            # stdin closed under us — treat as EOF
+            return ""
+        if not ready:
+            return ""
+        return self._in.readline()
 
 
 class _ChatNamespace:

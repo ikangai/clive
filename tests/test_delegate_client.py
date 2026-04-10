@@ -148,5 +148,97 @@ def test_get_client_returns_delegate_when_provider_is_delegate(monkeypatch):
     monkeypatch.setenv("LLM_PROVIDER", "delegate")
     import importlib, llm
     importlib.reload(llm)
-    client = llm.get_client()
-    assert isinstance(client, DelegateClient)
+    try:
+        client = llm.get_client()
+        assert isinstance(client, DelegateClient)
+    finally:
+        # Reset module state so later tests that import llm see a fresh
+        # _client_cache and the original PROVIDER_NAME. Without this,
+        # stale delegate state leaks across the test suite.
+        llm._client_cache = None
+        monkeypatch.delenv("LLM_PROVIDER", raising=False)
+        importlib.reload(llm)
+
+
+# ─── Liveness: timeout must actually fire when the outer is silent ──────────
+
+def test_timeout_fires_when_outer_never_responds():
+    """Regression test for C1.
+
+    Previously, DelegateClient._read_available() called readline() on
+    real stdin without any readability check. If the outer crashed or
+    hung, readline() blocked indefinitely, the loop's deadline check
+    never ran, and the 300s timeout never fired — the inner clive
+    hung forever.
+
+    Fix: _read_available() now uses select.select() with poll_interval
+    to check readability before reading. A stuck outer no longer
+    wedges the inner; the TimeoutError arrives on schedule.
+    """
+    import subprocess
+    import sys
+    import time
+    from pathlib import Path
+
+    repo_root = Path(__file__).parent.parent
+    child_code = (
+        "import os\n"
+        "os.environ.setdefault('CLIVE_FRAME_NONCE', '')\n"
+        "import sys, time\n"
+        "sys.path.insert(0, '.')\n"
+        "from delegate_client import DelegateClient\n"
+        "client = DelegateClient(stdout=sys.stdout, stdin=sys.stdin,\n"
+        "                        poll_interval=0.05, timeout=1.5)\n"
+        "start = time.time()\n"
+        "try:\n"
+        "    client.chat_completions_create(\n"
+        "        model='x',\n"
+        "        messages=[{'role': 'user', 'content': 'hi'}],\n"
+        "        max_tokens=1,\n"
+        "    )\n"
+        "    print(f'UNEXPECTED_SUCCESS after {time.time()-start:.2f}s', flush=True)\n"
+        "except TimeoutError as e:\n"
+        "    print(f'TIMEOUT after {time.time()-start:.2f}s', flush=True)\n"
+    )
+
+    proc = subprocess.Popen(
+        [sys.executable, "-u", "-c", child_code],
+        stdin=subprocess.PIPE,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        cwd=str(repo_root),
+        text=True,
+        bufsize=0,
+    )
+
+    start = time.time()
+    try:
+        # Give the child up to 5s to hit its 1.5s internal timeout.
+        # If the fix is in place we expect ~1.5-2.0s wall time.
+        rc = proc.wait(timeout=5)
+        elapsed = time.time() - start
+        stdout = proc.stdout.read()
+        stderr = proc.stderr.read()
+    except subprocess.TimeoutExpired:
+        proc.kill()
+        proc.wait()
+        raise AssertionError(
+            "DelegateClient did not fire its internal TimeoutError "
+            "within 5s — the outer-hang liveness bug has regressed. "
+            "See C1 in the Phase 2 review."
+        )
+    finally:
+        try:
+            proc.stdin.close()
+        except Exception:
+            pass
+
+    assert rc == 0, f"child exited rc={rc}, stderr={stderr!r}"
+    assert "TIMEOUT" in stdout, (
+        f"Expected TimeoutError, got stdout={stdout!r} stderr={stderr!r}"
+    )
+    # The internal timeout was 1.5s; allow some slack for process startup.
+    assert elapsed < 4.0, (
+        f"Timeout took {elapsed:.2f}s — should be ~1.5s. Is select actually "
+        f"polling, or did it fall back to blocking readline?"
+    )
