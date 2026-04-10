@@ -185,46 +185,73 @@ def dispatch_session_slash(task: str, current_sid: str | None,
     if not task or not task.startswith("/"):
         return False, [], current_sid
     parts = task.strip().split(maxsplit=1)
-    cmd = parts[0]
+    name = parts[0]
     arg = parts[1] if len(parts) > 1 else ""
+    handler = _SESSION_SLASH_HANDLERS.get(name)
+    if handler is None:
+        return False, [], current_sid
+    lines, new_sid = handler(arg, current_sid, sessions_dir)
+    return True, lines, new_sid
 
-    if cmd == "/sessions":
-        sessions = list_sorted(sessions_dir)
-        if not sessions:
-            return True, ["(no sessions)"], current_sid
-        return True, [format_session_line(s) for s in sessions], current_sid
 
-    if cmd == "/new":
-        sid = new(title=arg or None, sessions_dir=sessions_dir)
-        return True, [f"new session: {sid}"], sid
+# ── Session slash handlers ──────────────────────────────────────────────────
+#
+# Each returns ``(lines, new_sid)``. The ``handled`` flag is implicit — if
+# the dispatcher looked the handler up in ``_SESSION_SLASH_HANDLERS``, the
+# command is handled by definition. These stay in session_store.py (not
+# commands.py) because they're tightly coupled to the session-store API and
+# need the pure-function contract that session tests exercise directly.
 
-    if cmd == "/resume":
-        if not arg:
-            return True, ["usage: /resume <session-id>"], current_sid
-        data = get(arg, sessions_dir=sessions_dir)
-        if data is None:
-            return True, [f"no such session: {arg}"], current_sid
-        lines = [f"resumed: {arg}"]
-        recap = build_recap_text(data)
-        if recap:
-            lines.append(recap)
-        return True, lines, arg
 
-    if cmd == "/title":
-        if current_sid is None:
-            return True, ["no active session"], current_sid
-        if not arg:
-            return True, ["usage: /title <new title>"], current_sid
-        if set_title(current_sid, arg, sessions_dir=sessions_dir):
-            return True, [f"title set: {arg}"], current_sid
-        return True, [f"failed to set title on {current_sid}"], current_sid
+def _s_sessions(arg, current_sid, sessions_dir):
+    sessions = list_sorted(sessions_dir)
+    if not sessions:
+        return ["(no sessions)"], current_sid
+    return [format_session_line(s) for s in sessions], current_sid
 
-    if cmd in ("/session", "/id"):
-        if current_sid is None:
-            return True, ["no active session"], current_sid
-        return True, [f"active session: {current_sid}"], current_sid
 
-    return False, [], current_sid
+def _s_new(arg, current_sid, sessions_dir):
+    sid = new(title=arg or None, sessions_dir=sessions_dir)
+    return [f"new session: {sid}"], sid
+
+
+def _s_resume(arg, current_sid, sessions_dir):
+    if not arg:
+        return ["usage: /resume <session-id>"], current_sid
+    data = get(arg, sessions_dir=sessions_dir)
+    if data is None:
+        return [f"no such session: {arg}"], current_sid
+    lines = [f"resumed: {arg}"]
+    recap = build_recap_text(data)
+    if recap:
+        lines.append(recap)
+    return lines, arg
+
+
+def _s_title(arg, current_sid, sessions_dir):
+    if current_sid is None:
+        return ["no active session"], current_sid
+    if not arg:
+        return ["usage: /title <new title>"], current_sid
+    if set_title(current_sid, arg, sessions_dir=sessions_dir):
+        return [f"title set: {arg}"], current_sid
+    return [f"failed to set title on {current_sid}"], current_sid
+
+
+def _s_session_id(arg, current_sid, sessions_dir):
+    if current_sid is None:
+        return ["no active session"], current_sid
+    return [f"active session: {current_sid}"], current_sid
+
+
+_SESSION_SLASH_HANDLERS = {
+    "/sessions": _s_sessions,
+    "/new":      _s_new,
+    "/resume":   _s_resume,
+    "/title":    _s_title,
+    "/session":  _s_session_id,
+    "/id":       _s_session_id,
+}
 
 
 def handle_session_args(args, sessions_dir: Path | None = None) -> tuple[bool, list[str]]:
