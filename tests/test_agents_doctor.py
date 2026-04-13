@@ -10,6 +10,27 @@ import subprocess
 
 import pytest
 
+from agents import _FORWARD_ENVS
+
+
+@pytest.fixture
+def clean_forward_envs(monkeypatch):
+    """Clear every _FORWARD_ENVS entry before the test runs, so
+    accept_env checks see exactly the env vars the test sets via
+    subsequent monkeypatch.setenv calls.
+
+    Why this is needed: llm.py calls load_dotenv() at module import
+    time, which populates os.environ from a local .env file. A
+    developer's .env (e.g. AGENT_MODEL=google/gemini-3-flash-preview)
+    leaks into any accept_env test that doesn't explicitly clear it,
+    because the check iterates _FORWARD_ENVS and reads os.environ
+    directly. Without this fixture the test suite passes on machines
+    without a .env but fails on machines with one, which is exactly
+    what happened when merging feat/byollm-delegate into main.
+    """
+    for v in _FORWARD_ENVS:
+        monkeypatch.delenv(v, raising=False)
+
 
 def test_check_agent_with_missing_key(tmp_path):
     from agents_doctor import check_agent
@@ -198,7 +219,7 @@ def test_handle_agents_doctor_empty_registry_exits_0(tmp_path, capsys, monkeypat
 
 # ─── Regression: accept_env must not false-negative on empty sshd -T ─────────
 
-def test_accept_env_populated_sshd_output_detects_actual_missing(monkeypatch):
+def test_accept_env_populated_sshd_output_detects_actual_missing(clean_forward_envs, monkeypatch):
     """When sshd -T returns real output, the check must still detect
     env vars that are genuinely missing from AcceptEnv."""
     import agents_doctor
@@ -333,7 +354,7 @@ def test_clive_installed_falls_back_for_bare_binary_name(monkeypatch):
     assert "python3 -c " in cmd
 
 
-def test_accept_env_sshd_ok_but_no_directive_reports_missing(monkeypatch):
+def test_accept_env_sshd_ok_but_no_directive_reports_missing(clean_forward_envs, monkeypatch):
     """Regression test for M-A.
 
     Case 3 from the Phase 3.5 review: remote sshd is fine, the user
@@ -381,7 +402,7 @@ def test_accept_env_sshd_ok_but_no_directive_reports_missing(monkeypatch):
     assert "OPENROUTER_API_KEY" in detail or "LLM_PROVIDER" in detail
 
 
-def test_accept_env_sshd_failed_is_could_not_verify(monkeypatch):
+def test_accept_env_sshd_failed_is_could_not_verify(clean_forward_envs, monkeypatch):
     """Regression test for M-A.
 
     Case 1: sshd -T failed (non-zero exit, typically "must be run as
@@ -416,7 +437,7 @@ def test_accept_env_sshd_failed_is_could_not_verify(monkeypatch):
     assert "could not verify" in detail.lower()
 
 
-def test_accept_env_all_present_reports_ok(monkeypatch):
+def test_accept_env_all_present_reports_ok(clean_forward_envs, monkeypatch):
     """When sshd -T has AcceptEnv for every outer-set env var, pass."""
     import agents_doctor
     monkeypatch.setenv("OPENROUTER_API_KEY", "sk-fake")
