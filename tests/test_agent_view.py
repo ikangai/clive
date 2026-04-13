@@ -139,7 +139,6 @@ def test_pane_info_frame_nonce_defaults_empty():
 def test_interactive_runner_decodes_agent_pane(monkeypatch):
     """When run_subtask_interactive reads an agent pane, the screen
     handed to the LLM must contain pseudo-lines, not raw frames."""
-    import executor
     from models import PaneInfo, Subtask
     from unittest.mock import MagicMock
     from protocol import encode
@@ -189,7 +188,6 @@ def test_interactive_runner_decodes_agent_pane(monkeypatch):
 def test_interactive_runner_does_not_decode_shell_pane(monkeypatch):
     """Non-agent panes (shell, data, etc.) must NOT be run through the
     renderer — the LLM should see raw shell output."""
-    import executor
     from models import PaneInfo, Subtask
     from unittest.mock import MagicMock
 

@@ -121,8 +121,6 @@ def handle_agent_pane_frame(pane, screen_blob: str, nonce: str) -> bool:
 
 
 
-
-
 # ─── Direct Mode Worker ──────────────────────────────────────────────────────
 
 def run_subtask_direct(
