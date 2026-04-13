@@ -150,16 +150,17 @@ def test_interactive_runner_decodes_agent_pane(monkeypatch):
         + encode("context", {"result": "42"}, nonce="n42") + "\n"
     )
 
-    monkeypatch.setattr(executor, "capture_pane", lambda pi: raw_screen)
-    monkeypatch.setattr(executor, "wait_for_ready",
+    import interactive_runner
+    monkeypatch.setattr(interactive_runner, "capture_pane", lambda pi: raw_screen)
+    monkeypatch.setattr(interactive_runner, "wait_for_ready",
                         lambda pi, marker=None, detect_intervention=False: (raw_screen, "ready"))
 
     captured_messages = []
     def fake_chat(client, messages, **kwargs):
         captured_messages.append([dict(m) for m in messages])
         return "DONE: observed the agent state", 10, 5
-    monkeypatch.setattr(executor, "chat", fake_chat)
-    monkeypatch.setattr("interactive_runner.get_client", lambda: object())
+    monkeypatch.setattr(interactive_runner, "chat", fake_chat)
+    monkeypatch.setattr(interactive_runner, "get_client", lambda: object())
 
     from interactive_runner import run_subtask_interactive
     subtask = Subtask(id="s1", description="read remote state",
@@ -192,17 +193,18 @@ def test_interactive_runner_does_not_decode_shell_pane(monkeypatch):
     from models import PaneInfo, Subtask
     from unittest.mock import MagicMock
 
+    import interactive_runner
     raw_screen = "user@box:~$ ls\nfoo\nbar\nuser@box:~$ "
-    monkeypatch.setattr(executor, "capture_pane", lambda pi: raw_screen)
-    monkeypatch.setattr(executor, "wait_for_ready",
+    monkeypatch.setattr(interactive_runner, "capture_pane", lambda pi: raw_screen)
+    monkeypatch.setattr(interactive_runner, "wait_for_ready",
                         lambda pi, marker=None, detect_intervention=False: (raw_screen, "ready"))
 
     captured = []
     def fake_chat(client, messages, **kwargs):
         captured.append([dict(m) for m in messages])
         return "DONE: ok", 1, 1
-    monkeypatch.setattr(executor, "chat", fake_chat)
-    monkeypatch.setattr("interactive_runner.get_client", lambda: object())
+    monkeypatch.setattr(interactive_runner, "chat", fake_chat)
+    monkeypatch.setattr(interactive_runner, "get_client", lambda: object())
 
     from interactive_runner import run_subtask_interactive
     subtask = Subtask(id="s1", description="list files", pane="shell",

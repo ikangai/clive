@@ -18,9 +18,9 @@ def _make_subtask(**kw):
 
 
 class TestInteractiveV2:
-    @patch("executor.chat")
-    @patch("executor.capture_pane")
-    @patch("executor.wait_for_ready")
+    @patch("interactive_runner.chat")
+    @patch("interactive_runner.capture_pane")
+    @patch("interactive_runner.wait_for_ready")
     def test_single_command_then_done(self, mock_wait, mock_capture, mock_chat):
         """LLM sends a command, then DONE on next turn."""
         mock_capture.side_effect = [
@@ -42,8 +42,8 @@ class TestInteractiveV2:
         assert result.status == SubtaskStatus.COMPLETED
         assert "2 files" in result.summary
 
-    @patch("executor.chat")
-    @patch("executor.capture_pane")
+    @patch("interactive_runner.chat")
+    @patch("interactive_runner.capture_pane")
     def test_done_on_first_reply(self, mock_capture, mock_chat):
         """LLM immediately says DONE (trivial task)."""
         mock_capture.return_value = "[AGENT_READY] $ "
@@ -57,8 +57,8 @@ class TestInteractiveV2:
         )
         assert result.status == SubtaskStatus.COMPLETED
 
-    @patch("executor.chat")
-    @patch("executor.capture_pane")
+    @patch("interactive_runner.chat")
+    @patch("interactive_runner.capture_pane")
     def test_exhausted_turns(self, mock_capture, mock_chat):
         """Worker exhausts turns without DONE."""
         mock_capture.return_value = "[AGENT_READY] $ "
@@ -73,8 +73,8 @@ class TestInteractiveV2:
         assert result.status == SubtaskStatus.FAILED
         assert "turns" in result.summary.lower()
 
-    @patch("executor.chat")
-    @patch("executor.capture_pane")
+    @patch("interactive_runner.chat")
+    @patch("interactive_runner.capture_pane")
     def test_blocked_command(self, mock_capture, mock_chat):
         """Dangerous command gets blocked, worker continues."""
         mock_capture.return_value = "[AGENT_READY] $ "

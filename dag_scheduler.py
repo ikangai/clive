@@ -4,10 +4,8 @@ Extracted from executor.py. Runs one worker per pane via ThreadPoolExecutor,
 submits ready subtasks as dependencies complete, tracks result files and
 token budget, and cancels orphaned branches on failure.
 
-Shares primitives with executor.py via a deferred `import executor`:
-- executor.run_subtask       (worker dispatched to the thread pool)
-- executor._pane_locks       (per-pane mutex table)
-- executor._cancel_event     (global cancellation signal)
+Uses shared primitives from runtime.py (leaf module) and deferred
+`import executor` for executor.run_subtask (the dispatcher).
 """
 
 import logging
@@ -15,20 +13,12 @@ import threading
 import time
 from concurrent.futures import ThreadPoolExecutor, Future
 
-import executor  # deferred attribute access avoids the circular import
+import executor  # deferred attribute access — only for executor.run_subtask
 from models import Plan, Subtask, SubtaskStatus, SubtaskResult, PaneInfo
 from output import progress
+from runtime import _pane_locks, _cancel_event, _emit
 
 log = logging.getLogger(__name__)
-
-
-def _emit(on_event, *args):
-    """Call event callback if provided."""
-    if on_event:
-        try:
-            on_event(*args)
-        except Exception:
-            log.debug("on_event callback failed for %s", args[0] if args else "?", exc_info=True)
 
 
 class _ExecState:
@@ -244,8 +234,8 @@ def execute_plan(
 
     # Per-plan pane locks (scoped to this execution only)
     plan_locks = {pane_name: threading.Lock() for pane_name in panes}
-    executor._pane_locks.clear()
-    executor._pane_locks.update(plan_locks)
+    _pane_locks.clear()
+    _pane_locks.update(plan_locks)
 
     panes_used = {s.pane for s in plan.subtasks}
     max_workers = max(len(panes_used), 1)
@@ -254,7 +244,7 @@ def execute_plan(
     with ThreadPoolExecutor(max_workers=max_workers) as pool:
         state = _ExecState(plan, panes, on_event, session_dir, max_tokens, pool, wake_event)
         while True:
-            if executor._cancel_event.is_set():
+            if _cancel_event.is_set():
                 _cancel_all_pending(state)
                 break
 

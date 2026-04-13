@@ -1,8 +1,7 @@
 """Script-mode subtask execution — generate → execute → verify → repair.
 
-Extracted from executor.py. Shares primitives (_wrap_for_sandbox, write_file,
-_extract_script, _pane_locks, _cancel_event, _emit) with executor.py via a
-deferred `import executor` to avoid circular-import issues at load time.
+Extracted from executor.py. Imports shared primitives from runtime.py
+(the leaf module), breaking the former circular dependency on executor.
 """
 
 import json
@@ -11,11 +10,11 @@ import os
 import threading
 import uuid
 
-import executor  # deferred attribute access avoids the circular import
 from completion import wait_for_ready
 from llm import get_client, chat, SCRIPT_MODEL
 from models import Subtask, SubtaskStatus, SubtaskResult, PaneInfo
 from prompts import build_script_prompt
+from runtime import _pane_locks, _cancel_event, _emit, _wrap_for_sandbox, write_file, _extract_script
 from session import capture_pane
 
 log = logging.getLogger(__name__)
@@ -51,7 +50,7 @@ def _execute_script_in_pane(pane_info: PaneInfo, script_executor: str, script_pa
     """Run a script in the pane and parse its exit code. Returns (screen, exit_code, nonce)."""
     nonce = uuid.uuid4().hex[:4]
     marker = f"___DONE_{subtask_id}_{nonce}___"
-    script_cmd = executor._wrap_for_sandbox(
+    script_cmd = _wrap_for_sandbox(
         f'{script_executor} {script_path}', session_dir, sandboxed=pane_info.sandboxed,
     )
     combined = f'{script_cmd}; echo "EXIT:$? {marker}"'
@@ -97,14 +96,14 @@ def _write_script_success_artifacts(session_dir: str, subtask_id: str, summary: 
                                     attempt: int, screen: str) -> None:
     """Persist the success result.json and execution log."""
     result_path = os.path.join(session_dir, f"_result_{subtask_id}.json")
-    executor.write_file(result_path, json.dumps({
+    write_file(result_path, json.dumps({
         "status": "success",
         "subtask_id": subtask_id,
         "summary": summary,
         "turns_used": attempt,
     }, indent=2))
     log_path = os.path.join(session_dir, f"_log_{subtask_id}.txt")
-    executor.write_file(log_path, screen)
+    write_file(log_path, screen)
 
 
 def run_subtask_script(
@@ -134,10 +133,10 @@ def run_subtask_script(
     ]
     default_script_path = os.path.join(session_dir, f"_script_{subtask.id}.sh")
 
-    lock = executor._pane_locks.setdefault(subtask.pane, threading.Lock())
+    lock = _pane_locks.setdefault(subtask.pane, threading.Lock())
     with lock:
         for attempt in range(1, subtask.max_turns + 1):
-            if executor._cancel_event.is_set():
+            if _cancel_event.is_set():
                 return SubtaskResult(
                     subtask_id=subtask.id, status=SubtaskStatus.FAILED,
                     summary="Cancelled", output_snippet="",
@@ -147,11 +146,11 @@ def run_subtask_script(
             total_pt += pt
             total_ct += ct
             messages.append({"role": "assistant", "content": reply})
-            executor._emit(on_event, "turn", subtask.id, attempt, f"script gen attempt {attempt}")
-            executor._emit(on_event, "tokens", subtask.id, pt, ct)
+            _emit(on_event, "turn", subtask.id, attempt, f"script gen attempt {attempt}")
+            _emit(on_event, "tokens", subtask.id, pt, ct)
 
             try:
-                script = executor._extract_script(reply)
+                script = _extract_script(reply)
             except ValueError as e:
                 logging.debug(f"[{subtask.id}] Script extraction failed: {e}")
                 messages.append({"role": "user", "content": "Error: could not extract script. Respond with a bash script inside ```bash ``` markers."})
@@ -160,7 +159,7 @@ def run_subtask_script(
             script_path, script_executor = _resolve_script_language(
                 script, session_dir, subtask.id, default_script_path,
             )
-            executor.write_file(script_path, script)
+            write_file(script_path, script)
             os.chmod(script_path, 0o755)
             _audit_script_generation(subtask.id, attempt, script_path)
 
@@ -190,7 +189,7 @@ def run_subtask_script(
 
     final_screen = capture_pane(pane_info)
     log_path = os.path.join(session_dir, f"_log_{subtask.id}.txt")
-    executor.write_file(log_path, final_screen)
+    write_file(log_path, final_screen)
 
     return SubtaskResult(
         subtask_id=subtask.id,

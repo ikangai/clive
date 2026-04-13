@@ -57,7 +57,7 @@ def wait_for_ready(
 
     while True:
         # Check for cancellation from signal handler
-        from executor import _cancel_event
+        from runtime import _cancel_event
         if _cancel_event.is_set():
             return last_content or "", "cancelled"
 

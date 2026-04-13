@@ -1,8 +1,8 @@
 """Interactive-mode subtask execution — read-think-type loop.
 
-Extracted from executor.py. Shares primitives (_pane_locks, _cancel_event,
-_emit, _check_command_safety, _wrap_for_sandbox) with executor.py via a
-deferred `import executor` to avoid circular-import issues at load time.
+Extracted from executor.py. Imports shared primitives from runtime.py
+(the leaf module) and direct modules, breaking the former circular
+dependency on executor.
 """
 
 import logging
@@ -10,17 +10,15 @@ import re
 import threading
 import time
 
-import executor  # deferred attribute access avoids the circular import
 from command_extract import extract_command, extract_done
-from completion import wrap_command
-from llm import get_client
+from completion import wait_for_ready, wrap_command
+from llm import get_client, chat
 from models import Subtask, SubtaskStatus, SubtaskResult, PaneInfo
 from prompts import build_interactive_prompt
 from remote import render_agent_screen
+from runtime import _emit, _check_command_safety, _pane_locks, _cancel_event, _wrap_for_sandbox
 from screen_diff import compute_screen_diff
-# NOTE: chat, capture_pane, wait_for_ready are looked up via executor.*
-# at call time so tests that patch executor.chat / capture_pane / wait_for_ready
-# keep working after the extraction.
+from session import capture_pane
 
 log = logging.getLogger(__name__)
 
@@ -81,10 +79,10 @@ def _send_agent_command(cmd: str, subtask: Subtask, pane_info: PaneInfo, session
     errors) instead of waiting for the 2s idle timeout to trip.
     """
     if pane_info.app_type in _SHELL_LIKE_APP_TYPES:
-        cmd = executor._wrap_for_sandbox(cmd, session_dir, sandboxed=pane_info.sandboxed)
+        cmd = _wrap_for_sandbox(cmd, session_dir, sandboxed=pane_info.sandboxed)
     wrapped, marker = wrap_command(cmd, subtask.id)
     pane_info.pane.send_keys(wrapped, enter=True)
-    screen, method = executor.wait_for_ready(pane_info, marker=marker, detect_intervention=True)
+    screen, method = wait_for_ready(pane_info, marker=marker, detect_intervention=True)
     return screen, method
 
 
@@ -119,10 +117,10 @@ def run_subtask_interactive(
     ]
     prev_screen = None
 
-    lock = executor._pane_locks.setdefault(subtask.pane, threading.Lock())
+    lock = _pane_locks.setdefault(subtask.pane, threading.Lock())
     with lock:
         for turn in range(1, subtask.max_turns + 1):
-            if executor._cancel_event.is_set():
+            if _cancel_event.is_set():
                 return SubtaskResult(
                     subtask_id=subtask.id, status=SubtaskStatus.FAILED,
                     summary="Cancelled", output_snippet="",
@@ -130,7 +128,7 @@ def run_subtask_interactive(
                 )
 
             try:
-                screen = executor.capture_pane(pane_info)
+                screen = capture_pane(pane_info)
             except Exception as exc:
                 log.exception("capture_pane failed at turn %d", turn)
                 return SubtaskResult(
@@ -146,7 +144,8 @@ def run_subtask_interactive(
             # we operate on the raw screen BEFORE rendering for the
             # LLM view below.
             if pane_info.app_type == "agent":
-                if executor.handle_agent_pane_frame(
+                from executor import handle_agent_pane_frame
+                if handle_agent_pane_frame(
                     pane_info.pane, screen, nonce=pane_info.frame_nonce
                 ):
                     time.sleep(0.2)
@@ -164,9 +163,9 @@ def run_subtask_interactive(
             messages = _trim_messages(messages)
 
             try:
-                reply, pt, ct = executor.chat(client, messages)
+                reply, pt, ct = chat(client, messages)
             except Exception as exc:
-                log.exception("executor.chat failed at turn %d", turn)
+                log.exception("chat failed at turn %d", turn)
                 return SubtaskResult(
                     subtask_id=subtask.id, status=SubtaskStatus.FAILED,
                     summary=f"LLM call crashed: {exc}",
@@ -189,8 +188,8 @@ def run_subtask_interactive(
             empty_reply_count = 0
 
             messages.append({"role": "assistant", "content": reply})
-            executor._emit(on_event, "turn", subtask.id, turn, reply[:80])
-            executor._emit(on_event, "tokens", subtask.id, pt, ct)
+            _emit(on_event, "turn", subtask.id, turn, reply[:80])
+            _emit(on_event, "tokens", subtask.id, pt, ct)
 
             done = extract_done(reply)
             if done is not None:
@@ -204,7 +203,7 @@ def run_subtask_interactive(
             if not cmd:
                 continue
 
-            violation = executor._check_command_safety(cmd)
+            violation = _check_command_safety(cmd)
             if violation:
                 log.warning(violation)
                 messages.append({"role": "user", "content": f"[BLOCKED] {violation}. Try a different approach."})
@@ -248,7 +247,7 @@ def run_subtask_interactive(
                 })
 
     # Exhausted turns
-    final_screen = executor.capture_pane(pane_info)
+    final_screen = capture_pane(pane_info)
     return SubtaskResult(
         subtask_id=subtask.id, status=SubtaskStatus.FAILED,
         summary=f"Exhausted {subtask.max_turns} turns without completing",
