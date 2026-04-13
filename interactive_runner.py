@@ -12,7 +12,8 @@ import time
 
 from command_extract import extract_command, extract_done
 from completion import wait_for_ready, wrap_command
-from llm import get_client, chat
+from llm import get_client, chat, chat_stream
+from streaming_extract import StreamingCommandDetector
 from models import Subtask, SubtaskStatus, SubtaskResult, PaneInfo
 from prompts import build_interactive_prompt
 from remote import render_agent_screen
@@ -162,16 +163,23 @@ def run_subtask_interactive(
             messages.append({"role": "user", "content": diff})
             messages = _trim_messages(messages)
 
+            early_cmd = []
+            detector = StreamingCommandDetector(
+                on_command=lambda cmd: early_cmd.append(cmd),
+            )
             try:
-                reply, pt, ct = chat(client, messages)
-            except Exception as exc:
-                log.exception("chat failed at turn %d", turn)
-                return SubtaskResult(
-                    subtask_id=subtask.id, status=SubtaskStatus.FAILED,
-                    summary=f"LLM call crashed: {exc}",
-                    output_snippet=screen[-500:] if screen else "",
-                    turns_used=turn - 1, prompt_tokens=total_pt, completion_tokens=total_ct,
-                )
+                reply, pt, ct = chat_stream(client, messages, on_token=detector.feed)
+            except Exception:
+                try:
+                    reply, pt, ct = chat(client, messages)
+                except Exception as exc:
+                    log.exception("LLM call failed at turn %d", turn)
+                    return SubtaskResult(
+                        subtask_id=subtask.id, status=SubtaskStatus.FAILED,
+                        summary=f"LLM call crashed: {exc}",
+                        output_snippet=screen[-500:] if screen else "",
+                        turns_used=turn - 1, prompt_tokens=total_pt, completion_tokens=total_ct,
+                    )
             total_pt += pt
             total_ct += ct
 

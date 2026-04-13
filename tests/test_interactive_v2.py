@@ -18,10 +18,11 @@ def _make_subtask(**kw):
 
 
 class TestInteractiveV2:
+    @patch("interactive_runner.chat_stream", side_effect=Exception("force fallback"))
     @patch("interactive_runner.chat")
     @patch("interactive_runner.capture_pane")
     @patch("interactive_runner.wait_for_ready")
-    def test_single_command_then_done(self, mock_wait, mock_capture, mock_chat):
+    def test_single_command_then_done(self, mock_wait, mock_capture, mock_chat, mock_stream):
         """LLM sends a command, then DONE on next turn."""
         mock_capture.side_effect = [
             "[AGENT_READY] $ ",  # turn 1: initial screen
@@ -42,9 +43,10 @@ class TestInteractiveV2:
         assert result.status == SubtaskStatus.COMPLETED
         assert "2 files" in result.summary
 
+    @patch("interactive_runner.chat_stream", side_effect=Exception("force fallback"))
     @patch("interactive_runner.chat")
     @patch("interactive_runner.capture_pane")
-    def test_done_on_first_reply(self, mock_capture, mock_chat):
+    def test_done_on_first_reply(self, mock_capture, mock_chat, mock_stream):
         """LLM immediately says DONE (trivial task)."""
         mock_capture.return_value = "[AGENT_READY] $ "
         mock_chat.return_value = ("DONE: nothing to do", 50, 20)
@@ -57,9 +59,10 @@ class TestInteractiveV2:
         )
         assert result.status == SubtaskStatus.COMPLETED
 
+    @patch("interactive_runner.chat_stream", side_effect=Exception("force fallback"))
     @patch("interactive_runner.chat")
     @patch("interactive_runner.capture_pane")
-    def test_exhausted_turns(self, mock_capture, mock_chat):
+    def test_exhausted_turns(self, mock_capture, mock_chat, mock_stream):
         """Worker exhausts turns without DONE."""
         mock_capture.return_value = "[AGENT_READY] $ "
         mock_chat.return_value = ("```bash\nls\n```", 100, 50)
@@ -73,9 +76,10 @@ class TestInteractiveV2:
         assert result.status == SubtaskStatus.FAILED
         assert "turns" in result.summary.lower()
 
+    @patch("interactive_runner.chat_stream", side_effect=Exception("force fallback"))
     @patch("interactive_runner.chat")
     @patch("interactive_runner.capture_pane")
-    def test_blocked_command(self, mock_capture, mock_chat):
+    def test_blocked_command(self, mock_capture, mock_chat, mock_stream):
         """Dangerous command gets blocked, worker continues."""
         mock_capture.return_value = "[AGENT_READY] $ "
         mock_chat.side_effect = [
