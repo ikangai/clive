@@ -110,3 +110,28 @@ def _extract_script(text: str) -> str:
     if m:
         return m.group(1).strip()
     raise ValueError(f"No script found in response:\n{text[:200]}")
+
+
+# ── Model-Aware Context Budget ───────────────────────────────────────────────
+
+# Pattern → max_user_turns. First match wins.
+_MODEL_BUDGETS = [
+    # Cheap / fast models — 6 turns
+    (re.compile(r'flash|haiku|mini|llama|mistral|phi|local|gemma', re.I), 6),
+    # Expensive models — 3 turns
+    (re.compile(r'opus|o1|o3', re.I), 3),
+]
+_DEFAULT_MAX_TURNS = 4
+
+
+def context_budget(model: str) -> dict:
+    """Return context trimming parameters based on model cost tier.
+
+    Returns dict with 'max_user_turns' key for use with _trim_messages().
+    """
+    if not model or model == "delegate":
+        return {"max_user_turns": _DEFAULT_MAX_TURNS}
+    for pattern, turns in _MODEL_BUDGETS:
+        if pattern.search(model):
+            return {"max_user_turns": turns}
+    return {"max_user_turns": _DEFAULT_MAX_TURNS}

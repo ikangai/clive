@@ -104,6 +104,10 @@ def run_subtask_interactive(
     total_pt = total_ct = 0
     empty_reply_count = 0
 
+    from llm import MODEL
+    from runtime import context_budget
+    budget = context_budget(MODEL)
+
     system_prompt = build_interactive_prompt(
         subtask_description=subtask.description,
         pane_name=subtask.pane,
@@ -161,7 +165,7 @@ def run_subtask_interactive(
             prev_screen = screen
 
             messages.append({"role": "user", "content": diff})
-            messages = _trim_messages(messages)
+            messages = _trim_messages(messages, max_user_turns=budget["max_user_turns"])
 
             early_cmd = []
             detector = StreamingCommandDetector(
