@@ -115,11 +115,12 @@ def _extract_script(text: str) -> str:
 # ── Model-Aware Context Budget ───────────────────────────────────────────────
 
 # Pattern → max_user_turns. First match wins.
+# Expensive checked first so "o3-mini" → expensive (not cheap via "mini").
 _MODEL_BUDGETS = [
-    # Cheap / fast models — 6 turns
-    (re.compile(r'flash|haiku|mini|llama|mistral|phi|local|gemma', re.I), 6),
     # Expensive models — 3 turns
-    (re.compile(r'opus|o1|o3', re.I), 3),
+    (re.compile(r'opus|\bo[13](-|\b)', re.I), 3),
+    # Cheap / fast models — 6 turns
+    (re.compile(r'flash|haiku|\bmini\b|llama|mistral|\bphi[-\d]|local|gemma', re.I), 6),
 ]
 _DEFAULT_MAX_TURNS = 4
 

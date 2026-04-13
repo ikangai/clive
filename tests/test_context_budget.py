@@ -35,3 +35,15 @@ def test_delegate_model_gets_default():
     from runtime import context_budget
     budget = context_budget("delegate")
     assert budget["max_user_turns"] == 4
+
+
+def test_o3_mini_is_expensive_not_cheap():
+    from runtime import context_budget
+    budget = context_budget("o3-mini")
+    assert budget["max_user_turns"] <= 3
+
+
+def test_none_model_gets_default():
+    from runtime import context_budget
+    assert context_budget(None)["max_user_turns"] == 4
+    assert context_budget("")["max_user_turns"] == 4
