@@ -397,6 +397,8 @@ Host build.example.com
 
 First connection opens the tunnel, subsequent ones reuse it instantly.
 
+**Note:** `clive@host` agent addressing handles this automatically — the generated SSH command enables `ControlMaster=auto` with sockets under `~/.clive/ssh/` (see `agents.build_agent_ssh_cmd`). The block above is for custom SSH panes you declare by hand in a toolset.
+
 ### Dedicated agent key
 
 Don't reuse your personal SSH key. Create one for the agent:
@@ -437,9 +439,16 @@ clive "clive@gpu render the video then clive@web upload it to S3"
 clive "clive@localhost read HN and summarize"
 ```
 
-Clive auto-resolves the address via SSH, creates an agent pane on-demand, and routes the task. The remote Clive runs in conversational mode, emitting structured turn state (`TURN: thinking|waiting|done|failed`) so the outer Clive knows when to act.
+Clive auto-resolves the address via SSH, creates an agent pane on-demand, and routes the task. The remote Clive runs in conversational mode, emitting framed turn-state messages the outer Clive decodes into human-readable pseudo-lines (`⎇ CLIVE» turn=thinking`, `⎇ CLIVE» question: "..."`) that the driver prompt keys on. Raw protocol bytes never reach either side's LLM — the frame grammar is authenticated with a per-session nonce, so a compromised remote LLM cannot forge state, request spurious inference, or spoof a completion.
 
-**BYOLLM:** Your API keys are forwarded via SSH `SendEnv` — no keys stored on remote hosts.
+**BYOLLM** — two modes, automatic:
+
+- **Cloud providers** (Anthropic, OpenAI, OpenRouter, Gemini): your API keys are forwarded via SSH `SendEnv`, the remote calls the cloud endpoint directly. No keys stored on remote hosts.
+- **Local providers** (LMStudio, Ollama): the remote cannot reach your laptop's localhost, so clive transparently switches the remote to `LLM_PROVIDER=delegate`. Every inference round-trips back over the SSH channel to your laptop's LMStudio/Ollama via a framed `llm_request`/`llm_response` exchange. No tunneling, no `ssh -R`, no network changes on the remote.
+
+Full docs: [`docs/byollm-delegate.md`](docs/byollm-delegate.md) covers the delegation protocol, the threat model, per-variable forwarding, self-hosted proxy support via `LLM_BASE_URL`, and a manual smoke-test procedure.
+
+**`clive --agents-doctor`** — validate every host in `~/.clive/agents.yaml` in one command. Checks SSH reachability, remote clive install, AcceptEnv configuration, key file existence. Exits 0/1 so it composes into CI pipelines.
 
 **Agent registry** (optional): Create `~/.clive/agents.yaml` to customize hosts, SSH keys, toolsets:
 
@@ -633,10 +642,13 @@ models.py         — dataclasses: Subtask (with mode field), Plan, SubtaskResul
 llm.py            — multi-provider LLM client (OpenAI, Anthropic, Gemini, OpenRouter, LMStudio, Ollama)
 prompts.py        — prompt templates (planner, worker, script generator, summarizer, triage)
 output.py         — output routing: telemetry to stderr in --quiet mode, results to stdout, conversational protocol
-agents.py         — clive@host address parsing, local-first + YAML registry resolution, SSH command building
+agents.py         — clive@host address parsing, local-first + YAML registry resolution, SSH command building (with delegate override + nonce injection)
+agents_doctor.py  — `clive --agents-doctor` pre-flight checks (ssh/clive-installed/AcceptEnv)
 registry.py       — file-based instance registry (~/.clive/instances/), PID liveness, stale pruning
 dashboard.py      — dashboard snapshot (render_lines for TUI, render_snapshot for CLI)
-remote.py         — remote agent protocol: DONE:/TURN:/CONTEXT: parsing, SCP file transfer
+protocol.py       — framed sentinel protocol for clive-to-clive messages (nonce-authenticated)
+delegate_client.py — stdio-based LLM client used by inner when LLM_PROVIDER=delegate
+remote.py         — remote agent protocol: framed-frame parsers, pane decoder, SCP file transfer
 tui.py            — Textual-based terminal UI with slash commands
 completion.py     — three-strategy completion detection (marker/prompt/idle)
 install.sh        — cross-platform installer

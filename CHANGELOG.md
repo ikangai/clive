@@ -1,5 +1,57 @@
 # Changelog
 
+## 0.3.0 — BYOLLM delegation for remote clives (2026-04-13)
+
+Remote `clive@host` addressing now works for local LLM providers (LMStudio, Ollama) without any network tunneling. The conversational protocol was rewritten from line prefixes to authenticated framed sentinels, closing a spoofing surface that was merely theoretical with cloud providers but load-bearing the moment inference is delegated.
+
+### Added
+
+- **Delegate LLM provider** — When the outer clive uses a local-only provider (LMStudio, Ollama), `build_agent_ssh_cmd` transparently sets `LLM_PROVIDER=delegate` on the remote. The remote's `DelegateClient` (`delegate_client.py`) serializes each inference call as a framed `llm_request` on stdout, blocks on stdin until a matching `llm_response` arrives. The outer's interactive runner detects the frame in the pane, calls its own local LLM, and types back an `llm_response` via `send_keys`. No tunneling, no `ssh -R`, no network changes on the remote.
+
+- **Framed conversational protocol** (`protocol.py`) — Wire format `<<<CLIVE:{kind}:{nonce}:{base64(json(payload))}>>>`. Replaces the legacy `TURN:`/`CONTEXT:`/`QUESTION:`/`FILE:`/`PROGRESS:`/`DONE:` line prefixes. Base64 wrapping prevents stray tool output from ever matching a frame; the nonce slot adds authentication so a compromised inner LLM cannot forge state or request spurious inference.
+
+- **Session nonce** — The outer generates a fresh 128-bit urlsafe nonce per agent session, injects it into the remote env as `CLIVE_FRAME_NONCE`, and stores it on the returned `pane_def`. Every frame the remote emits carries the nonce; every frame the outer parses is rejected unless the nonce matches.
+
+- **Decoded agent-pane view** (`remote.render_agent_screen`) — The outer's interactive runner transforms the captured pane screen before handing it to the outer LLM: each valid frame becomes a human-readable pseudo-line (`⎇ CLIVE» turn=done`, `⎇ CLIVE» question: "..."`), forged or unauthenticated frames are silently dropped, raw `<<<CLIVE:...>>>` bytes never reach the LLM. The driver prompt (`drivers/agent.md`) describes the pseudo-line grammar as the source of truth.
+
+- **`clive --agents-doctor`** (`agents_doctor.py`) — Pre-flight check that validates every host in `~/.clive/agents.yaml`: SSH reachability (BatchMode, 5s timeout), remote clive importability (honouring venv/versioned-python `path:` config), AcceptEnv coverage for every forwarded env var. Exits 0/1 so it composes into CI pipelines. Empty registry exits 0 with a helpful message.
+
+- **SSH ControlMaster pooling** — `build_agent_ssh_cmd` emits `ControlMaster=auto`, `ControlPath=~/.clive/ssh/%C`, `ControlPersist=60s` for every agent connection. Delegate round-trips, scp file transfers, and reconnects attach to the existing channel in milliseconds instead of re-doing the full SSH handshake. Socket dir created lazily from `resolve_agent()` (covers all entry points) and degrades gracefully if the dir can't be created.
+
+- **`LLM_BASE_URL` override + forwarding** — `llm.get_client()` honours `LLM_BASE_URL` as an override of the provider's default `base_url` for both the openai and anthropic paths (users running self-hosted proxies like LiteLLM). `agents._FORWARD_ENVS` gains `LLM_BASE_URL` and the previously-missing `GOOGLE_API_KEY`.
+
+- **Conversational keepalive ticker** — Named instances with no initial task previously blocked on `stdin.readline()` with no outbound signal. A daemon thread now emits an `alive` frame every 15 seconds for the entire lifetime of the conversational block, so supervisors can distinguish a slow-but-working inner from a wedged one. Alive frames are filtered from the outer LLM's decoded view (supervisor signal only).
+
+- **User documentation** (`docs/byollm-delegate.md`) — End-to-end guide covering cloud vs local provider paths, configuration cheat sheet, troubleshooting flowchart, threat model with a data-flow table, and a step-by-step manual smoke-test procedure against real LMStudio.
+
+### Changed
+
+- **Telemetry migration** — `progress()`, `step()`, `detail()`, `activity()` in `output.py` now emit framed `progress` frames when `_conversational` is active. Previously they emitted `PROGRESS: msg` line prefixes that the new parser couldn't see.
+
+- **Interactive runner ordering** — For agent panes, the raw screen is passed to `executor.handle_agent_pane_frame()` first (to detect and answer `llm_request` frames), THEN rendered via `render_agent_screen()` for the outer LLM's view. Delegation side-channel traffic never consumes an outer-LLM turn.
+
+- **`DelegateClient` timeout uses `select.select()`** — The 300-second chat-completion timeout now actually fires when the outer is silent. The initial implementation called `readline()` directly on stdin, which blocked indefinitely on a stuck outer, bypassing the deadline check entirely.
+
+- **`clive.py` conversational loop** — Initial `sys.stdin.readline()` is skipped entirely when `keep_alive` is True, so control words (`exit`, `quit`, `/stop`) work on the first line the user sends, not just on subsequent ones.
+
+### Removed
+
+- **Legacy `TURN:`/`CONTEXT:`/`DONE:` line-prefix protocol** — Hard cutover, no compatibility shim. All conversational sessions are internal (clive-to-clive); no external consumers. `parse_remote_result` is gone from `remote.py`; regression test in `tests/test_remote.py` asserts it.
+
+- **`server/conversational.py`** — Dead-code second emitter path that duplicated the framed protocol. Deleted along with its test.
+
+### Security
+
+- **Spoof-resistance.** The framed protocol's base64 wrapping prevents stray tool output from forming a valid frame (the marker characters `<`/`>`/`:` cannot appear inside base64). The per-session nonce prevents an adversarial LLM inside the inner — one that has been prompt-injected — from fabricating a valid frame, because the nonce is an env var and not part of any prompt the inner LLM can see. The `tests/test_protocol.py::test_decode_rejects_mismatched_nonce` test enforces the invariant.
+
+- **Privacy of delegated prompts.** Under delegation, the remote's inner LLM prompts transit through the outer's LLM provider. If the outer is on LMStudio locally, nothing leaves your laptop. If the outer is on Anthropic or OpenAI, those providers receive the remote's inner prompts as if they were outer-originated. Document and data-flow table in `docs/byollm-delegate.md`.
+
+### Tests
+
+- Full suite: 593 passing. New: `tests/test_protocol.py` (17), `tests/test_delegate_client.py` (7), `tests/test_executor_delegate.py` (6), `tests/test_agents_doctor.py` (22), `tests/test_conversational_keepalive.py` (3), `tests/test_agent_view.py` (14), `tests/test_integration_delegate.py` (1 — end-to-end transport with mock LMStudio), `tests/test_llm_providers.py` (5).
+
+---
+
 ## 0.2.0 — Instance Dashboard & Local Addressing (2026-04-09)
 
 ### Added
