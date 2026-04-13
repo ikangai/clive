@@ -43,6 +43,38 @@ class TestInteractiveV2:
         assert result.status == SubtaskStatus.COMPLETED
         assert "2 files" in result.summary
 
+    @patch("interactive_runner.chat_stream")
+    @patch("interactive_runner.capture_pane")
+    @patch("interactive_runner.wait_for_ready")
+    def test_streaming_happy_path(self, mock_wait, mock_capture, mock_stream):
+        """chat_stream succeeds — detector fires during streaming."""
+        mock_capture.side_effect = [
+            "[AGENT_READY] $ ",
+            "file1.txt\n[AGENT_READY] $ ",
+        ]
+
+        def fake_stream(client, messages, on_token=None):
+            text = "```bash\nls\n```"
+            if on_token:
+                for i in range(1, len(text) + 1):
+                    on_token(text[:i])
+            return text, 100, 50
+
+        mock_stream.side_effect = [
+            fake_stream(None, []),
+            ("DONE: found files", 50, 20),
+        ]
+        mock_wait.return_value = ("file1.txt\n[AGENT_READY] $ ", "marker")
+
+        from executor import run_subtask_interactive
+        result = run_subtask_interactive(
+            subtask=_make_subtask(),
+            pane_info=_make_pane_info(),
+            dep_context="",
+        )
+        assert result.status == SubtaskStatus.COMPLETED
+        assert "files" in result.summary.lower()
+
     @patch("interactive_runner.chat_stream", side_effect=Exception("force fallback"))
     @patch("interactive_runner.chat")
     @patch("interactive_runner.capture_pane")
