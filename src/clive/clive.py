@@ -348,7 +348,80 @@ if __name__ == "__main__":
 
             _conv_loop = ConvLoop()
             _conv_loop.on_line(sys.stdin, _handle_task_line)
-            _conv_loop.run()
+
+            # ─── --join: attach to one or more room lobbies ───────
+            # Parse each spec "room@lobby"; group rooms per lobby
+            # so a single socket connection carries all rooms a
+            # member wants on that lobby. Fails hard before entering
+            # the loop if any resolution fails — no partial attach.
+            _lobby_handles: list = []
+            if getattr(args, "join", None):
+                from lobby_connector import connect_local, ConnectError
+                from room_participant import RoomParticipant
+                from llm import get_client as _get_llm_client
+
+                rooms_by_lobby: dict[str, list[str]] = {}
+                for spec in args.join:
+                    if "@" not in spec:
+                        print(f"--join expects room@lobby, got {spec!r}",
+                              file=sys.stderr)
+                        raise SystemExit(2)
+                    room, lobby = spec.split("@", 1)
+                    rooms_by_lobby.setdefault(lobby, []).append(room)
+
+                _member_name = _instance_name or "anonymous"
+                try:
+                    _llm_client = _get_llm_client()
+                except Exception as e:
+                    print(f"--join: cannot build LLM client: {e}",
+                          file=sys.stderr)
+                    raise SystemExit(1)
+
+                for _lobby_name, _rooms in rooms_by_lobby.items():
+                    try:
+                        _sock, _nonce = connect_local(_lobby_name)
+                    except ConnectError as e:
+                        print(f"--join: {e}", file=sys.stderr)
+                        raise SystemExit(1)
+                    _participant = RoomParticipant(
+                        name=_member_name,
+                        nonce=_nonce,
+                        llm_client=_llm_client,
+                    )
+                    # Bootstrap (blocking writes are safe: the socket
+                    # is still blocking at this point).
+                    for _frame in _participant.bootstrap(rooms=_rooms):
+                        _sock.sendall((_frame + "\n").encode("utf-8"))
+
+                    # Wire the socket as a line source on the
+                    # ConvLoop. The ConvLoop will flip the fd to
+                    # non-blocking for reads; writes still use
+                    # sock.sendall (frames are small, local-socket
+                    # sends fit in one syscall).
+                    def _make_handler(p=_participant, s=_sock):
+                        def _handler(line: str) -> bool:
+                            for out in p.on_line(line):
+                                try:
+                                    s.sendall((out + "\n").encode("utf-8"))
+                                except OSError:
+                                    # Lobby connection lost; swallow
+                                    # so the rest of the ConvLoop
+                                    # (stdin) keeps running.
+                                    return False
+                            return False
+                        return _handler
+
+                    _conv_loop.on_line(_sock.fileno(), _make_handler())
+                    _lobby_handles.append(_sock)
+
+            try:
+                _conv_loop.run()
+            finally:
+                for _s in _lobby_handles:
+                    try:
+                        _s.close()
+                    except OSError:
+                        pass
         finally:
             # Signal the ticker to stop. Daemon=True means it dies with
             # the process anyway, but signalling lets it exit its
