@@ -191,6 +191,60 @@ def test_one_source_eof_leaves_other_active():
     w2.close()
 
 
+def test_partial_final_line_on_eof_is_delivered():
+    """When the peer writes bytes without a trailing newline and then
+    closes, the refactored loop must still deliver those bytes as a
+    final line — matching the behaviour of the pre-refactor
+    ``sys.stdin.readline()``, which returned the partial line and then
+    EOF on the next call. Dropping it silently would be a behaviour
+    regression and the kind of bug that only bites under
+    failure-mode traffic (a peer crashing mid-write)."""
+    r, w = _pipe_pair()
+    seen: list[str] = []
+
+    def handle(line: str) -> bool:
+        seen.append(line)   # do NOT strip — test raw line semantics
+        return False
+
+    loop = ConvLoop()
+    loop.on_line(r, handle)
+
+    t = threading.Thread(target=loop.run, daemon=True)
+    t.start()
+    w.write("complete\n")   # normal line
+    w.flush()
+    w.write("partial")      # no trailing \n
+    w.flush()
+    w.close()               # EOF mid-line
+    t.join(timeout=2.0)
+    assert not t.is_alive()
+    assert seen == ["complete\n", "partial"]
+
+
+def test_original_blocking_flag_is_restored(tmp_path):
+    """ConvLoop puts registered fds into non-blocking mode. After
+    teardown it MUST put them back — otherwise a test registering
+    sys.stdin leaks non-blocking into the next pytest test, and in
+    production any post-loop code that reads the fd behaves
+    unexpectedly. This test uses a pipe so we can probe the flag
+    directly without touching sys.stdin."""
+    r, w = os.pipe()
+    try:
+        assert os.get_blocking(r) is True
+        loop = ConvLoop()
+        loop.on_line(r, lambda line: False)
+        # Simulate a source-exhausted run.
+        os.close(w)
+        loop.run()
+        assert os.get_blocking(r) is True, \
+            "ConvLoop left fd in non-blocking state after teardown"
+    finally:
+        try:
+            os.close(r)
+        except OSError:
+            pass
+
+
 # ─── stop() from another thread ─────────────────────────────────────────────
 
 

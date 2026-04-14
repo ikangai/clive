@@ -56,16 +56,26 @@ class _LineSource:
         """Read whatever bytes are available and return any complete
         lines (each including the trailing '\\n'). Sets ``closed`` on
         EOF. Returns [] if the read would have blocked — defensive
-        against spurious ``select`` readiness."""
+        against spurious ``select`` readiness.
+
+        On EOF with a non-empty buffer, the trailing bytes are
+        flushed as one last synthetic line (without a '\\n'). This
+        matches the pre-refactor ``sys.stdin.readline()`` contract,
+        which returned a partial final line when the peer closed
+        mid-line. Losing it would be a silent behaviour regression.
+        """
         try:
             data = os.read(self.fd, 4096)
         except (BlockingIOError, InterruptedError):
             return []
         except OSError:
-            self.closed = True
-            return []
+            data = b""
         if not data:
             self.closed = True
+            if self.buf:
+                tail = self.buf.decode("utf-8", errors="replace")
+                self.buf = b""
+                return [tail]
             return []
         self.buf += data
         lines: list[str] = []
@@ -99,6 +109,12 @@ class ConvLoop:
     def __init__(self):
         self._sel = selectors.DefaultSelector()
         self._sources: dict[int, _LineSource] = {}
+        # Per-registered-fd snapshot of the original blocking flag so
+        # we can restore it on teardown. Callers typically pass
+        # ``sys.stdin``, and flipping it to non-blocking permanently
+        # would surprise downstream code (and leak across pytest test
+        # boundaries when the same interpreter is reused).
+        self._original_blocking: dict[int, bool] = {}
         self._stop = False
         # Self-pipe — a write to `_wake_w` makes an in-flight
         # `select()` return so `stop()` is prompt.
@@ -116,9 +132,14 @@ class ConvLoop:
         The handler receives each complete line as a str including
         the trailing newline."""
         fd = stream.fileno() if hasattr(stream, "fileno") else int(stream)
+        # Snapshot the original blocking state before we flip it so
+        # teardown can restore it — otherwise a test that registers
+        # sys.stdin silently leaks non-blocking into subsequent tests.
+        try:
+            self._original_blocking[fd] = os.get_blocking(fd)
+        except OSError:
+            self._original_blocking[fd] = True
         # Non-blocking so os.read returns promptly on spurious readiness.
-        # Note: this mutates the fd's blocking state process-wide; the
-        # caller is expected to own the fd for the loop's lifetime.
         os.set_blocking(fd, False)
         src = _LineSource(fd, handler)
         self._sources[fd] = src
@@ -177,6 +198,12 @@ class ConvLoop:
             self._sel.unregister(fd)
         except (KeyError, ValueError):
             pass
+        prev = self._original_blocking.pop(fd, None)
+        if prev is not None:
+            try:
+                os.set_blocking(fd, prev)
+            except OSError:
+                pass
 
     def _teardown(self) -> None:
         for fd in list(self._sources):
