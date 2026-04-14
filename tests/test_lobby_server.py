@@ -131,6 +131,41 @@ def test_server_creates_socket_and_registry_entry(server, tmp_socket, tmp_regist
     assert data["role"] == "broker"
 
 
+def test_second_broker_with_same_name_is_rejected(server, tmp_registry):
+    """A second LobbyServer.start() under the same instance name must
+    refuse to run — otherwise it would unlink the first broker's
+    socket and overwrite its registry entry, silently killing
+    connectivity for every already-connected client."""
+    fd, p2 = tempfile.mkstemp(prefix="clv-", suffix=".sock")
+    os.close(fd)
+    os.unlink(p2)
+    try:
+        srv2 = LobbyServer(
+            socket_path=p2,
+            registry_dir=tmp_registry,
+            instance_name="test-lobby",   # same as `server` fixture
+        )
+        with pytest.raises(RuntimeError, match="already running"):
+            srv2.start()
+        # The second server must NOT have created its socket.
+        assert not Path(p2).exists()
+    finally:
+        try:
+            os.unlink(p2)
+        except FileNotFoundError:
+            pass
+
+
+def test_socket_is_owner_only(server, tmp_socket):
+    """The socket file must be 0o600 — world-readable would let any
+    local user connect and speak the lobby protocol, bypassing the
+    SSH auth gate. The umask-tightening + chmod defence-in-depth
+    together should guarantee the mode."""
+    import stat
+    mode = stat.S_IMODE(os.stat(tmp_socket).st_mode)
+    assert mode == 0o600, f"socket mode is {oct(mode)}, want 0o600"
+
+
 def test_server_removes_socket_on_shutdown(tmp_socket, tmp_registry):
     srv = LobbyServer(socket_path=tmp_socket, registry_dir=tmp_registry,
                       instance_name="shutdown-lobby")
@@ -341,7 +376,7 @@ def test_lobby_client_wrapper_round_trip(server, tmp_socket):
 def test_missing_nonce_line_closes_connection(server, tmp_socket):
     """Clients that never send the NONCE handshake line must not
     starve the server. Sending raw frames without a handshake is a
-    protocol violation; the server closes the socket."""
+    protocol violation; the server closes the socket promptly."""
     s = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
     for _ in range(50):
         try:
@@ -353,17 +388,17 @@ def test_missing_nonce_line_closes_connection(server, tmp_socket):
     s.sendall((encode("session_hello",
                       {"client_kind": "clive", "name": "alice"},
                       nonce="") + "\n").encode())
-    # Server should close shortly; recv returns empty.
+    # Server must close the socket; recv() should return b"" quickly.
+    # If the earlier assertion had only checked "no session_ack" we
+    # would have passed trivially even for a hanging server — this
+    # version pins down both the close AND the latency.
     s.settimeout(1.0)
-    data = b""
+    start = time.time()
     try:
-        while True:
-            chunk = s.recv(4096)
-            if not chunk:
-                break
-            data += chunk
+        data = s.recv(4096)
     except socket.timeout:
-        pass
+        data = b"__TIMEOUT__"
+    elapsed = time.time() - start
     s.close()
-    # No session_ack because no hello was processed under any valid nonce.
-    assert b"session_ack" not in data
+    assert data == b"", f"server did not close, received: {data!r}"
+    assert elapsed < 0.9, f"close took too long: {elapsed:.3f}s"

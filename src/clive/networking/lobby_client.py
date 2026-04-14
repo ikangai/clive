@@ -57,7 +57,12 @@ def run(socket_path: Optional[str] = None,
 
     sel = selectors.DefaultSelector()
     stdin_fd = stdin.fileno()
-    sock.setblocking(False)
+    # Deliberately leave the socket in blocking mode so that
+    # `sock.sendall(chunk)` waits out transient send-buffer pressure
+    # instead of raising BlockingIOError. `sock.recv()` is only called
+    # after `select()` reports EVENT_READ so it will never block. The
+    # stdin side must be non-blocking because `os.read()` on a TTY or
+    # pipe blocks in the absence of set_blocking(False).
     os.set_blocking(stdin_fd, False)
 
     sel.register(stdin_fd, selectors.EVENT_READ, data="stdin")

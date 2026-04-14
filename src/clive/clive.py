@@ -202,13 +202,19 @@ if __name__ == "__main__":
         from pathlib import Path as _Path
         from lobby_server import LobbyServer
         lobby_dir = _Path.home() / ".clive" / "lobby"
-        lobby_dir.mkdir(parents=True, exist_ok=True)
+        # Restrictive dir perms defend the socket file from other
+        # local users even if a future change widens the socket mode.
+        lobby_dir.mkdir(parents=True, exist_ok=True, mode=0o700)
         sock = getattr(args, "lobby_socket", None) or str(lobby_dir / "lobby.sock")
         srv = LobbyServer(
             socket_path=sock,
             instance_name=getattr(args, "name", None) or "lobby",
         )
-        srv.start()
+        try:
+            srv.start()
+        except RuntimeError as e:
+            print(str(e), file=sys.stderr)
+            raise SystemExit(1)
         try:
             srv.run_forever()
         except KeyboardInterrupt:

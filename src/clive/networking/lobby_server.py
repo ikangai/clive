@@ -115,23 +115,50 @@ class LobbyServer:
 
     def start(self) -> None:
         """Bind the socket, register in the instance registry, and
-        prepare the selector. Does NOT enter the event loop."""
+        prepare the selector. Does NOT enter the event loop.
+
+        Raises RuntimeError if another live broker is already
+        registered under the same instance name. This prevents the
+        otherwise-silent data loss where the second start() would
+        unlink the first's socket file and overwrite its registry
+        entry, killing connectivity for all already-connected clients.
+        """
         if self._started:
             raise RuntimeError("LobbyServer.start() called twice")
+
+        # Collision check — before we touch the filesystem.
+        if self.instance_name:
+            existing = registry.get_instance(
+                self.instance_name, registry_dir=self.registry_dir,
+            )
+            if existing is not None:
+                raise RuntimeError(
+                    f"lobby instance {self.instance_name!r} is already "
+                    f"running (PID {existing.get('pid', '?')})"
+                )
+
         self._started = True
 
-        # Remove stale socket (prior crash) before bind. This is safe
-        # because the registry check at `_register_instance` rejects
-        # double-start for live PIDs.
+        # Remove stale socket (prior crash). Safe because we just
+        # verified no live PID claims this instance name.
         try:
             os.unlink(self.socket_path)
         except FileNotFoundError:
             pass
 
+        # Create the socket with owner-only permissions from the
+        # moment it exists. Temporarily tighten umask around bind()
+        # because bind() honours the process umask, then restore.
+        # Without this there is a TOCTOU window where the socket is
+        # world-readable between bind and chmod.
         listener = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
         listener.setblocking(False)
-        listener.bind(self.socket_path)
-        os.chmod(self.socket_path, 0o600)   # owner-only
+        prev_umask = os.umask(0o077)
+        try:
+            listener.bind(self.socket_path)
+        finally:
+            os.umask(prev_umask)
+        os.chmod(self.socket_path, 0o600)   # defence-in-depth
         listener.listen(16)
         self._listener = listener
         self.sel.register(listener, selectors.EVENT_READ, data=("listener", None))
@@ -167,11 +194,24 @@ class LobbyServer:
             self._teardown()
 
     def shutdown(self) -> None:
-        """Signal the event loop to exit. Safe to call from any thread."""
+        """Signal the event loop to exit. Safe to call from any thread.
+
+        The `_shutdown` event is the load-bearing signal (checked at
+        the top of each loop iteration). The self-pipe write is just
+        to wake an in-flight `select()` promptly; if we race with
+        teardown and the write fails, shutdown still progresses, just
+        up to one `select` timeout slower.
+        """
         self._shutdown.set()
-        if self._wake_w is not None:
+        # Snapshot the fd before writing to minimise the race window
+        # where teardown might close + reassign `_wake_w`. Benign
+        # because teardown only runs after the event loop exits, and
+        # the event loop does not open new fds after that. A stray
+        # write after close raises OSError which we swallow.
+        w = self._wake_w
+        if w is not None:
             try:
-                os.write(self._wake_w, b"x")
+                os.write(w, b"x")
             except OSError:
                 pass
 
@@ -182,6 +222,12 @@ class LobbyServer:
         try:
             sock, _ = self._listener.accept()
         except BlockingIOError:
+            return
+        except OSError as e:
+            # EMFILE / ENFILE (fd exhaustion) or ECONNABORTED: do NOT
+            # propagate — that would tear down the event loop and drop
+            # every connected session over a single transient error.
+            _log.warning("lobby: accept() failed: %s", e)
             return
         sock.setblocking(False)
         fd = sock.fileno()
@@ -376,11 +422,13 @@ class LobbyServer:
                 os.close(self._wake_r)
             except OSError:
                 pass
+            self._wake_r = None
         if self._wake_w is not None:
             try:
                 os.close(self._wake_w)
             except OSError:
                 pass
+            self._wake_w = None
         try:
             os.unlink(self.socket_path)
         except FileNotFoundError:
