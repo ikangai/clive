@@ -20,7 +20,7 @@ class SubtaskStatus(Enum):
     SKIPPED = "skipped"
 
 
-VALID_MODES = {"direct", "script", "interactive", "streaming"}
+VALID_MODES = {"direct", "script", "interactive", "streaming", "planned"}
 
 
 @dataclass

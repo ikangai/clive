@@ -285,6 +285,58 @@ Respond with ONLY the script in a fenced code block. No prose.
 """
 
 
+def build_planned_prompt(
+    subtask_description: str,
+    pane_name: str,
+    app_type: str,
+    tool_description: str,
+    dependency_context: str,
+    session_dir: str = "/tmp/clive",
+) -> str:
+    """Planned prompt — LLM generates a full step-by-step plan with verification in ONE call."""
+    dep_section = ""
+    if dependency_context:
+        dep_section = f"""
+Context from prior steps:
+{dependency_context}
+"""
+
+    driver = load_driver(app_type)
+
+    import platform
+    os_name = platform.system()
+    os_arch = platform.machine()
+    os_info = f"OS: {os_name} ({os_arch})"
+    if os_name == "Darwin":
+        os_info += "\nIMPORTANT: macOS with BSD coreutils. Use POSIX-compatible commands."
+
+    return f"""You are a skilled engineer planning a sequence of shell commands for: {subtask_description}
+
+Pane: {pane_name} [{app_type}] — {tool_description}
+{os_info}
+
+{driver}
+{dep_section}
+Generate a step-by-step plan as a JSON object. Each step is one shell command.
+The harness will execute each step sequentially, check the exit code, and handle failures.
+
+- Each step has a "cmd" (shell command), "verify" (currently always "exit_code == 0"), and "on_fail" action.
+- on_fail options: "retry" (re-run the command once), "skip" (continue to next step), "abort" (stop execution).
+- Use "abort" for critical steps, "skip" for optional steps, "retry" for flaky operations.
+- Write output/results to {session_dir}/ (absolute paths).
+- Keep commands simple — one logical operation per step.
+
+Respond with ONLY a JSON object (no prose, no markdown):
+{{
+  "steps": [
+    {{"cmd": "command here", "verify": "exit_code == 0", "on_fail": "abort"}},
+    {{"cmd": "another command", "verify": "exit_code == 0", "on_fail": "skip"}}
+  ],
+  "done_summary": "one-line summary of what the plan accomplishes"
+}}
+"""
+
+
 def build_interactive_prompt(
     subtask_description: str,
     pane_name: str,

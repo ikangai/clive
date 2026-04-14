@@ -37,6 +37,7 @@ from runtime import (  # noqa: E402
 # resolve (tests patch them at these names).
 from script_runner import run_subtask_script  # noqa: E402
 from interactive_runner import run_subtask_interactive, _trim_messages  # noqa: E402
+from planned_runner import run_subtask_planned  # noqa: E402
 # DAG scheduler lives in dag_scheduler.py. Re-export the symbols that other
 # modules / tests import from executor (execute_plan, _try_collapse_plan,
 # _build_plan_context, _build_dependency_context).
@@ -216,6 +217,15 @@ def run_subtask(
 
     if subtask.mode == "script":
         return run_subtask_script(
+            subtask=subtask,
+            pane_info=pane_info,
+            dep_context=dep_context,
+            on_event=on_event,
+            session_dir=session_dir,
+        )
+
+    if subtask.mode == "planned":
+        return run_subtask_planned(
             subtask=subtask,
             pane_info=pane_info,
             dep_context=dep_context,
