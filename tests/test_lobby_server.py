@@ -373,6 +373,179 @@ def test_lobby_client_wrapper_round_trip(server, tmp_socket):
         t.join(timeout=2.0)
 
 
+# ─── End-to-end rooms flow over the wire (Phase 3 verification) ─────────────
+
+
+def _hello(s: socket.socket, nonce: str, name: str, kind: str = "clive") -> None:
+    s.sendall((encode("session_hello", {"client_kind": kind, "name": name},
+                      nonce=nonce) + "\n").encode())
+
+
+def _send(s: socket.socket, nonce: str, kind: str, payload: dict) -> None:
+    s.sendall((encode(kind, payload, nonce=nonce) + "\n").encode())
+
+
+def _drain(s: socket.socket, nonce: str, want_kinds: set[str],
+           *, timeout: float = 1.0) -> list[Frame]:
+    """Read from `s` until all frame kinds in `want_kinds` have been
+    seen at least once, or the timeout expires. Returns all frames
+    seen. Fails loudly on timeout so the assertion message pinpoints
+    which kind was missing."""
+    s.settimeout(timeout)
+    data = b""
+    seen: set[str] = set()
+    deadline = time.time() + timeout
+    while want_kinds - seen and time.time() < deadline:
+        try:
+            chunk = s.recv(4096)
+        except socket.timeout:
+            break
+        if not chunk:
+            break
+        data += chunk
+        frames = decode_all(data.decode("utf-8", errors="replace"), nonce=nonce)
+        seen = {f.kind for f in frames}
+    frames = decode_all(data.decode("utf-8", errors="replace"), nonce=nonce)
+    missing = want_kinds - {f.kind for f in frames}
+    assert not missing, (
+        f"timeout waiting for kinds {sorted(missing)}; "
+        f"got {[(f.kind, f.payload) for f in frames]}"
+    )
+    return frames
+
+
+def test_end_to_end_thread_rotation(server, tmp_socket):
+    """Two clives open a thread in `general`, exchange one say and one
+    pass, then close. Exercises the full lobby_server + lobby_state
+    composition: socket IO, per-session nonces, room membership,
+    thread opening with prompt, fanout to room observers, your_turn
+    routing, pass rotation, close_thread authorization.
+
+    This is the first test that proves phase 2 IO correctly wires up
+    phase 2's pure state machine — the state-machine tests can't see
+    nonce stamping or socket routing; the protocol tests can't see
+    rotation. This one does."""
+    a = _connect(tmp_socket, nonce="nA")
+    b = _connect(tmp_socket, nonce="nB")
+
+    _hello(a, "nA", "alice")
+    _hello(b, "nB", "bob")
+    assert _drain(a, "nA", {"session_ack"})[0].payload["accepted"] is True
+    assert _drain(b, "nB", {"session_ack"})[0].payload["accepted"] is True
+
+    _send(a, "nA", "join_room", {"room": "general"})
+    _send(b, "nB", "join_room", {"room": "general"})
+    # join_room is silent on success — no frames to drain. Give the
+    # server a moment to process so membership is in place before
+    # alice opens the thread.
+    time.sleep(0.05)
+
+    # Alice opens a thread with both members and a prompt. State
+    # machine treats the prompt as alice's first `say`, fans it out,
+    # advances cursor to bob, and sends your_turn to bob.
+    _send(a, "nA", "open_thread", {
+        "room": "general",
+        "members": ["alice", "bob"],
+        "private": False,
+        "prompt": "what's 2+2?",
+    })
+
+    # Alice should see: thread_opened (confirming creation). The `say`
+    # fanout goes to bob (and to any room observer that isn't the
+    # sender) but NOT back to alice — fanout skips sender. Alice also
+    # does NOT get your_turn here because cursor advanced to bob.
+    a_frames = _drain(a, "nA", {"thread_opened"})
+    opened = next(f for f in a_frames if f.kind == "thread_opened")
+    thread_id = opened.payload["thread_id"]
+    assert thread_id.startswith("general-t")
+
+    # Bob should see: the say fanout from alice (with the prompt) AND
+    # his own your_turn.
+    b_frames = _drain(b, "nB", {"say", "your_turn"})
+    say_fanout = next(f for f in b_frames if f.kind == "say")
+    assert say_fanout.payload["body"] == "what's 2+2?"
+    assert say_fanout.payload["from"] == "alice"
+    assert say_fanout.payload["thread_id"] == thread_id
+    your_turn = next(f for f in b_frames if f.kind == "your_turn")
+    assert your_turn.payload["thread_id"] == thread_id
+    assert your_turn.payload["name"] == "bob"
+    assert your_turn.payload["members"] == ["alice", "bob"]
+    # `recent` must include the opening prompt (structured context per §4.2).
+    recent = your_turn.payload["recent"]
+    assert any(m.get("body") == "what's 2+2?" for m in recent)
+
+    # Bob says "4". State machine fans out to alice (and room
+    # observers), advances cursor back to alice, sends your_turn.
+    _send(b, "nB", "say", {"thread_id": thread_id, "body": "4"})
+    a_frames2 = _drain(a, "nA", {"say", "your_turn"})
+    say_from_bob = next(f for f in a_frames2 if f.kind == "say")
+    assert say_from_bob.payload["from"] == "bob"
+    assert say_from_bob.payload["body"] == "4"
+
+    # Alice passes. State machine fans out pass to bob and advances
+    # cursor back to bob with another your_turn.
+    _send(a, "nA", "pass", {"thread_id": thread_id})
+    b_frames2 = _drain(b, "nB", {"pass", "your_turn"})
+    pass_frame = next(f for f in b_frames2 if f.kind == "pass")
+    assert pass_frame.payload["from"] == "alice"
+    assert pass_frame.payload["thread_id"] == thread_id
+
+    # Alice closes the thread (she is the initiator, so authorized).
+    _send(a, "nA", "close_thread", {"thread_id": thread_id,
+                                    "summary": "done"})
+    # close_thread has no explicit ack in v1; the thread just transitions
+    # to closed in state. Verify no nack came back.
+    time.sleep(0.1)
+    a.settimeout(0.1)
+    try:
+        leftover = a.recv(4096)
+    except socket.timeout:
+        leftover = b""
+    frames = decode_all(leftover.decode("utf-8", errors="replace"), nonce="nA")
+    nacks = [f for f in frames if f.kind == "nack"]
+    assert not nacks, f"unexpected nacks: {[f.payload for f in nacks]}"
+
+    a.close()
+    b.close()
+
+
+def test_non_initiator_cannot_close_thread(server, tmp_socket):
+    """Authorization test that is cheapest to drive end-to-end rather
+    than at the state-machine level, because it exercises nonce
+    stamping on the nack coming back on bob's connection under his
+    own nonce."""
+    a = _connect(tmp_socket, nonce="nA")
+    b = _connect(tmp_socket, nonce="nB")
+    _hello(a, "nA", "alice")
+    _hello(b, "nB", "bob")
+    _drain(a, "nA", {"session_ack"})
+    _drain(b, "nB", {"session_ack"})
+    _send(a, "nA", "join_room", {"room": "general"})
+    _send(b, "nB", "join_room", {"room": "general"})
+    time.sleep(0.05)
+    _send(a, "nA", "open_thread", {
+        "room": "general",
+        "members": ["alice", "bob"],
+        "private": False,
+        "prompt": "hi",
+    })
+    a_frames = _drain(a, "nA", {"thread_opened"})
+    thread_id = next(f for f in a_frames
+                     if f.kind == "thread_opened").payload["thread_id"]
+    # Drain bob's your_turn so we start from a clean line.
+    _drain(b, "nB", {"your_turn"})
+
+    # Bob (non-initiator) tries to close. Must be nacked back on
+    # bob's own socket, under bob's nonce.
+    _send(b, "nB", "close_thread", {"thread_id": thread_id})
+    b_frames = _drain(b, "nB", {"nack"})
+    nack = next(f for f in b_frames if f.kind == "nack")
+    assert nack.payload["ref_kind"] == "close_thread"
+    assert "not_initiator" in nack.payload["reason"]
+    a.close()
+    b.close()
+
+
 def test_missing_nonce_line_closes_connection(server, tmp_socket):
     """Clients that never send the NONCE handshake line must not
     starve the server. Sending raw frames without a handshake is a
