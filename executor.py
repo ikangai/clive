@@ -1,25 +1,19 @@
-"""DAG scheduler and per-subtask worker execution."""
+"""Execution facade — mode dispatcher, direct-mode worker, delegate handler.
 
-import json
+Re-exports symbols from runtime, dag_scheduler, script_runner, and
+interactive_runner so consumers can ``from executor import execute_plan``
+without knowing the internal module structure.
+"""
+
 import logging
 import os
-import re
-import shlex
 import threading
 import time
-import uuid
-from concurrent.futures import ThreadPoolExecutor, Future
 
 log = logging.getLogger(__name__)
 
-from output import progress
-from models import Plan, Subtask, SubtaskStatus, SubtaskResult, PaneInfo
-from completion import wait_for_ready, wrap_command
-from llm import get_client, chat, SCRIPT_MODEL
-from session import capture_pane
-from screen_diff import compute_screen_diff
-from command_extract import extract_command, extract_done
-from prompts import build_interactive_prompt, build_script_prompt
+from models import Subtask, SubtaskStatus, SubtaskResult, PaneInfo
+from completion import wait_for_ready
 
 # Shared runtime primitives — canonical definitions live in runtime.py.
 # Re-exported here for backward compatibility (existing tests and modules
@@ -117,10 +111,6 @@ def handle_agent_pane_frame(pane, screen_blob: str, nonce: str) -> bool:
 
 
 
-
-
-
-
 # ─── Direct Mode Worker ──────────────────────────────────────────────────────
 
 def run_subtask_direct(
@@ -180,9 +170,6 @@ def run_subtask_direct(
         turns_used=1,
         exit_code=exit_code,
     )
-
-
-
 
 
 
