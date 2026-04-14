@@ -5,6 +5,8 @@ script_runner, dag_scheduler, or completion. All those modules import
 from here, breaking what was previously a fragile circular dependency.
 """
 
+from __future__ import annotations
+
 import logging
 import os
 import re
@@ -123,6 +125,35 @@ _MODEL_BUDGETS = [
     (re.compile(r'flash|haiku|\bmini\b|llama|mistral|\bphi[-\d]|local|gemma', re.I), 6),
 ]
 _DEFAULT_MAX_TURNS = 4
+
+
+# ── Model Tier Resolution ───────────────────────────────────────────────────
+
+_TIER_MAP: dict[str, dict[str, str | None]] = {
+    "openai": {"fast": "gpt-4o-mini", "default": None},
+    "anthropic": {"fast": "claude-haiku-4-5-20251001", "default": None},
+    "gemini": {"fast": "gemini-2.0-flash", "default": None},
+    "openrouter": {"fast": "google/gemini-2.0-flash-exp:free", "default": None},
+    "ollama": {"fast": "llama3", "default": None},
+    "lmstudio": {"fast": "local", "default": None},
+    "delegate": {"fast": None, "default": None},
+}
+
+
+def resolve_model_tier(tier: str | None, provider: str | None = None) -> str | None:
+    """Resolve a tier label ('fast', 'default') to a concrete model name.
+
+    Returns None when tier is None, 'default', or the provider has no
+    mapping.  None signals the caller to fall back to the global MODEL.
+    """
+    if tier is None or tier == "default":
+        return None
+    if provider is None:
+        provider = os.getenv("LLM_PROVIDER", "openrouter")
+    tiers = _TIER_MAP.get(provider)
+    if not tiers:
+        return None
+    return tiers.get(tier)
 
 
 def context_budget(model: str) -> dict:

@@ -1,6 +1,8 @@
 ---
 preferred_mode: script
 use_interactive_when: browsing or exploring the inbox interactively
+agent_model: default
+observation_model: fast
 ---
 # Email Driver (neomutt / msmtp)
 

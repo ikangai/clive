@@ -1,6 +1,8 @@
 ---
 preferred_mode: script
 use_interactive_when: exploring unfamiliar datasets where next step depends on what you find
+agent_model: fast
+observation_model: fast
 ---
 # Data Processing Driver
 

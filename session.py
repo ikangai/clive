@@ -10,6 +10,7 @@ import logging
 from output import progress
 from models import PaneInfo
 from prompts import load_driver_meta
+from runtime import resolve_model_tier
 
 SESSION_NAME = "clive"
 SOCKET_NAME = "clive"  # Dedicated tmux server socket — isolates clive from user sessions
@@ -84,8 +85,8 @@ def setup_session(
             name=tool["name"],
             idle_timeout=tool.get("idle_timeout", 2.0),
             frame_nonce=tool.get("frame_nonce", ""),
-            agent_model=driver_meta.get("agent_model"),
-            observation_model=driver_meta.get("observation_model"),
+            agent_model=resolve_model_tier(driver_meta.get("agent_model")),
+            observation_model=resolve_model_tier(driver_meta.get("observation_model")),
         )
 
     # Set working directory to where clive was launched, create session dir for outputs
@@ -162,8 +163,8 @@ def add_pane(session: libtmux.Session, tool: dict, session_dir: str | None = Non
         name=tool["name"],
         idle_timeout=tool.get("idle_timeout", 2.0),
         frame_nonce=tool.get("frame_nonce", ""),
-        agent_model=driver_meta.get("agent_model"),
-        observation_model=driver_meta.get("observation_model"),
+        agent_model=resolve_model_tier(driver_meta.get("agent_model")),
+        observation_model=resolve_model_tier(driver_meta.get("observation_model")),
     )
 
 

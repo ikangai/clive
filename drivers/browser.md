@@ -1,6 +1,8 @@
 ---
 preferred_mode: script
 use_interactive_when: discovering unknown content, following links, or exploring sites
+agent_model: default
+observation_model: fast
 ---
 # Browser Driver (lynx/curl/wget)
 

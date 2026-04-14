@@ -1,6 +1,8 @@
 ---
 preferred_mode: script
 use_interactive_when: almost never
+agent_model: fast
+observation_model: fast
 ---
 # Media Driver
 

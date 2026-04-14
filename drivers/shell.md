@@ -1,6 +1,8 @@
 ---
 preferred_mode: script
 use_interactive_when: debugging, exploring unknown output, or multi-step investigation
+agent_model: fast
+observation_model: fast
 ---
 # Shell Driver (bash)
 
