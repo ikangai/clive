@@ -25,6 +25,7 @@ import subprocess
 import sys
 import threading
 import time
+from collections import deque
 
 import llm
 from dotenv import load_dotenv
@@ -111,6 +112,14 @@ class CliveApp(App):
         self._pending: dict | None = None
         # Active REPL session id (used by /sessions, /new, /resume, /title, /session)
         self._active_sid: str | None = None
+        # Persistent per-app session directory so follow-up tasks can see
+        # files produced by earlier tasks (e.g. "translate the transcript").
+        # One directory for the app lifetime; individual task runs reuse it.
+        self._session_dir: str = f"/tmp/clive/{generate_session_id()}"
+        os.makedirs(self._session_dir, exist_ok=True)
+        # Bounded history of completed tasks: [{task, summary, files}]. Lets
+        # triage/planner resolve references to earlier work.
+        self._history: deque = deque(maxlen=10)
 
     def get_css_variables(self) -> dict[str, str]:
         return {**super().get_css_variables(), **CLIVE_THEME.generate()}
@@ -121,6 +130,16 @@ class CliveApp(App):
             yield Static("❯", id="prompt-char")
             yield Input(id="prompt-input", placeholder="Enter a task or /help")
         yield Static(f"[#6b7280]profile[/] {self._spec}", id="status-bar")
+
+    def on_unmount(self) -> None:
+        """Remove the persistent session working directory on app exit.
+
+        The CLI REPL does the same cleanup in its own ``_cleanup`` handler.
+        If we skip this, /tmp/clive/ accretes one directory per TUI launch.
+        """
+        sd = getattr(self, "_session_dir", None)
+        if sd and os.path.isdir(sd):
+            shutil.rmtree(sd, ignore_errors=True)
 
     def on_mount(self) -> None:
         out = self.query_one("#output", RichLog)

@@ -3,6 +3,7 @@
 __pycache__/
 .eval_cache/
 .clive/audit/
+**/.clive/audit/
 
 # OS
 **/.DS_Store

@@ -5,6 +5,7 @@ Keeps clive.py focused on arg parsing and top-level mode dispatch.
 """
 import os
 import shutil
+from collections import deque
 
 import libtmux
 
@@ -48,6 +49,10 @@ def run_repl(args, instance_name=None, output_format="default", register_fn=None
     session_dir = f"/tmp/clive/{session_id}"
     repl_state = {"session_name": SESSION_NAME}
     session_ctx = _setup_session(args.toolset, session_dir, repl_state)
+    # Ring buffer of completed tasks so the classifier/planner can resolve
+    # follow-up references ("translate the transcript"). Bounded so prompt
+    # size stays roughly constant across a long REPL session.
+    session_ctx["history"] = deque(maxlen=10)
 
     if instance_name and register_fn:
         register_fn(instance_name, pid=os.getpid(),

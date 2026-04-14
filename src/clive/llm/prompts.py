@@ -80,9 +80,19 @@ def load_driver_meta(app_type: str, drivers_dir: str | None = None) -> dict:
     return _driver_meta_cache.get(cache_key, {})
 
 
-def build_planner_prompt(tools_summary: str) -> str:
+def build_planner_prompt(
+    tools_summary: str,
+    session_files: str | None = None,
+    recent_history: str | None = None,
+) -> str:
     from skills import skills_summary_for_planner
     skills_info = skills_summary_for_planner()
+
+    context_block = ""
+    if session_files:
+        context_block += f"\nFiles already in the session working directory:\n{session_files}\n"
+    if recent_history:
+        context_block += f"\nRecent tasks in this session (most recent last):\n{recent_history}\n"
 
     return f"""You are a task planner for an autonomous terminal agent.
 
@@ -90,7 +100,7 @@ The agent controls CLI tools via tmux panes. Each pane is a terminal conversatio
 
 {tools_summary}
 {skills_info}
-
+{context_block}
 Each subtask targets exactly one PANE. COMMANDS and APIS run inside panes — use them freely in subtask descriptions (e.g. "use jq to parse the API response", "curl wttr.in for weather").
 
 RULES:
@@ -108,37 +118,42 @@ RULES:
     - "planned": Multi-step mechanical. The agent generates a sequence of commands with verification criteria, then executes them one-by-one without further LLM calls. Use for: deterministic multi-step workflows where each step is a known command — install+configure, fetch+process+save, multi-file operations. Even cheaper than script for multi-step tasks.
     - "interactive": Turn-by-turn. The agent reads the screen after each command and decides what to do next. Use for: exploring unknown content, debugging, multi-step workflows where the next step depends on the previous result, interactive applications.
     - "streaming": Like interactive, but with automatic intervention detection. The agent is alerted when the process prompts for input (passwords, confirmations, [y/N] prompts). Use for: package installs that may ask for confirmation, operations requiring passwords, long-running processes that may prompt for input, interactive debuggers.
-    Each pane above declares [prefer: mode] — follow it. The principle: if the next step does NOT depend on seeing the previous result, use "script". Use "streaming" only when the process may prompt for passwords or confirmations.
+    - "llm": LLM-native transformation. The model directly performs the task on content from input files — no shell, no pane. Use for: translate, summarize, rewrite, paraphrase, extract structured info, classify, answer questions from provided content, explain. The runner automatically reads files from the session working directory (plus any absolute paths the description references) and writes the generated text to "llm_<id>.txt" in the session dir. CRITICAL: any subtask whose work is transformation of text (translation, summarization, rewriting, content extraction) MUST be "llm". Never route these to "script" — shell utilities cannot translate or summarize.
+    Each pane above declares [prefer: mode] — follow it. The principle: if the next step does NOT depend on seeing the previous result, use "script". Use "streaming" only when the process may prompt for passwords or confirmations. Use "llm" whenever the work itself is generative/transformative.
 11. Each subtask can optionally declare "produces" (filename it will write to the session dir) and "expects" (files it needs from dependencies). This helps downstream subtasks know exactly what data is available.
+12. CHAINS ARE THE COMMON CASE. "Fetch X and translate it" = two subtasks: a "script" subtask that fetches and saves to a file, then an "llm" subtask that depends on it and translates. "Download, summarize, email" = three subtasks: script → llm → script. Data flows through files in the session directory; each subtask's "produces" is the next one's "expects".
 
-Respond with a JSON object and nothing else:
+Respond with a JSON object and nothing else.
+
+Example 1 — fetch-then-transform chain ("get the youtube transcript and translate it to german"):
 {{
   "subtasks": [
     {{
       "id": "1",
-      "description": "Analyze the syslog for errors and patterns",
+      "description": "Fetch the transcript of the given YouTube URL and save it to transcript.txt",
       "pane": "shell",
       "mode": "script",
-      "skill": "analyze-logs",
-      "produces": "errors.txt",
+      "produces": "transcript.txt",
       "depends_on": []
     }},
     {{
       "id": "2",
-      "description": "Browse the documentation site and find the configuration reference",
-      "pane": "browser",
-      "mode": "interactive",
-      "produces": "config_ref.txt",
-      "depends_on": []
-    }},
-    {{
-      "id": "3",
-      "description": "Summarize the errors using the config context",
+      "description": "Translate the transcript into German, preserving timestamps and line structure",
       "pane": "shell",
-      "mode": "script",
-      "expects": ["errors.txt", "config_ref.txt"],
-      "depends_on": ["1", "2"]
+      "mode": "llm",
+      "expects": ["transcript.txt"],
+      "produces": "transcript_de.txt",
+      "depends_on": ["1"]
     }}
+  ]
+}}
+
+Example 2 — parallel research + transform ("analyze errors using the docs"):
+{{
+  "subtasks": [
+    {{"id": "1", "description": "Analyze syslog for errors and patterns", "pane": "shell", "mode": "script", "skill": "analyze-logs", "produces": "errors.txt", "depends_on": []}},
+    {{"id": "2", "description": "Browse the documentation site and find the configuration reference", "pane": "browser", "mode": "interactive", "produces": "config_ref.txt", "depends_on": []}},
+    {{"id": "3", "description": "Summarize the errors in the context of the configuration reference", "pane": "shell", "mode": "llm", "expects": ["errors.txt", "config_ref.txt"], "depends_on": ["1", "2"]}}
   ]
 }}
 """
@@ -150,8 +165,16 @@ def build_classifier_prompt(
     missing_commands: list[str],
     available_endpoints: list[str],
     unconfigured_tools: list[str] | None = None,
+    session_files: str | None = None,
+    recent_history: str | None = None,
 ) -> str:
     """Build the Tier 1 fast classifier system prompt."""
+    context_block = ""
+    if session_files:
+        context_block += f"\nFiles already in this session's working directory:\n{session_files}\n"
+    if recent_history:
+        context_block += f"\nRecent tasks in this session (most recent last):\n{recent_history}\n"
+
     return f"""You are a fast intent classifier for a CLI automation agent.
 
 Given a user's task, classify it and route to the right execution mode.
@@ -161,37 +184,42 @@ Installed commands: {', '.join(installed_commands) if installed_commands else 'b
 Missing commands: {', '.join(missing_commands) if missing_commands else 'none'}
 Unconfigured tools (installed, need setup first): {', '.join(unconfigured_tools) if unconfigured_tools else 'none'}
 Available APIs: {', '.join(available_endpoints) if available_endpoints else 'none'}
-
+{context_block}
 Respond with ONLY valid JSON (no markdown, no explanation):
 
 {{
-  "mode": "direct|script|interactive|plan|unavailable|unconfigured|answer|clarify",
+  "mode": "direct|script|llm|interactive|plan|unavailable|unconfigured|answer|clarify",
   "tool": "primary tool name or null",
   "pane": "target pane name (usually shell)",
   "driver": "driver name (shell, browser, email_cli, data, docs, media, or null)",
   "cmd": "exact shell command to run (for mode=direct only, else null)",
-  "fallback_mode": "script|interactive|null (fallback if direct fails)",
+  "fallback_mode": "script|interactive|llm|null (fallback if direct fails)",
   "stateful": true/false,
   "message": "explanation (for unavailable/unconfigured/answer/clarify modes, else null)"
 }}
 
 Mode guide:
 - "direct": task IS a shell command or maps to a single known command. Provide exact cmd.
-- "script": task needs a short script (file processing, data transformation, multi-step shell).
-- "interactive": task needs a TUI app (mutt, lynx) or multi-turn exploration.
-- "plan": complex multi-step task needing parallel subtasks or multiple tools.
+- "script": task needs a short deterministic script (file processing, data transformation, multi-step shell, API calls, installs). Shell is capable of doing it.
+- "llm": task is an LLM-native transformation — translate, summarize, rewrite, paraphrase, extract structured info, classify, answer a question from existing content, explain code/text, compare documents. The generation IS the work; shell utilities cannot do it. Use this whenever the task operates on text that is already available (either in session_files, or at an absolute path in the task, or inline). Set pane to "shell".
+- "interactive": task needs a TUI app (mutt, lynx) or multi-turn exploration where the next step depends on observing the previous result.
+- "plan": complex multi-step task needing multiple different modes or tools chained (e.g. "fetch X then translate it" = script + llm).
 - "unavailable": required tool is in the missing_commands list. Include install hint in message.
 - "unconfigured": tool is installed but needs account/credential setup. Set tool name.
 - "answer": question about the system, no execution needed. Put answer in message.
-- "clarify": task is too vague. Put clarifying question in message.
+- "clarify": task is too vague. Put clarifying question in message. Before asking, CHECK session_files and recent_history — if the user said "the transcript" and there's a transcript.txt in session_files, that resolves the reference.
+
+CRITICAL: Do NOT route translation/summarization/rewriting to "script". Shell cannot translate or summarize. Those are always "llm" mode.
 
 Examples:
 - "curl ikangai.com" -> {{"mode":"direct","tool":"curl","pane":"shell","driver":"shell","cmd":"curl -sL ikangai.com","fallback_mode":"script","stateful":false,"message":null}}
-- "count .py files and write a haiku" -> {{"mode":"script","tool":"shell","pane":"shell","driver":"shell","cmd":null,"fallback_mode":null,"stateful":true,"message":null}}
+- "count .py files and write a haiku about them" -> {{"mode":"plan","tool":null,"pane":null,"driver":null,"cmd":null,"fallback_mode":null,"stateful":true,"message":null}}
+- "translate transcript.txt into german" (transcript.txt in session_files) -> {{"mode":"llm","tool":null,"pane":"shell","driver":null,"cmd":null,"fallback_mode":"interactive","stateful":false,"message":null}}
+- "summarize /tmp/notes.md in one paragraph" -> {{"mode":"llm","tool":null,"pane":"shell","driver":null,"cmd":null,"fallback_mode":null,"stateful":false,"message":null}}
+- "rewrite the draft in a formal tone" (draft.md in session_files) -> {{"mode":"llm","tool":null,"pane":"shell","driver":null,"cmd":null,"fallback_mode":null,"stateful":false,"message":null}}
 - "send email to bob@x.com" (mutt missing) -> {{"mode":"unavailable","tool":"mutt","pane":"email","driver":"email_cli","cmd":null,"fallback_mode":null,"stateful":false,"message":"Email requires neomutt. Install: brew install neomutt"}}
-- "send email to bob@x.com" (email unconfigured) -> {{"mode":"unconfigured","tool":"email","pane":"email","driver":"email_cli","cmd":null,"fallback_mode":null,"stateful":false,"message":"Email needs account setup"}}
 - "ls -la | grep .py" -> {{"mode":"direct","tool":"ls","pane":"shell","driver":"shell","cmd":"ls -la | grep .py","fallback_mode":null,"stateful":false,"message":null}}
-- "read my latest 5 emails" -> {{"mode":"script","tool":"email","pane":"email","driver":"email_cli","cmd":null,"fallback_mode":"interactive","stateful":true,"message":null}}
+- "get the transcript of this youtube video <url> and translate it to german" -> {{"mode":"plan","tool":null,"pane":null,"driver":null,"cmd":null,"fallback_mode":null,"stateful":true,"message":null}}
 - "scrape 5 sites and compare them" -> {{"mode":"plan","tool":null,"pane":null,"driver":null,"cmd":null,"fallback_mode":null,"stateful":true,"message":null}}
 """
 
@@ -335,6 +363,39 @@ Respond with ONLY a JSON object (no prose, no markdown):
   ],
   "done_summary": "one-line summary of what the plan accomplishes"
 }}
+"""
+
+
+def build_llm_prompt(
+    subtask_description: str,
+    dependency_context: str,
+    output_path: str,
+) -> str:
+    """LLM-native mode — the model directly performs a transformation task.
+
+    Used for translate, summarize, rewrite, extract, classify, explain, answer
+    from content. No shell, no pane. The reply IS the output file content.
+    """
+    dep_section = ""
+    if dependency_context:
+        dep_section = f"\nContext from prior steps:\n{dependency_context}\n"
+
+    return f"""You are performing this task directly. You ARE the tool — no shell, no commands.
+
+Task: {subtask_description}
+{dep_section}
+Rules:
+- Your reply IS the full contents of the output file. Nothing before it, nothing after — no preamble, no commentary, no surrounding markdown fences.
+- Preserve the structure of the input where appropriate (timestamps, line breaks, formatting) unless the task asks you to change it.
+- If the task is translation, translate every line; do not add prefixes, do not omit content.
+- If the task is summarization or extraction, produce the final result directly.
+- Do NOT wrap the whole output in ``` code fences.
+
+Optional footer: on a new line after the result, you MAY add exactly:
+---
+DONE: <one-line summary of what you produced>
+
+Output will be saved to: {output_path}
 """
 
 

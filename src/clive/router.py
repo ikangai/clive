@@ -187,7 +187,7 @@ def _plan_from_tier1(task, session_ctx, panes, classify_fn, expand_toolset_fn):
         detail(f"Tier 1: direct → {cr.tool}")
         display_plan(plan)
         return plan, None
-    if cr.mode in ("script", "interactive", "streaming"):
+    if cr.mode in ("script", "interactive", "streaming", "llm"):
         plan = Plan(task=task, subtasks=[
             Subtask(id="1", description=task, pane=target_pane, mode=cr.mode),
         ])
@@ -199,7 +199,8 @@ def _plan_from_tier1(task, session_ctx, panes, classify_fn, expand_toolset_fn):
     return None, None
 
 
-def _plan_from_tier2(task, panes, tool_status, tools_summary, max_tokens, find_cached_fn):
+def _plan_from_tier2(task, panes, tool_status, tools_summary, max_tokens, find_cached_fn,
+                     session_files=None, recent_history=None):
     """Tier 2: full LLM planner — multi-step task decomposition."""
     step("Planning")
     cached = find_cached_fn(task, panes)
@@ -210,11 +211,17 @@ def _plan_from_tier2(task, panes, tool_status, tools_summary, max_tokens, find_c
 
     budget_hint = (
         f"\n\nToken budget: {max_tokens:,}. Approximate costs:"
-        f"\n  - Script subtask: ~1,000 tokens (preferred)"
+        f"\n  - Script subtask: ~1,000 tokens (preferred for deterministic shell work)"
+        f"\n  - LLM subtask: ~2,000–6,000 tokens (depends on input size)"
         f"\n  - Interactive subtask: ~5,000 tokens"
-        f"\n  Plan within budget. Prefer script mode to stay within limits."
+        f"\n  Plan within budget. Prefer script when shell suffices; use llm for transformations."
     )
-    plan = create_plan(task, panes, tool_status, tools_summary=tools_summary + budget_hint)
+    plan = create_plan(
+        task, panes, tool_status,
+        tools_summary=tools_summary + budget_hint,
+        session_files=session_files,
+        recent_history=recent_history,
+    )
     detail("Tier 2: full planner")
     display_plan(plan)
     return plan
@@ -255,5 +262,9 @@ def route_task(task, session_ctx, max_tokens, is_direct_fn, classify_fn,
         return plan, None
 
     # Tier 2: full planner
-    plan = _plan_from_tier2(task, panes, tool_status, tools_summary, max_tokens, find_cached_fn)
+    plan = _plan_from_tier2(
+        task, panes, tool_status, tools_summary, max_tokens, find_cached_fn,
+        session_files=session_ctx.get("session_files_rendered"),
+        recent_history=session_ctx.get("history_rendered"),
+    )
     return plan, None

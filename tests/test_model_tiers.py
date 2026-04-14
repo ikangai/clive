@@ -21,7 +21,10 @@ def test_fast_gemini():
 
 
 def test_fast_openrouter():
-    assert resolve_model_tier("fast", "openrouter") == "google/gemini-2.0-flash-exp:free"
+    # OpenRouter has no dedicated fast model: the previously-mapped
+    # `google/gemini-2.0-flash-exp:free` was retired (404 from the API),
+    # so the tier falls back to the user's configured AGENT_MODEL (None).
+    assert resolve_model_tier("fast", "openrouter") is None
 
 
 def test_fast_ollama():
@@ -79,11 +82,11 @@ def test_uses_llm_provider_env_openai():
 
 
 def test_default_env_fallback():
-    """When LLM_PROVIDER is not set, defaults to openrouter."""
+    """When LLM_PROVIDER is not set, defaults to openrouter (fast tier is None there)."""
     with patch.dict(os.environ, {}, clear=True):
         # Ensure LLM_PROVIDER is not set
         os.environ.pop("LLM_PROVIDER", None)
-        assert resolve_model_tier("fast") == "google/gemini-2.0-flash-exp:free"
+        assert resolve_model_tier("fast") is None
 
 
 # --- All providers in _TIER_MAP have both tiers ---

@@ -52,6 +52,48 @@ def _is_direct(task: str, num_panes: int) -> bool:
     return bool(_DIRECT_CMD_PATTERN.match(t))
 
 
+# ─── Session context: files on disk + recent task history ───────────────────
+
+_MAX_FILE_LISTING = 20
+_MAX_HISTORY_ENTRIES = 5
+
+
+def _render_session_files(session_dir: str | None) -> str | None:
+    """List user-created files in the session dir in a form the planner/classifier can use."""
+    if not session_dir or not os.path.isdir(session_dir):
+        return None
+    try:
+        from file_inspect import format_file_context, sniff_session_files
+    except ImportError:
+        return None
+    # Pass a subtask_id that cannot appear in real filenames so internal
+    # files (leading underscore) are filtered out even without per-subtask matching.
+    files = sniff_session_files(session_dir, subtask_id="__CLIVE_NO_MATCH__")
+    files = [f for f in files if not os.path.basename(f.get("path", "")).startswith("_")]
+    if not files:
+        return None
+    formatted = format_file_context(files[:_MAX_FILE_LISTING])
+    # `format_file_context` prefixes with "Available files:\n" — strip it for a tidier block.
+    return formatted.replace("Available files:\n", "", 1)
+
+
+def _render_recent_history(history) -> str | None:
+    """Render the last N (task, summary, files) entries as a compact scannable block."""
+    if not history:
+        return None
+    entries = list(history)[-_MAX_HISTORY_ENTRIES:]
+    if not entries:
+        return None
+    lines = []
+    for i, entry in enumerate(entries, 1):
+        task = (entry.get("task") or "").strip().replace("\n", " ")[:120]
+        summary = (entry.get("summary") or "").strip().replace("\n", " ")[:160]
+        files = entry.get("files") or []
+        file_hint = f"  files: {', '.join(files[:4])}" if files else ""
+        lines.append(f"  {i}. task: {task}\n     result: {summary}{file_hint}")
+    return "\n".join(lines)
+
+
 # ─── Tier 1: Fast LLM classifier ─────────────────────────────────────────────
 
 def _classify(task: str, session_ctx: dict) -> ClassifierResult | None:
@@ -76,6 +118,8 @@ def _classify(task: str, session_ctx: dict) -> ClassifierResult | None:
         missing_commands=missing,
         available_endpoints=endpoint_names,
         unconfigured_tools=unconfigured,
+        session_files=_render_session_files(session_ctx.get("session_dir")),
+        recent_history=_render_recent_history(session_ctx.get("history")),
     )
 
     client = get_client()
@@ -395,6 +439,13 @@ def _run_inner(task, toolset_spec, output_format, max_tokens, session_dir, _clea
     step(f"Task: {task}")
     start_time = time.time()
 
+    # Per-call context for Tier 1/2: what files are in the session dir and
+    # which tasks the user has already run in this REPL/TUI session. Both are
+    # computed fresh here so they reflect the state the user just observed.
+    session_ctx["session_dir"] = session_dir
+    session_ctx["session_files_rendered"] = _render_session_files(session_dir)
+    session_ctx["history_rendered"] = _render_recent_history(session_ctx.get("history"))
+
     # ─── Three-Tier Intent Resolution ──────────────────────────────────
     plan, early_return = route_task(
         task, session_ctx, max_tokens,
@@ -432,6 +483,29 @@ def _run_inner(task, toolset_spec, output_format, max_tokens, session_dir, _clea
     total_pt = sum(r.prompt_tokens for r in results)
     total_ct = sum(r.completion_tokens for r in results)
     summarizer.log_session(task, plan, results, elapsed, total_pt + total_ct)
+
+    # Within-REPL history: record this task so the next classifier/planner
+    # call can resolve follow-up references like "translate the transcript".
+    history = session_ctx.get("history")
+    if history is not None:
+        try:
+            produced_files = []
+            seen = set()
+            for r in results:
+                for f in (r.output_files or []):
+                    name = os.path.basename(f.get("path", ""))
+                    if not name or name.startswith("_") or name in seen:
+                        continue
+                    seen.add(name)
+                    produced_files.append(name)
+            short_summary = (summary or "").strip().splitlines()[0][:200] if summary else ""
+            history.append({
+                "task": task,
+                "summary": short_summary,
+                "files": produced_files[:6],
+            })
+        except Exception:
+            pass
 
     # Cleanup session directory (unless --keep-session or REPL mode)
     if owns_session and os.path.isdir(session_dir) and not os.environ.get("CLIVE_KEEP_SESSION"):

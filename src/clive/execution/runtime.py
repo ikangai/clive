@@ -133,7 +133,7 @@ _TIER_MAP: dict[str, dict[str, str | None]] = {
     "openai": {"fast": "gpt-4o-mini", "default": None},
     "anthropic": {"fast": "claude-haiku-4-5-20251001", "default": None},
     "gemini": {"fast": "gemini-2.0-flash", "default": None},
-    "openrouter": {"fast": "google/gemini-2.0-flash-exp:free", "default": None},
+    "openrouter": {"fast": None, "default": None},
     "ollama": {"fast": "llama3", "default": None},
     "lmstudio": {"fast": "local", "default": None},
     "delegate": {"fast": None, "default": None},

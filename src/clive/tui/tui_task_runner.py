@@ -29,8 +29,18 @@ def tui_triage(app, task: str, task_info: dict, out: RichLog) -> dict:
     clive_context = build_clive_context(
         app._spec, app._resolved, app._available_cmds, app._missing_cmds,
     )
+    # Inline session-dir files + recent history so the triage LLM can resolve
+    # references like "translate the transcript" without bouncing back to clarify.
+    from clive_core import _render_recent_history, _render_session_files
+    session_files = _render_session_files(getattr(app, "_session_dir", None))
+    recent_history = _render_recent_history(getattr(app, "_history", None))
+    extra_context = ""
+    if session_files:
+        extra_context += f"\n\nFiles currently in the session working directory:\n{session_files}"
+    if recent_history:
+        extra_context += f"\n\nRecent tasks in this session (most recent last):\n{recent_history}"
     triage_msgs = [
-        {"role": "system", "content": build_triage_prompt(clive_context)},
+        {"role": "system", "content": build_triage_prompt(clive_context) + extra_context},
         {"role": "user", "content": task},
     ]
     try:
@@ -95,8 +105,10 @@ def tui_render_summary(app, summary: str, results, task_info: dict, out: RichLog
 
 
 def run_task_inner(app, task: str, task_info: dict, out: RichLog) -> None:
-    session_id = generate_session_id()
-    session_dir = f"/tmp/clive/{session_id}"
+    # Reuse the app-scoped session directory so files produced by earlier
+    # tasks are still available when the user's next task references them.
+    session_dir = getattr(app, "_session_dir", None) or f"/tmp/clive/{generate_session_id()}"
+    os.makedirs(session_dir, exist_ok=True)
 
     triage = tui_triage(app, task, task_info, out)
     action = triage.get("action", "execute")
@@ -134,7 +146,13 @@ def run_task_inner(app, task: str, task_info: dict, out: RichLog) -> None:
 
     app.call_from_thread(out.write, "[#6b7280]Planning...[/]")
     try:
-        plan = create_plan(task, panes, tool_status, tools_summary=tools_summary)
+        from clive_core import _render_recent_history, _render_session_files
+        plan = create_plan(
+            task, panes, tool_status,
+            tools_summary=tools_summary,
+            session_files=_render_session_files(session_dir),
+            recent_history=_render_recent_history(getattr(app, "_history", None)),
+        )
     except Exception as e:
         app.call_from_thread(out.write, f"[#ef4444]✗ Planning failed: {e}[/]")
         return
@@ -161,6 +179,25 @@ def run_task_inner(app, task: str, task_info: dict, out: RichLog) -> None:
     summary = tui_summarize_results(app, task, results, task_info)
     tui_render_summary(app, summary, results, task_info, out)
 
-    # Cleanup session directory
-    if session_dir and os.path.isdir(session_dir):
-        shutil.rmtree(session_dir, ignore_errors=True)
+    # Append to the app's bounded history so follow-up tasks can resolve
+    # references to what just happened.
+    history = getattr(app, "_history", None)
+    if history is not None:
+        try:
+            seen: set[str] = set()
+            files: list[str] = []
+            for r in results:
+                for f in (r.output_files or []):
+                    name = os.path.basename(f.get("path", ""))
+                    if not name or name.startswith("_") or name in seen:
+                        continue
+                    seen.add(name)
+                    files.append(name)
+            short = (summary or "").strip().splitlines()[0][:200] if summary else ""
+            history.append({"task": task, "summary": short, "files": files[:6]})
+        except Exception:
+            pass
+
+    # Session directory is app-scoped and intentionally retained across
+    # tasks so cross-task file references work. It is cleaned up when the
+    # app exits (the /tmp lifecycle handles stragglers).

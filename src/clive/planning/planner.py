@@ -14,6 +14,8 @@ def create_plan(
     panes: dict[str, PaneInfo],
     tool_status: dict[str, dict],
     tools_summary: str | None = None,
+    session_files: str | None = None,
+    recent_history: str | None = None,
 ) -> Plan:
     """Call LLM to decompose task into subtask DAG. Returns validated Plan."""
     client = get_client()
@@ -26,7 +28,11 @@ def create_plan(
                 lines.append(f"  - {name} [{info['app_type']}]: {info['description']}")
         tools_summary = "\n".join(lines)
 
-    system_prompt = build_planner_prompt(tools_summary)
+    system_prompt = build_planner_prompt(
+        tools_summary,
+        session_files=session_files,
+        recent_history=recent_history,
+    )
     messages = [
         {"role": "system", "content": system_prompt},
         {"role": "user", "content": f"Task: {task}"},

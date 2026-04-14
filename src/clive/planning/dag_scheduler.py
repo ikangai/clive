@@ -6,6 +6,11 @@ token budget, and cancels orphaned branches on failure.
 
 Uses shared primitives from runtime.py (leaf module) and deferred
 `import executor` for executor.run_subtask (the dispatcher).
+
+The executor reference bypasses the top-level `executor.py` compatibility
+shim — going through the shim during this circular import would capture
+the half-loaded shim module before its `sys.modules[__name__] = _real`
+swap, leaving `executor.run_subtask` unresolvable at call time.
 """
 
 import logging
@@ -13,7 +18,7 @@ import threading
 import time
 from concurrent.futures import ThreadPoolExecutor, Future
 
-import executor  # deferred attribute access — only for executor.run_subtask
+from execution import executor  # direct subpackage import avoids shim-swap circular-import bug
 from models import Plan, Subtask, SubtaskStatus, SubtaskResult, PaneInfo
 from output import progress
 from runtime import _pane_locks, _cancel_event, _emit
