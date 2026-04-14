@@ -165,6 +165,26 @@ def test_broker_without_socket_path_is_rejected(tmp_registry):
         connect_local("noSocket", registry_dir=tmp_registry)
 
 
+def test_invalid_nonce_alphabet_rejected_before_connect(tmp_registry):
+    """An explicit nonce with disallowed characters must fail with a
+    clear ConnectError at the connector layer — not as a "broken
+    pipe on next send" after the lobby silently closes the socket
+    during its own handshake validation. The early-rejection keeps
+    the cause co-located with the symptom for debugging."""
+    import registry as _reg
+    _reg.register(
+        name="lobby", pid=os.getpid(),
+        tmux_session="", tmux_socket="", toolset="", task="",
+        conversational=True, session_dir="",
+        registry_dir=tmp_registry,
+        role="broker",
+        socket_path="/tmp/not-used-we-fail-first.sock",
+    )
+    with pytest.raises(ConnectError, match="disallowed characters"):
+        connect_local("lobby", nonce="bad:chars",
+                      registry_dir=tmp_registry)
+
+
 def test_missing_socket_file_raises_connect_error(tmp_registry):
     """If the socket file is gone (broker crashed uncleanly),
     registry pruning should eventually evict the entry; until then

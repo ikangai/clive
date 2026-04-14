@@ -191,6 +191,19 @@ if __name__ == "__main__":
             step("Remote task timed out (300s)")
         raise SystemExit(proc.returncode if 'proc' in dir() else 1)
 
+    # ─── --join implies conversational keep-alive ─────────────────────
+    # Without these two, the rooms wire-up code (which lives inside
+    # the conversational keep-alive branch) is unreachable and --join
+    # silently no-ops — a confusing failure mode for users. Require
+    # --name so members are identifiable on the lobby, and auto-enable
+    # --conversational so the keep-alive branch is actually entered.
+    if getattr(args, "join", None):
+        if not getattr(args, "name", None):
+            print("--join requires --name to identify this member on "
+                  "the lobby", file=sys.stderr)
+            raise SystemExit(2)
+        args.conversational = True
+
     # ─── Special roles (rooms / lobby) ────────────────────────────────
     role = getattr(args, "role", None)
     if role == "lobby-client":

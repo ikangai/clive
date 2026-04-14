@@ -25,8 +25,15 @@ import socket
 from pathlib import Path
 from typing import Optional
 
+import re
+
 from protocol import generate_nonce
 import registry
+
+
+# Matches the strict nonce alphabet defined in protocol.py's
+# `_NONCE_ALPHABET`. Empty string is permitted (unauthenticated frames).
+_NONCE_ALPHABET = re.compile(r"\A[A-Za-z0-9_-]*\Z")
 
 
 class ConnectError(RuntimeError):
@@ -78,6 +85,15 @@ def connect_local(
         )
 
     n = nonce if nonce is not None else generate_nonce()
+    if not _NONCE_ALPHABET.match(n):
+        # Fail loudly here rather than after the lobby closes the
+        # socket during its own handshake validation — the resulting
+        # "broken pipe on next send" is an opaque way to learn about
+        # a malformed nonce.
+        raise ConnectError(
+            f"nonce contains disallowed characters: {n!r} "
+            f"(alphabet is [A-Za-z0-9_-])"
+        )
 
     sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
     try:

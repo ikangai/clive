@@ -54,6 +54,120 @@ def _wait_for(predicate, *, timeout=3.0, interval=0.05):
     return False
 
 
+def test_join_without_name_is_rejected(tmp_env):
+    """`--join` silently no-oped without `--name` in earlier revisions
+    because the rooms wire-up lives inside the conversational
+    keep-alive branch, which is gated on `--name`. Now the argparse
+    layer surfaces the requirement with exit code 2 + a helpful
+    stderr message instead of letting the flag do nothing."""
+    proc = subprocess.run(
+        CLIVE_CMD + ["--conversational", "--join", "general@lobby"],
+        env={**os.environ, "HOME": str(tmp_env["home"])},
+        capture_output=True, timeout=10,
+    )
+    assert proc.returncode == 2, (
+        f"expected exit 2, got {proc.returncode}; "
+        f"stderr={proc.stderr.decode()[:400]}"
+    )
+    assert b"--join requires --name" in proc.stderr
+
+
+def test_join_auto_enables_conversational(tmp_env):
+    """`--join --name alice` must auto-enable conversational keep-alive
+    — otherwise the rooms wire-up is skipped and --join silently
+    does nothing. We prove this by launching alice without
+    `--conversational` and verifying she still bootstraps onto the
+    lobby (observer's open_thread listing alice succeeds iff alice
+    joined)."""
+    sock_path = tempfile.mkdtemp(prefix="clv-cli-") + "/lobby.sock"
+    broker = subprocess.Popen(
+        CLIVE_CMD + [
+            "--role", "broker",
+            "--name", "testlobby",
+            "--lobby-socket", sock_path,
+        ],
+        env={**os.environ, "HOME": str(tmp_env["home"])},
+        stdout=subprocess.DEVNULL, stderr=subprocess.PIPE,
+    )
+    try:
+        assert _wait_for(lambda: os.path.exists(sock_path)), \
+            "lobby socket never appeared"
+        assert _wait_for(
+            lambda: (tmp_env["registry_dir"] / "testlobby.json").exists()
+        ), "lobby registry entry never appeared"
+
+        # Deliberately omit `--conversational`. Previously this meant
+        # alice entered REPL mode instead of the keep-alive loop,
+        # and --join was ignored.
+        member = subprocess.Popen(
+            CLIVE_CMD + [
+                "--name", "alice",
+                "--join", "general@testlobby",
+            ],
+            env={**os.environ, "HOME": str(tmp_env["home"])},
+            stdin=subprocess.PIPE,
+            stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+        )
+        try:
+            time.sleep(0.5)
+            obs = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+            obs.connect(sock_path)
+            obs.sendall(b"NONCE nO\n")
+            obs.sendall((encode("session_hello",
+                                {"client_kind": "clive", "name": "observer"},
+                                nonce="nO") + "\n").encode())
+            obs.settimeout(1.0)
+            obs.recv(4096)
+            obs.sendall((encode("join_room", {"room": "general"},
+                                nonce="nO") + "\n").encode())
+            time.sleep(0.1)
+            obs.sendall((encode("open_thread", {
+                "room": "general",
+                "members": ["observer", "alice"],
+                "private": False,
+                "prompt": "ping",
+            }, nonce="nO") + "\n").encode())
+
+            obs.settimeout(2.0)
+            data = b""
+            kinds = set()
+            deadline = time.time() + 3.0
+            while time.time() < deadline and "thread_opened" not in kinds:
+                try:
+                    chunk = obs.recv(4096)
+                except socket.timeout:
+                    break
+                if not chunk:
+                    break
+                data += chunk
+                for f in decode_all(data.decode("utf-8", errors="replace"),
+                                    nonce="nO"):
+                    kinds.add(f.kind)
+            obs.close()
+            assert "thread_opened" in kinds, (
+                f"alice's --join did not take effect without explicit "
+                f"--conversational; observer saw: {sorted(kinds)}"
+            )
+        finally:
+            try:
+                member.stdin.write(b"exit\n")
+                member.stdin.flush()
+            except (BrokenPipeError, OSError):
+                pass
+            try:
+                member.wait(timeout=3.0)
+            except subprocess.TimeoutExpired:
+                member.kill()
+                member.wait(timeout=1.0)
+    finally:
+        broker.terminate()
+        try:
+            broker.wait(timeout=3.0)
+        except subprocess.TimeoutExpired:
+            broker.kill()
+            broker.wait(timeout=1.0)
+
+
 def test_cli_join_flag_bootstraps_against_running_lobby(tmp_env):
     """Full CLI path end-to-end. The lobby subprocess runs, registers,
     and accepts. The member subprocess parses --join, resolves the
