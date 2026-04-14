@@ -13,7 +13,7 @@ import time
 from command_extract import extract_command, extract_done
 from completion import wait_for_ready, wrap_command
 from llm import get_client, chat, chat_stream
-from streaming_extract import StreamingCommandDetector
+from streaming_extract import EarlyDoneDetector
 from models import Subtask, SubtaskStatus, SubtaskResult, PaneInfo
 from prompts import build_interactive_prompt
 from remote import render_agent_screen
@@ -167,12 +167,16 @@ def run_subtask_interactive(
             messages.append({"role": "user", "content": diff})
             messages = _trim_messages(messages, max_user_turns=budget["max_user_turns"])
 
-            early_cmd = []
-            detector = StreamingCommandDetector(
-                on_command=lambda cmd: early_cmd.append(cmd),
-            )
+            # Early DONE detection: abort streaming as soon as DONE:
+            # appears, saving the 50-200 tokens of explanation that
+            # typically follow.  See streaming_extract.py.
+            detector = EarlyDoneDetector()
             try:
-                reply, pt, ct = chat_stream(client, messages, on_token=detector.feed)
+                reply, pt, ct = chat_stream(
+                    client, messages,
+                    on_token=detector.feed,
+                    should_stop=detector.should_stop,
+                )
             except Exception:
                 try:
                     reply, pt, ct = chat(client, messages)

@@ -166,12 +166,16 @@ def chat_stream(
     max_tokens: int = 1024,
     model: str | None = None,
     on_token: callable = None,
+    should_stop: callable = None,
 ) -> tuple[str, int, int]:
     """Streaming chat — calls on_token(partial_text) as tokens arrive.
 
     Returns same (content, prompt_tokens, completion_tokens) as chat().
-    Useful for early command detection: the caller can parse the stream
-    and act on the command before the full response is generated.
+
+    If *should_stop* is provided, it is called after each token.  When
+    it returns True the stream is aborted and the content accumulated so
+    far is returned.  Token counts are estimated when the stream is cut
+    short (exact counts require the provider to finish generating).
     """
     # Delegate does not stream in v1 — fall back to non-streaming chat()
     # and fire on_token exactly once with the full content. Streaming
@@ -196,6 +200,7 @@ def chat_stream(
 
         content_parts = []
         pt, ct = 0, 0
+        stopped_early = False
         with client.messages.stream(
             model=model or MODEL,
             max_tokens=max_tokens,
@@ -206,13 +211,21 @@ def chat_stream(
                 content_parts.append(text)
                 if on_token:
                     on_token("".join(content_parts))
+                if should_stop and should_stop():
+                    stopped_early = True
+                    break
 
-            # Get final message for usage
-            final = stream.get_final_message()
-            pt = final.usage.input_tokens
-            ct = final.usage.output_tokens
+            if not stopped_early:
+                # Get final message for usage
+                final = stream.get_final_message()
+                pt = final.usage.input_tokens
+                ct = final.usage.output_tokens
 
-        return "".join(content_parts), pt, ct
+        content = "".join(content_parts)
+        if stopped_early:
+            pt = sum(len(m.get("content", "")) // 4 for m in messages)
+            ct = len(content) // 4
+        return content, pt, ct
 
     # OpenAI-compatible: use streaming
     response = client.chat.completions.create(
@@ -229,6 +242,8 @@ def chat_stream(
             content_parts.append(chunk.choices[0].delta.content)
             if on_token:
                 on_token("".join(content_parts))
+            if should_stop and should_stop():
+                break
         if hasattr(chunk, 'usage') and chunk.usage:
             pt = chunk.usage.prompt_tokens or 0
             ct = chunk.usage.completion_tokens or 0

@@ -45,26 +45,26 @@ class TestInteractiveV2:
 
     @patch("interactive_runner.chat_stream")
     @patch("interactive_runner.capture_pane")
-    @patch("interactive_runner.wait_for_ready")
-    def test_streaming_happy_path(self, mock_wait, mock_capture, mock_stream):
-        """chat_stream succeeds — detector fires during streaming."""
-        mock_capture.side_effect = [
-            "[AGENT_READY] $ ",
-            "file1.txt\n[AGENT_READY] $ ",
-        ]
+    def test_streaming_early_done_abort(self, mock_capture, mock_stream):
+        """chat_stream detects DONE: during streaming and aborts early."""
+        mock_capture.return_value = "[AGENT_READY] $ "
 
-        def fake_stream(client, messages, on_token=None):
-            text = "```bash\nls\n```"
+        def fake_stream(client, messages, on_token=None, should_stop=None):
+            """Simulate streaming: emit DONE, then check should_stop."""
+            parts = ["DONE: found files"]
+            text = parts[0]
             if on_token:
-                for i in range(1, len(text) + 1):
-                    on_token(text[:i])
-            return text, 100, 50
+                on_token(text)
+            # should_stop should now be True — detector saw DONE
+            if should_stop and should_stop():
+                return text, 50, 10  # aborted early, estimated tokens
+            # If not stopped, LLM would continue with explanation
+            text += "\nI listed the files and found several entries."
+            return text, 50, 30  # full response, more tokens
 
-        mock_stream.side_effect = [
-            fake_stream(None, []),
-            ("DONE: found files", 50, 20),
-        ]
-        mock_wait.return_value = ("file1.txt\n[AGENT_READY] $ ", "marker")
+        mock_stream.return_value = fake_stream(None, [], on_token=None, should_stop=None)
+        # We need side_effect to actually call fake_stream with the real args
+        mock_stream.side_effect = lambda c, m, **kw: fake_stream(c, m, **kw)
 
         from executor import run_subtask_interactive
         result = run_subtask_interactive(

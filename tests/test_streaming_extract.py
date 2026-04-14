@@ -1,61 +1,55 @@
 # tests/test_streaming_extract.py
-"""Tests for streaming command extraction."""
+"""Tests for early DONE detection during streaming."""
+from streaming_extract import EarlyDoneDetector
 
 
-def test_detector_fires_on_complete_bash_block():
-    from streaming_extract import StreamingCommandDetector
-    commands = []
-    d = StreamingCommandDetector(on_command=lambda cmd: commands.append(cmd))
-    d.feed("I'll list the files.\n")
-    assert commands == []
-    d.feed("I'll list the files.\n```bash\n")
-    assert commands == []
-    d.feed("I'll list the files.\n```bash\nls -la\n")
-    assert commands == []
-    d.feed("I'll list the files.\n```bash\nls -la\n```")
-    assert commands == ["ls -la"]
-
-
-def test_detector_fires_once():
-    from streaming_extract import StreamingCommandDetector
-    commands = []
-    d = StreamingCommandDetector(on_command=lambda cmd: commands.append(cmd))
-    d.feed("```bash\nls\n```\nNow let me explain...")
-    d.feed("```bash\nls\n```\nNow let me explain what I did.")
-    assert len(commands) == 1
-
-
-def test_detector_ignores_python_blocks():
-    from streaming_extract import StreamingCommandDetector
-    commands = []
-    d = StreamingCommandDetector(on_command=lambda cmd: commands.append(cmd))
-    d.feed("```python\nprint('hi')\n```")
-    assert commands == []
-
-
-def test_detector_returns_done_signal():
-    from streaming_extract import StreamingCommandDetector
-    commands = []
-    d = StreamingCommandDetector(on_command=lambda cmd: commands.append(cmd))
+def test_detects_done_signal():
+    d = EarlyDoneDetector()
     d.feed("DONE: task complete")
-    assert commands == []
+    assert d.done_detected
+    assert d.should_stop()
+
+
+def test_no_done_stays_false():
+    d = EarlyDoneDetector()
+    d.feed("I'll run ls now.\n```bash\nls\n```")
+    assert not d.done_detected
+    assert not d.should_stop()
+
+
+def test_done_detected_incrementally():
+    """DONE: appears partway through streaming."""
+    d = EarlyDoneDetector()
+    d.feed("Let me check.\n")
+    assert not d.should_stop()
+    d.feed("Let me check.\nDONE: found 3 files")
+    assert d.should_stop()
+
+
+def test_done_after_command_block():
+    """DONE: after a code block — still detected."""
+    d = EarlyDoneDetector()
+    d.feed("```bash\nls\n```\nDONE: listed files")
     assert d.done_detected
 
 
-def test_detector_no_command():
-    from streaming_extract import StreamingCommandDetector
-    commands = []
-    d = StreamingCommandDetector(on_command=lambda cmd: commands.append(cmd))
-    d.feed("I think we should wait and see what happens next.")
-    assert commands == []
+def test_done_detected_only_once():
+    """Flag stays True, no redundant work."""
+    d = EarlyDoneDetector()
+    d.feed("DONE: first")
+    assert d.done_detected
+    d.feed("DONE: first\nDONE: second")
+    assert d.done_detected  # still True, no crash
+
+
+def test_partial_done_not_detected():
+    """'DONE' without colon is not a signal."""
+    d = EarlyDoneDetector()
+    d.feed("We are DONE with the setup")
     assert not d.done_detected
 
 
-def test_detector_multiline_command():
-    from streaming_extract import StreamingCommandDetector
-    commands = []
-    d = StreamingCommandDetector(on_command=lambda cmd: commands.append(cmd))
-    d.feed("```bash\nfind /tmp \\\n  -name '*.log' \\\n  -delete\n```")
-    assert len(commands) == 1
-    assert "find /tmp" in commands[0]
-    assert "-delete" in commands[0]
+def test_empty_input():
+    d = EarlyDoneDetector()
+    d.feed("")
+    assert not d.done_detected

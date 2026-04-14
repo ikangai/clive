@@ -1,46 +1,43 @@
 # streaming_extract.py
-"""Streaming command extraction — detect fenced bash blocks as LLM tokens arrive.
+"""Early DONE detection during LLM streaming.
 
-Used by the interactive runner to overlap LLM generation with command
-execution. The detector fires a callback as soon as a complete ```bash
-block is detected, without waiting for the full response.
+When the LLM says "DONE: summary", it typically follows with 50-200
+tokens of explanation we don't need.  By detecting DONE during
+streaming and signalling chat_stream to abort, we save those tokens
+(cost) and the generation time (latency).
+
+Usage with chat_stream's should_stop parameter:
+
+    detector = EarlyDoneDetector()
+    reply, pt, ct = chat_stream(
+        client, messages,
+        on_token=detector.feed,
+        should_stop=detector.should_stop,
+    )
+    # reply contains content up to and including the DONE line
+    # remaining tokens were never generated
 """
 
 import re
 
-_FENCED_SHELL_RE = re.compile(r'```(?:bash|sh)\s*\n(.*?)```', re.DOTALL)
 _DONE_RE = re.compile(r'^DONE:\s*(.*)', re.MULTILINE)
 
 
-class StreamingCommandDetector:
-    """Accumulates streaming tokens and fires on_command when a bash block closes.
+class EarlyDoneDetector:
+    """Detects DONE: signal during streaming and signals early abort.
 
-    Usage:
-        detector = StreamingCommandDetector(on_command=lambda cmd: ...)
-        chat_stream(client, messages, on_token=detector.feed)
-        # on_command fires as soon as closing ``` is detected
+    Pass ``feed`` as the ``on_token`` callback and ``should_stop`` as
+    the ``should_stop`` callback to ``chat_stream``.
     """
 
-    def __init__(self, on_command=None):
-        self._on_command = on_command
-        self._fired = False
+    def __init__(self):
         self.done_detected = False
 
     def feed(self, accumulated: str) -> None:
-        """Called with the accumulated response so far (not individual tokens).
-
-        chat_stream's on_token callback passes the full accumulated text
-        on each token, so we always have the complete response-so-far.
-        """
-        if not self._fired and _DONE_RE.search(accumulated):
+        """Called with the accumulated response so far."""
+        if not self.done_detected and _DONE_RE.search(accumulated):
             self.done_detected = True
 
-        if self._fired:
-            return
-
-        m = _FENCED_SHELL_RE.search(accumulated)
-        if m:
-            self._fired = True
-            cmd = m.group(1).strip()
-            if cmd and self._on_command:
-                self._on_command(cmd)
+    def should_stop(self) -> bool:
+        """Returns True when streaming should abort."""
+        return self.done_detected
