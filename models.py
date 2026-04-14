@@ -127,3 +127,7 @@ class PaneInfo:
     # empty string for everything else (shell, data, media, etc.).
     # See protocol.py and remote.render_agent_screen.
     frame_nonce: str = ""
+    # Per-pane model overrides from driver frontmatter.
+    # When set, runners use these instead of the global MODEL/SCRIPT_MODEL.
+    agent_model: Optional[str] = None
+    observation_model: Optional[str] = None

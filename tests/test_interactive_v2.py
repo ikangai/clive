@@ -49,7 +49,7 @@ class TestInteractiveV2:
         """chat_stream detects DONE: during streaming and aborts early."""
         mock_capture.return_value = "[AGENT_READY] $ "
 
-        def fake_stream(client, messages, on_token=None, should_stop=None):
+        def fake_stream(client, messages, on_token=None, should_stop=None, model=None):
             """Simulate streaming: emit DONE, then check should_stop."""
             parts = ["DONE: found files"]
             text = parts[0]

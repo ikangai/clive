@@ -142,7 +142,8 @@ def run_subtask_script(
                     summary="Cancelled", output_snippet="",
                     turns_used=attempt - 1, prompt_tokens=total_pt, completion_tokens=total_ct,
                 )
-            reply, pt, ct = chat(client, messages, model=SCRIPT_MODEL)
+            effective_model = pane_info.agent_model or SCRIPT_MODEL
+            reply, pt, ct = chat(client, messages, model=effective_model)
             total_pt += pt
             total_ct += ct
             messages.append({"role": "assistant", "content": reply})

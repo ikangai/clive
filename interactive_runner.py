@@ -106,7 +106,8 @@ def run_subtask_interactive(
 
     from llm import MODEL
     from runtime import context_budget
-    budget = context_budget(MODEL)
+    effective_model = pane_info.agent_model or MODEL
+    budget = context_budget(effective_model)
 
     system_prompt = build_interactive_prompt(
         subtask_description=subtask.description,
@@ -174,12 +175,13 @@ def run_subtask_interactive(
             try:
                 reply, pt, ct = chat_stream(
                     client, messages,
+                    model=effective_model,
                     on_token=detector.feed,
                     should_stop=detector.should_stop,
                 )
             except Exception:
                 try:
-                    reply, pt, ct = chat(client, messages)
+                    reply, pt, ct = chat(client, messages, model=effective_model)
                 except Exception as exc:
                     log.exception("LLM call failed at turn %d", turn)
                     return SubtaskResult(
