@@ -43,6 +43,16 @@ Six strategies that separate the observation loop into WAIT (free) / OBSERVE (ch
 | Tool-calling batching | Multiple commands per response | 30-50% fewer turns |
 | Combined | All strategies | 3-5x overall reduction |
 
+### Repository restructure
+
+Moved all source code from a flat 55-files-in-root layout into a `src/clive/` package with 8 subpackages.
+
+- **Package structure** — Source organized into `llm/`, `planning/`, `execution/`, `observation/`, `session/`, `networking/`, `tui/`, `evolution/`, plus existing packages (`selfmod/`, `server/`, `sandbox/`). Data directories (`drivers/`, `tools/`, `skills_data/`) moved into the package.
+- **Root directory** — Reduced from 103 entries to 13: entry-point wrappers (`clive.py`, `tui.py`), config files, and 4 directories (`src/`, `tests/`, `evals/`, `docs/`).
+- **Zero import changes** — Flat imports (`from models import Subtask`, `from llm import chat`) preserved via `sys.modules`-based shim files. No source code modifications required.
+- **Removed content** — 11 blog posts and 1 stale design doc removed from tracked files. `SPEC.md` and `SPEC-v3.md` moved to `docs/`.
+- **Updated .gitignore** — Consolidated patterns for experiment artifacts (`.tsv`, `.DS_Store`).
+
 ---
 
 ## 0.3.0 — BYOLLM delegation for remote clives (2026-04-13)
