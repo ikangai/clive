@@ -315,19 +315,22 @@ if __name__ == "__main__":
             if not keep_alive:
                 raise SystemExit(0)
 
-            # Named instance: loop, waiting for tasks on stdin
-            while True:
-                try:
-                    line = sys.stdin.readline()
-                except EOFError:
-                    break
-                if not line:  # EOF
-                    break
+            # Named instance: loop, waiting for tasks on stdin.
+            # Uses the selectors-based ConvLoop (Phase 0) so later
+            # phases can register the lobby pane reader alongside
+            # stdin without another refactor. Behaviour parity with
+            # the prior blocking-readline version: EOF exits, the
+            # sentinel words (exit/quit//stop) exit, handler
+            # exceptions emit failure frames but do NOT tear the
+            # loop down.
+            from conv_loop import ConvLoop
+
+            def _handle_task_line(line: str) -> bool:
                 task = line.strip()
                 if not task:
-                    continue
+                    return False
                 if task.lower() in ("exit", "quit", "/stop"):
-                    break
+                    return True
                 emit_turn("thinking")
                 try:
                     summary = run(
@@ -341,6 +344,11 @@ if __name__ == "__main__":
                 except Exception as e:
                     emit_context({"error": str(e)})
                     emit_turn("failed")
+                return False
+
+            _conv_loop = ConvLoop()
+            _conv_loop.on_line(sys.stdin, _handle_task_line)
+            _conv_loop.run()
         finally:
             # Signal the ticker to stop. Daemon=True means it dies with
             # the process anyway, but signalling lets it exit its
