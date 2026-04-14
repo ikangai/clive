@@ -98,10 +98,11 @@ The planner assigns an execution mode per subtask — how much the agent observe
 | **direct** | Execute a literal shell command. No LLM involved. | Simple commands the classifier recognizes directly. | 0 |
 | **script** | Generate a shell script → execute in one shot → check exit code. On failure, read error and repair. | Deterministic single-step pipelines, file ops, data extraction, known API calls. | 1 (+ repairs) |
 | **planned** | Generate a sequence of commands with verification criteria → execute each mechanically → check exit code per step. No LLM calls during execution. | Deterministic multi-step workflows: install+configure, fetch+process+save, multi-file operations. | 1 |
+| **llm** | The model *is* the tool. Read input files from the session dir (plus any absolute paths in the task), make one LLM call, write the result to `llm_<id>.txt`. No pane, no shell. | Translation, summarization, rewriting, extraction, classification, explaining, answering from provided content — tasks where generation *is* the work. | 1 |
 | **interactive** | Read screen → reason → type command → repeat. Full turn-by-turn loop with observation classification. | Multi-step exploration, debugging, unknown content, interactive applications. | N turns |
 | **streaming** | Like interactive, with automatic intervention detection for prompts, passwords, and confirmations. | Package installs, operations requiring passwords, long-running processes. | N turns |
 
-The planner defaults to `script` or `planned` when the task is deterministic. Interactive mode engages when the task requires observation and adaptation. All modes use the same pane interface — the difference is observation frequency and LLM involvement.
+The planner defaults to `script` or `planned` when the task is deterministic, and to `llm` when the task is a text transformation that shell can't do. `interactive` engages when the task requires observation and adaptation. Chains are first-class: a task like "fetch the transcript and translate it" produces a `script` → `llm` DAG where the transcript file flows between subtasks through the session working directory.
 
 ### Observation loop efficiency
 
@@ -121,6 +122,14 @@ intervention detect  compact summaries
 **Progressive context compression** — Instead of dropping old conversation turns (the bookend trim), a cheap model summarizes them into a running history. The main model sees: system prompt + compressed history + current screen.
 
 **Native tool calling** — When the provider supports it (OpenAI, Anthropic, Gemini, OpenRouter), the interactive runner uses native tool calls (`run_command`, `read_screen`, `complete`) instead of text-based command extraction. This enables command batching — multiple commands per LLM response — reducing turn count.
+
+### Session state across tasks
+
+The REPL and TUI hold state across tasks so follow-ups work naturally:
+
+- **Persistent working directory** — Each REPL/TUI session has one `/tmp/clive/<id>/` directory that lives for the whole session. Files produced by an earlier task stay there; a follow-up like "translate the transcript into german" resolves because `transcript.txt` is still on disk.
+- **File listing in the prompt** — The classifier and planner both see a compact listing of user-created files in the session dir when deciding how to route the next task, so references to "the transcript" don't require clarification.
+- **Recent-task history** — The last several `(task, summary, produced_files)` tuples are rendered into the classifier and planner prompts. Useful when the follow-up references not a file but a prior subject ("now do the same thing for the other channel").
 
 ### Architecture
 

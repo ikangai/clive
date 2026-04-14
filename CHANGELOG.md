@@ -1,5 +1,52 @@
 # Changelog
 
+## 0.5.0 — LLM-native mode & cross-task memory (2026-04-14)
+
+A new execution mode where the LLM *is* the tool — for tasks where generation is the work (translate, summarize, rewrite, extract, classify, explain) rather than something you drive a shell to do. Plus the REPL and TUI now carry state across tasks, so follow-up references like "translate the transcript" resolve without clarification.
+
+### Added
+
+- **`llm` execution mode** (`execution/llm_runner.py`) — A subtask runner with no pane, no shell. Reads input from (1) user-created files in the session working directory, (2) absolute/home paths named in the task description; calls the model once with a single-purpose prompt (`build_llm_prompt`); writes the generated text to `llm_<subtask.id>.txt` in the session dir. Output cap is 16 KB tokens by default and tunable via `CLIVE_LLM_OUTPUT_TOKENS`. Input is capped at 200 KB with oldest files truncated first. Non-text files are skipped and logged at debug level; realpath normalisation prevents symlinks from double-feeding a file or feeding the model its own prior output. Added to `VALID_MODES` and dispatched in `executor.run_subtask` between `planned` and the tool-calling/interactive runners.
+
+- **Chain planning** — Planner prompt rewritten to treat chains as the common case. A task like "get the transcript and translate it" is now decomposed into `script` (fetch) → `llm` (translate), with data flowing between subtasks through the existing file registry (`dep_context` + `file_inspect.sniff_session_files`). The anti-pattern "route transformation to shell" is called out explicitly in both classifier and planner prompts so translation/summarization never lands in `script` mode again.
+
+- **Session file listing in classifier/planner prompts** — `clive_core._render_session_files()` formats the session dir's user-created files (with schema hints from `file_inspect.format_file_context`) and threads it into `build_classifier_prompt` and `build_planner_prompt`. The LLM can now resolve references like "the transcript" by seeing what's on disk instead of asking to clarify.
+
+- **Recent-task history** — `clive_core._render_recent_history()` renders a bounded ring buffer of the last few `(task, summary, produced_files)` tuples into both prompts. CLI REPL seeds it as `session_ctx["history"] = deque(maxlen=10)`; TUI holds it on `CliveApp._history`. `_run_inner` appends after every successful task.
+
+- **Persistent TUI session working directory** — `CliveApp._session_dir` is allocated once at app start and reused across all tasks (previously the TUI created a fresh `/tmp/clive/<id>/` per task and wiped it at the end, which made cross-task file references impossible). Removed on `on_unmount` so `/tmp/clive/` does not accrete between app launches.
+
+- **`build_llm_prompt()`** (`llm/prompts.py`) — System prompt for `llm` mode. Declares the reply-is-the-output-file contract, forbids wrapping fences and preamble, offers an optional `--- / DONE:` summary footer that the runner strips before writing.
+
+- **Tests** — `tests/test_llm_runner.py` (13 cases) covers the happy path, absolute-path input reading, `DONE:` footer and code-fence stripping, no-input tasks, LLM exceptions, empty output, write failure, internal-file exclusion, not-feeding-previous-llm-output-back (symlink/realpath correctness), binary-file skipping, output-token env override, and per-pane model override.
+
+### Fixed
+
+- **Circular import through the compatibility shims** — `planning/dag_scheduler.py` did `import executor` while the `executor.py` shim was mid-load (triggered through `from dag_scheduler import execute_plan` inside `execution/executor.py`). The sys-modules swap at the end of the shim never updated already-captured references, so `executor.run_subtask` resolved to `AttributeError` at call time. Now imports `from execution import executor` to bypass the shim entirely during the cycle.
+
+- **Retired OpenRouter fast-tier model** — `runtime._TIER_MAP["openrouter"]["fast"]` was pinned to `google/gemini-2.0-flash-exp:free`, which OpenRouter has retired (404). Set to `None` so the fast tier falls back to `AGENT_MODEL`. Callers running OpenRouter who want a cheaper classifier/compression tier can substitute a current slug locally.
+
+- **`llm_runner` write guard** — Disk-full / permission failures on the output file now return a clean `FAILED` SubtaskResult instead of raising up through the DAG scheduler.
+
+### Changed
+
+- **Classifier JSON schema** — `mode` now includes `llm`; `fallback_mode` accepts it too. The classifier examples and the planner's MODE section were rewritten to (a) route translate/summarize/rewrite/extract/classify to `llm` only, (b) teach the classifier to check `session_files` and `recent_history` before returning `clarify`, (c) show a canonical script→llm chain in the planner's response schema.
+
+- **Tier-2 token budget hint** — The planner's cost hint now lists `llm` alongside `script` and `interactive` so the LLM's plan-sizing intuition reflects the real mode mix.
+
+- **CLI REPL session context** — `_run_inner` now populates `session_ctx["session_dir"]`, `session_ctx["session_files_rendered"]`, and `session_ctx["history_rendered"]` before routing, and appends a history entry after every successful task.
+
+### Docs
+
+- Added `CLAUDE.md` at the repo root — high-level architecture notes, execution modes, command reference, and gotchas for future Claude Code sessions working on the codebase.
+- README gains an `llm` row in the execution-modes table plus a "Session state across tasks" section describing the persistent working directory, file listing, and recent-task history.
+
+### Tests
+
+Full suite: 733 → 746 passing (+13 from `test_llm_runner.py`). Two assertions in `test_model_tiers.py` updated to match the OpenRouter fast-tier fallback.
+
+---
+
 ## 0.4.0 — Observation Loop Efficiency (2026-04-14)
 
 Six strategies that separate the observation loop into WAIT (free) / OBSERVE (cheap) / DECIDE (expensive) phases. The goal: the expensive main model is only called when genuine judgment is needed.
