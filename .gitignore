@@ -1,5 +1,6 @@
 .env
 .venv/
+.worktrees/
 __pycache__/
 .eval_cache/
 .clive/audit/

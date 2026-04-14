@@ -1,5 +1,55 @@
 # Changelog
 
+## 0.6.0 — Rooms: persistent multi-party chat (experimental) (2026-04-14)
+
+A new primitive for N-way clive-to-clive collaboration: always-on **lobby** brokers hosting persistent **rooms** that any number of members can join and converse inside **threads**. Each thread runs a uniform round-robin with first-class `pass`, so three or more agents don't trample each other. Phases 0–4 of the [13-section design doc](docs/plans/2026-04-14-clive-rooms-design.md) shipped; SSH transport, JSONL persistence, dropouts/timeouts, rolling summaries, rate limits, and private-thread breakout councils are queued for 0.7.
+
+### Added
+
+- **Rooms protocol** (`networking/protocol.py`) — Extends `KINDS` with 14 new frame kinds: `session_hello`/`session_ack`, `join_room`, `list_threads`/`threads`, `open_thread`/`thread_opened`/`close_thread`, `join_thread`/`leave_thread`, `your_turn`, `say`, `pass`, `nack`. The `your_turn` frame carries the full thread context structurally (recent-K, optional summary, member list) rather than relying on pane scrollback — see design §4.2.
+
+- **Pure lobby state machine** (`networking/lobby_state.py`) — `handle(state, session_id, frame, now) -> list[Send]` is a pure function: given state and a frame, mutate state in place and return outbound frames. Rooms, threads, round-robin rotation, quiescence detection, fanout (public = thread members ∪ room observers minus sender; private = thread members only), initiator-only close authorization. 43 tests cover the decision tree without touching sockets.
+
+- **Lobby IO server** (`networking/lobby_server.py`) — Thin selectors-based Unix socket wrapper around the state machine. Per-connection `NONCE <value>\n` handshake, framed line IO, owner-only socket permissions (umask-tightened around `bind` + explicit chmod), self-pipe shutdown, graceful accept-error recovery. Enabled via `python clive.py --role broker --name <lobbyname>`.
+
+- **SSH client wrapper** (`networking/lobby_client.py`) — Tiny bridge process invoked as the SSH remote command. Reads `CLIVE_FRAME_NONCE` from env (forwarded via SendEnv), connects the lobby Unix socket, sends the handshake line, then bidi-pipes stdin ↔ socket ↔ stdout. Transparent — never parses frames. Reachable via `--role lobby-client`.
+
+- **Room driver** (`drivers/room.md`) — Static response-format driver for room turns. Emits `say: <body>` / `DONE:` or `pass:` / `DONE:`; driver emphasises pass-is-the-norm and forbids reproducing the recent messages, addressing members by name, or trying to seize the next turn.
+
+- **Client-side room runner** (`execution/room_runner.py`) — Pure turn decider: takes a `your_turn` payload + an LLM client, returns exactly one `(kind, payload)` pair. Malformed LLM output (no directive, empty say body, missing `DONE:`, garbled text, `llm.chat` exceptions) degrades to `pass` — emitting a nacked frame would waste the turn and the lobby auto-passes anyway. 17 tests.
+
+- **`RoomParticipant`** (`execution/room_participant.py`) — Transport-agnostic stateful glue. Owns the per-session nonce and member identity; `bootstrap(rooms)` returns the `session_hello` + `join_room` sequence, `on_line(line)` decodes inbound lobby traffic and returns outbound frames via `decide_turn`. Driver text is lazy-cached after first `your_turn`. 12 tests including an end-to-end integration against a real `LobbyServer`.
+
+- **Selectors-based conversational loop** (`session/conv_loop.py`) — Prerequisite for rooms wire-up: replaces `clive.py`'s blocking `sys.stdin.readline()` with a `ConvLoop` that can multiplex stdin + any number of additional readable fds. Line framing uses raw `os.read` + per-source byte buffers (Python's text buffer can stash bytes past a newline such that `select()` reports nothing readable while more lines sit unread). Self-pipe lets `stop()` wake `select()` from another thread. Handler exceptions are logged and swallowed — matches the pre-refactor emit-failure-frame contract. Partial-final-line EOF is delivered (parity with `readline()`'s tail-on-EOF behaviour); the original blocking flag is restored on each registered fd at teardown. 9 tests.
+
+- **`--join room@lobby` CLI flag** — Repeatable. Rooms are grouped by lobby so a single socket carries all a member's rooms on that lobby. `--join` auto-enables `--conversational` and requires `--name` (so the member is identifiable on the lobby); both requirements are enforced at argparse time with exit 2 + a helpful stderr message rather than silently doing nothing.
+
+- **Localhost lobby connector** (`networking/lobby_connector.py`) — `connect_local(lobby_name)` reads the instance registry, validates the `role: broker` + `socket_path` fields, opens a blocking Unix socket, and completes the NONCE handshake. Fresh nonce per connection via `protocol.generate_nonce` (explicit nonces are alphabet-validated up front to fail loudly rather than via downstream closed-socket symptoms). Dedicated `ConnectError` so callers can distinguish resolution failures from generic IO errors. 7 tests.
+
+- **Registry `role` + `socket_path` fields** — `registry.register()` gains two optional fields so consumers can find the broker's Unix socket without a round-trip. Existing consumers ignore unknown keys (§9.6).
+
+- **CLI end-to-end test** (`tests/test_rooms_cli.py`) — Spawns a real `--role broker` subprocess, then a member subprocess with `--join`, then uses a third raw-socket observer to verify the member is actually in-room by opening a thread listing them as a member (the lobby's `open_thread` validator returns `thread_opened` iff the member joined, which pins the whole CLI path). Runs in ~3 seconds.
+
+### Security
+
+- **Per-session nonces** — Each lobby session handshakes with its own nonce; outbound frames are stamped with the recipient's nonce so a compromised member cannot forge fanout for another member (the other member's stream decodes with a different nonce). `from:` labels on `say`/`pass` are lobby-authored.
+
+- **Socket permissions** — Broker socket is `0o600` from the moment it exists (`umask(0o077)` wrapped around `bind()`, explicit `chmod` as defence-in-depth). Parent `~/.clive/lobby/` is created with mode `0o700`.
+
+- **Broker name collision refused** — Starting a second `--role broker` under the same `--name` raises a clear error before touching the filesystem rather than silently `unlink`ing the first broker's socket and clobbering its registry entry.
+
+- **Private-thread invisibility** — Design §7.1 guarantees private threads (breakout councils) are fully hidden from `list_threads` and all fanout for non-members; state-machine tests pin the invariant.
+
+### Docs
+
+- **Full design doc** at [`docs/plans/2026-04-14-clive-rooms-design.md`](docs/plans/2026-04-14-clive-rooms-design.md) — 13 sections, ~540 lines: non-goals, core concepts, turn discipline, protocol, lobby implementation, client-side architecture, access-control & trust model, bootstrap & deployment, system-interaction deltas, testing strategy, 12-phase implementation plan, open items, decision summary. Updated in-commit to reflect v1 narrowings (human-initiated threads deferred; name-reuse-after-drop accepted v1 behaviour).
+
+- **README §Rooms** — New section between "Named instances" and "Long-running disconnected tasks" describing the feature with a three-terminal quickstart.
+
+### Tests
+
+23 new test files / sections, ~100 new test cases. Repo test count: 891 → 894. Fresh-eyes reviews between every phase committed 5 separate correctness-fix commits that caught: broker name collision clobbering, `sendall` on non-blocking socket silently exiting, `accept()` killing the event loop on `EMFILE`, socket-mode TOCTOU, self-pipe fd reuse, partial-final-line EOF dropped, non-blocking flag leaking across tests, driver re-read per turn, `--join` silently no-oping without `--name` or `--conversational`, nonce alphabet not validated.
+
 ## 0.5.0 — LLM-native mode & cross-task memory (2026-04-14)
 
 A new execution mode where the LLM *is* the tool — for tasks where generation is the work (translate, summarize, rewrite, extract, classify, explain) rather than something you drive a shell to do. Plus the REPL and TUI now carry state across tasks, so follow-up references like "translate the transcript" resolve without clarification.

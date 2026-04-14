@@ -522,6 +522,27 @@ clive --stop researcher
 
 **Dashboard in TUI:** Use `/dashboard` in the TUI for the same view.
 
+### Rooms — persistent multi-party chat (experimental)
+
+Agent-to-agent (`clive@host`) is point-to-point. For round-table discussions involving three or more members — a council convening to review a design, a pool of specialists picking up whichever question matches their domain, a long-running channel where anyone can drop in — clive provides **rooms**: persistent Slack-channel-like venues brokered by an always-on lobby process. Threads inside a room enforce a first-class **pass-is-the-norm** round-robin so N clives don't talk over each other.
+
+```bash
+# Terminal A: start the lobby
+python clive.py --role broker --name lobby
+
+# Terminal B: alice auto-joins `general` on the lobby
+python clive.py --name alice --conversational --join general@lobby
+
+# Terminal C: bob
+python clive.py --name bob --conversational --join general@lobby
+```
+
+On each `your_turn` grant the member's `drivers/room.md`-guided LLM responds with exactly one of `say: <body>` / `pass:`. The lobby fans messages to room observers, rotates the cursor to the next member, and enforces turn discipline so out-of-turn `say` frames are nacked.
+
+**Design references:** the full 13-section design doc lives at [`docs/plans/2026-04-14-clive-rooms-design.md`](docs/plans/2026-04-14-clive-rooms-design.md) — covers room/thread model, turn discipline, breakout councils via private threads, the framed nonce-authenticated protocol extensions, the lobby state machine, persistence plan (Phase 5), and the full threat model.
+
+**Status:** phases 0–4 shipped (protocol kinds, pure state machine, selectors-based IO server, client-side room runner, `--join` CLI flag with localhost resolution). Remote (SSH) transport and persistence / dropouts / summarization / rate limits come next. Enable with `python clive.py --role broker --name <lobbyname>` + `--join room@lobbyname` on each member.
+
 ### Long-running disconnected tasks
 
 If your local machine sleeps, the SSH session drops. For tasks that run overnight, start the agent on the remote host inside its own tmux session:

@@ -191,6 +191,49 @@ if __name__ == "__main__":
             step("Remote task timed out (300s)")
         raise SystemExit(proc.returncode if 'proc' in dir() else 1)
 
+    # ─── --join implies conversational keep-alive ─────────────────────
+    # Without these two, the rooms wire-up code (which lives inside
+    # the conversational keep-alive branch) is unreachable and --join
+    # silently no-ops — a confusing failure mode for users. Require
+    # --name so members are identifiable on the lobby, and auto-enable
+    # --conversational so the keep-alive branch is actually entered.
+    if getattr(args, "join", None):
+        if not getattr(args, "name", None):
+            print("--join requires --name to identify this member on "
+                  "the lobby", file=sys.stderr)
+            raise SystemExit(2)
+        args.conversational = True
+
+    # ─── Special roles (rooms / lobby) ────────────────────────────────
+    role = getattr(args, "role", None)
+    if role == "lobby-client":
+        from lobby_client import run as _lobby_client_run
+        raise SystemExit(_lobby_client_run(
+            socket_path=getattr(args, "lobby_socket", None)
+        ))
+    if role == "broker":
+        from pathlib import Path as _Path
+        from lobby_server import LobbyServer
+        lobby_dir = _Path.home() / ".clive" / "lobby"
+        # Restrictive dir perms defend the socket file from other
+        # local users even if a future change widens the socket mode.
+        lobby_dir.mkdir(parents=True, exist_ok=True, mode=0o700)
+        sock = getattr(args, "lobby_socket", None) or str(lobby_dir / "lobby.sock")
+        srv = LobbyServer(
+            socket_path=sock,
+            instance_name=getattr(args, "name", None) or "lobby",
+        )
+        try:
+            srv.start()
+        except RuntimeError as e:
+            print(str(e), file=sys.stderr)
+            raise SystemExit(1)
+        try:
+            srv.run_forever()
+        except KeyboardInterrupt:
+            srv.shutdown()
+        raise SystemExit(0)
+
     # Named instance: register, check collision, set up deregister on exit
     _instance_name = getattr(args, 'name', None)
     if _instance_name:
@@ -285,19 +328,22 @@ if __name__ == "__main__":
             if not keep_alive:
                 raise SystemExit(0)
 
-            # Named instance: loop, waiting for tasks on stdin
-            while True:
-                try:
-                    line = sys.stdin.readline()
-                except EOFError:
-                    break
-                if not line:  # EOF
-                    break
+            # Named instance: loop, waiting for tasks on stdin.
+            # Uses the selectors-based ConvLoop (Phase 0) so later
+            # phases can register the lobby pane reader alongside
+            # stdin without another refactor. Behaviour parity with
+            # the prior blocking-readline version: EOF exits, the
+            # sentinel words (exit/quit//stop) exit, handler
+            # exceptions emit failure frames but do NOT tear the
+            # loop down.
+            from conv_loop import ConvLoop
+
+            def _handle_task_line(line: str) -> bool:
                 task = line.strip()
                 if not task:
-                    continue
+                    return False
                 if task.lower() in ("exit", "quit", "/stop"):
-                    break
+                    return True
                 emit_turn("thinking")
                 try:
                     summary = run(
@@ -311,6 +357,84 @@ if __name__ == "__main__":
                 except Exception as e:
                     emit_context({"error": str(e)})
                     emit_turn("failed")
+                return False
+
+            _conv_loop = ConvLoop()
+            _conv_loop.on_line(sys.stdin, _handle_task_line)
+
+            # ─── --join: attach to one or more room lobbies ───────
+            # Parse each spec "room@lobby"; group rooms per lobby
+            # so a single socket connection carries all rooms a
+            # member wants on that lobby. Fails hard before entering
+            # the loop if any resolution fails — no partial attach.
+            _lobby_handles: list = []
+            if getattr(args, "join", None):
+                from lobby_connector import connect_local, ConnectError
+                from room_participant import RoomParticipant
+                from llm import get_client as _get_llm_client
+
+                rooms_by_lobby: dict[str, list[str]] = {}
+                for spec in args.join:
+                    if "@" not in spec:
+                        print(f"--join expects room@lobby, got {spec!r}",
+                              file=sys.stderr)
+                        raise SystemExit(2)
+                    room, lobby = spec.split("@", 1)
+                    rooms_by_lobby.setdefault(lobby, []).append(room)
+
+                _member_name = _instance_name or "anonymous"
+                try:
+                    _llm_client = _get_llm_client()
+                except Exception as e:
+                    print(f"--join: cannot build LLM client: {e}",
+                          file=sys.stderr)
+                    raise SystemExit(1)
+
+                for _lobby_name, _rooms in rooms_by_lobby.items():
+                    try:
+                        _sock, _nonce = connect_local(_lobby_name)
+                    except ConnectError as e:
+                        print(f"--join: {e}", file=sys.stderr)
+                        raise SystemExit(1)
+                    _participant = RoomParticipant(
+                        name=_member_name,
+                        nonce=_nonce,
+                        llm_client=_llm_client,
+                    )
+                    # Bootstrap (blocking writes are safe: the socket
+                    # is still blocking at this point).
+                    for _frame in _participant.bootstrap(rooms=_rooms):
+                        _sock.sendall((_frame + "\n").encode("utf-8"))
+
+                    # Wire the socket as a line source on the
+                    # ConvLoop. The ConvLoop will flip the fd to
+                    # non-blocking for reads; writes still use
+                    # sock.sendall (frames are small, local-socket
+                    # sends fit in one syscall).
+                    def _make_handler(p=_participant, s=_sock):
+                        def _handler(line: str) -> bool:
+                            for out in p.on_line(line):
+                                try:
+                                    s.sendall((out + "\n").encode("utf-8"))
+                                except OSError:
+                                    # Lobby connection lost; swallow
+                                    # so the rest of the ConvLoop
+                                    # (stdin) keeps running.
+                                    return False
+                            return False
+                        return _handler
+
+                    _conv_loop.on_line(_sock.fileno(), _make_handler())
+                    _lobby_handles.append(_sock)
+
+            try:
+                _conv_loop.run()
+            finally:
+                for _s in _lobby_handles:
+                    try:
+                        _s.close()
+                    except OSError:
+                        pass
         finally:
             # Signal the ticker to stop. Daemon=True means it dies with
             # the process anyway, but signalling lets it exit its

@@ -41,15 +41,31 @@ _SUFFIX = ">>>"
 
 # Source of truth for frame kinds. Anything else is rejected at decode time.
 KINDS = frozenset({
+    # Core conversational protocol (clive-to-clive)
     "turn",          # payload: {"state": "thinking|waiting|done|failed"}
     "context",       # payload: arbitrary dict (result, error, etc.)
     "question",      # payload: {"text": "..."}
     "file",          # payload: {"name": "..."}
     "progress",      # payload: {"text": "..."}
-    "llm_request",   # payload: {"id": "...", "messages": [...], "model": "...", "max_tokens": N}
-    "llm_response",  # payload: {"id": "...", "content": "...", "prompt_tokens": N, "completion_tokens": N}
-    "llm_error",     # payload: {"id": "...", "error": "..."}
+    "llm_request",   # payload: {"id", "messages", "model", "max_tokens"}
+    "llm_response",  # payload: {"id", "content", "prompt_tokens", "completion_tokens"}
+    "llm_error",     # payload: {"id", "error"}
     "alive",         # payload: {"ts": <float>}
+    # Rooms / lobby (see docs/plans/2026-04-14-clive-rooms-design.md §4)
+    "session_hello",  # member → lobby: {"client_kind", "name"}
+    "session_ack",    # lobby → member: {"name", "accepted", ["reason"]}
+    "join_room",      # member → lobby: {"room"}
+    "list_threads",   # member → lobby: {"room"}
+    "threads",        # lobby → member: {"room", "threads": [...]}
+    "open_thread",    # member → lobby: {"room", "members", "private", "prompt"}
+    "thread_opened",  # lobby → initiator: {"thread_id"}
+    "close_thread",   # initiator → lobby: {"thread_id", ["summary"]}
+    "join_thread",    # member → lobby: {"thread_id"}
+    "leave_thread",   # member → lobby: {"thread_id"}
+    "your_turn",      # lobby → current speaker: structured thread context
+    "say",            # current speaker or human → lobby (fanned out): {"thread_id", "body", ["from"]}
+    "pass",           # current speaker → lobby (fanned out): {"thread_id", ["from"]}
+    "nack",           # lobby → sender: {"reason", "ref_kind"}
 })
 
 # Strict frame regex. `kind` is lowercase alphanumeric/underscore,
