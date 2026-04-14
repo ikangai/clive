@@ -221,6 +221,13 @@ def _handle_open_thread(state: LobbyState, sess: Session, p: dict,
         return [_nack(sess.id, "invalid_members", "open_thread")]
     if members[0] != sess.name:
         return [_nack(sess.id, "initiator_must_be_first", "open_thread")]
+    # Humans are never in rotation (§3.3). Forbid them in `members`;
+    # since members[0] is the initiator, this also forbids human-
+    # initiated threads in v1 (deferred per design open items).
+    for m in members:
+        m_sid = state.name_to_session.get(m)
+        if m_sid is not None and state.sessions[m_sid].client_kind == "human":
+            return [_nack(sess.id, f"human_in_members:{m}", "open_thread")]
     # Every listed member must be a current room member (§4.4
     # validation). An offline/absent name would immediately stall the
     # rotation, so reject rather than silently accept.
@@ -251,7 +258,6 @@ def _handle_open_thread(state: LobbyState, sess: Session, p: dict,
     if prompt:
         thread.messages.append(Message(sender=sess.name, kind="say",
                                        body=prompt, ts=now))
-        thread.consecutive_passes = 0
         thread.cursor = 1 % len(thread.members)
     state.threads[thread_id] = thread
     room.thread_ids.append(thread_id)
@@ -262,7 +268,7 @@ def _handle_open_thread(state: LobbyState, sess: Session, p: dict,
     # Fanout the opening prompt to everyone else (if any prompt).
     if prompt:
         out.extend(_fanout_message(state, thread, sess.name, "say",
-                                   body=prompt, include_initiator=False))
+                                   body=prompt))
         # Notify the new current speaker (members[1]) that it's their turn.
         out.extend(_emit_your_turn(state, thread))
     else:
@@ -282,13 +288,12 @@ def _handle_say(state: LobbyState, sess: Session, p: dict,
     if thread.current_speaker != sess.name:
         return [_nack(sess.id, "not_your_turn", "say")]
     body = p.get("body")
-    if not isinstance(body, str) or not body:
+    if not isinstance(body, str) or not body.strip():
         return [_nack(sess.id, "invalid_body", "say")]
     thread.messages.append(Message(sender=sess.name, kind="say",
                                    body=body, ts=now))
     thread.consecutive_passes = 0
-    out = _fanout_message(state, thread, sess.name, "say", body=body,
-                          include_initiator=False)
+    out = _fanout_message(state, thread, sess.name, "say", body=body)
     _advance_cursor(thread)
     out.extend(_emit_your_turn(state, thread))
     return out
@@ -307,15 +312,15 @@ def _handle_pass(state: LobbyState, sess: Session, p: dict,
     thread.messages.append(Message(sender=sess.name, kind="pass",
                                    body=None, ts=now))
     thread.consecutive_passes += 1
-    out = _fanout_message(state, thread, sess.name, "pass", body=None,
-                          include_initiator=False)
+    out = _fanout_message(state, thread, sess.name, "pass", body=None)
     _advance_cursor(thread)
-    # Quiescence: a full rotation of passes with cursor back at the
-    # initiator means every online-in-membership clive has passed once.
-    # Phase 2 treats every member as online; Phase 6 adds offline
-    # skipping.
-    if (thread.consecutive_passes >= len(thread.members)
-            and thread.cursor == 0):
+    # Quiescence: len(members) consecutive passes means every rotation
+    # participant has had a turn in the streak and passed. Do NOT gate
+    # on `cursor == 0` — that's only true when the initial speaker was
+    # the initiator, which is not the case for threads opened with a
+    # prompt (cursor starts at members[1]). Phase 2 treats every member
+    # as online; Phase 6 adds offline skipping.
+    if thread.consecutive_passes >= len(thread.members):
         thread.state = "dormant"
         return out  # no your_turn emission — thread is idle
     out.extend(_emit_your_turn(state, thread))
@@ -325,9 +330,15 @@ def _handle_pass(state: LobbyState, sess: Session, p: dict,
 def _handle_human_say(state: LobbyState, sess: Session, thread: Thread,
                       p: dict, now: float) -> list[Send]:
     """Humans bypass current_speaker and reset the rotation cursor so
-    clives respond to the fresh prompt (§3.3)."""
+    clives respond to the fresh prompt (§3.3). Private threads still
+    require explicit membership even for humans — the fanout isolation
+    in §7.1 is symmetric."""
+    # Room-membership check lives in _resolve_thread now; by the time we
+    # get here the human is confirmed in thread.room.
+    if thread.private and sess.name not in thread.members:
+        return [_nack(sess.id, "private_thread", "say")]
     body = p.get("body")
-    if not isinstance(body, str) or not body:
+    if not isinstance(body, str) or not body.strip():
         return [_nack(sess.id, "invalid_body", "say")]
     thread.messages.append(Message(sender=sess.name, kind="say",
                                    body=body, ts=now))
@@ -335,16 +346,10 @@ def _handle_human_say(state: LobbyState, sess: Session, thread: Thread,
     # If the thread was dormant, a human prompt reopens it.
     if thread.state == "dormant":
         thread.state = "open"
-    out = _fanout_message(state, thread, sess.name, "say", body=body,
-                          include_initiator=True)
-    # Reset cursor to the first clive member (human is typically not in
-    # members[]; if they are, advance past them).
+    out = _fanout_message(state, thread, sess.name, "say", body=body)
+    # Humans aren't in members (enforced at open_thread), so the cursor
+    # simply resets to position 0.
     thread.cursor = 0
-    while (thread.cursor < len(thread.members)
-           and thread.members[thread.cursor] == sess.name):
-        thread.cursor = (thread.cursor + 1) % len(thread.members)
-        if thread.cursor == 0:
-            break  # degenerate: only the human is in members
     if thread.members:
         out.extend(_emit_your_turn(state, thread))
     return out
@@ -398,6 +403,7 @@ def _handle_leave_thread(state: LobbyState, sess: Session, p: dict) -> list[Send
     thread = state.threads[tid]
     if sess.name not in thread.members:
         return []  # idempotent
+    was_current_speaker = (thread.current_speaker == sess.name)
     idx = thread.members.index(sess.name)
     thread.members.remove(sess.name)
     # Adjust cursor so it points at the same *next* speaker semantics.
@@ -412,7 +418,13 @@ def _handle_leave_thread(state: LobbyState, sess: Session, p: dict) -> list[Send
     # member (§3, rule 6).
     if sess.name == thread.initiator:
         thread.initiator = thread.members[0]
-    return []
+    # If the leaver WAS the current speaker the rotation cursor now
+    # points at a new member who has not been told it is their turn —
+    # emit `your_turn` so the thread doesn't silently hang (H1 fix).
+    out: list[Send] = []
+    if was_current_speaker and thread.state == "open":
+        out.extend(_emit_your_turn(state, thread))
+    return out
 
 
 def _handle_close_thread(state: LobbyState, sess: Session, p: dict) -> list[Send]:
@@ -436,9 +448,15 @@ def _resolve_thread(state: LobbyState, sess: Session, p: dict,
     thread = state.threads[tid]
     if thread.state == "closed":
         return None, _nack(sess.id, "thread_closed", ref_kind)
-    # Being a thread member is required to say/pass. Humans are
-    # exempt from the "in members" check when injecting (§3.3) —
-    # they're in the room, not necessarily in the thread.
+    # Everyone (clive or human) must be in the thread's room. Thread
+    # membership survives session drops, but room membership is
+    # session-scoped — a reconnecting clive must rejoin before acting.
+    if thread.room not in sess.joined_rooms:
+        return None, _nack(sess.id, "not_in_room", ref_kind)
+    # Clives additionally must be in thread.members. Humans are
+    # exempt here because §3.3 lets them inject into any public
+    # thread they are room-members of; _handle_human_say enforces
+    # the private-thread membership requirement.
     if sess.client_kind != "human" and sess.name not in thread.members:
         return None, _nack(sess.id, "not_in_thread", ref_kind)
     return thread, None
@@ -452,24 +470,35 @@ def _advance_cursor(thread: Thread) -> None:
 
 
 def _fanout_message(state: LobbyState, thread: Thread, sender: str,
-                    kind: str, body: Optional[str],
-                    include_initiator: bool) -> list[Send]:
-    """Emit say/pass frames to all other thread members, stamped with
-    ``from: sender``. ``include_initiator`` lets the caller choose
-    whether a self-emitted frame echoes back (used when a human's
-    injection needs to be visible to the initiator-clive)."""
+                    kind: str, body: Optional[str]) -> list[Send]:
+    """Emit say/pass frames to the thread's fanout set, stamped with
+    ``from: sender``. The sender is always excluded — they just typed
+    the frame, echoing it back is noise.
+
+    Recipient set (§4.3):
+      - Private threads: thread members only.
+      - Public threads: union of thread members and room members. A
+        member who joined the thread and then dropped their SSH session
+        is still on thread.members; they are naturally skipped below
+        when their name has no live session.
+    """
     payload: dict = {"thread_id": thread.thread_id, "from": sender}
-    kind_out = kind  # "say" or "pass"
     if kind == "say":
         payload["body"] = body
+    if thread.private:
+        recipient_names: set[str] = set(thread.members)
+    else:
+        room = state.rooms.get(thread.room)
+        room_members: set[str] = set(room.member_names) if room else set()
+        recipient_names = set(thread.members) | room_members
     out: list[Send] = []
-    for recipient_name in thread.members:
-        if recipient_name == sender and not include_initiator:
+    for recipient_name in recipient_names:
+        if recipient_name == sender:
             continue
         session_id = state.name_to_session.get(recipient_name)
         if session_id is None:
-            continue  # offline member — skip (Phase 6 adds replay on rejoin)
-        out.append(Send(session_id, kind_out, dict(payload)))
+            continue  # offline — Phase 6 adds replay-on-rejoin
+        out.append(Send(session_id, kind, dict(payload)))
     return out
 
 

@@ -427,6 +427,153 @@ def test_human_pass_is_rejected():
 
 # ─── recent window ───────────────────────────────────────────────────────────
 
+# ─── Review regressions: critical bugs found in fresh review ─────────────────
+
+def test_quiescence_with_prompt_takes_exactly_one_rotation():
+    """C1 regression: dormancy must kick in after len(members)
+    consecutive passes regardless of cursor starting position. The
+    prior `cursor == 0` gate produced ~1.67 rotations before dormancy
+    when a prompt was present."""
+    s = LobbyState()
+    tid = _open_thread_abc(s, prompt="go")  # cursor starts at bob (1)
+    _send(s, 2, "pass", {"thread_id": tid})
+    _send(s, 3, "pass", {"thread_id": tid})
+    out = _send(s, 1, "pass", {"thread_id": tid})
+    # After exactly 3 consecutive passes the thread is dormant.
+    assert s.threads[tid].state == "dormant"
+    assert _outbound_by_kind(out, "your_turn") == []
+
+
+def test_human_cannot_say_in_thread_without_joining_room():
+    """C2 regression: humans injecting say must be room members. The
+    prior _resolve_thread exemption for humans bypassed all locality
+    checks."""
+    s = LobbyState()
+    _bootstrap(s, "general", (1, "alice"), (2, "bob"))
+    _send(s, 1, "open_thread", {
+        "room": "general", "members": ["alice", "bob"],
+        "private": False, "prompt": "",
+    })
+    # helen is a human that has NOT joined 'general'.
+    _hello(s, 10, "helen", client_kind="human")
+    out = _send(s, 10, "say", {"thread_id": "general-t001", "body": "hi"})
+    assert out[0].kind == "nack"
+    assert out[0].payload["reason"] == "not_in_room"
+
+
+def test_human_cannot_inject_into_private_thread_they_are_not_member_of():
+    """C2 regression: private-thread isolation extends to inbound say.
+    Before the fix a human in the room could post into any private
+    thread whose id they knew."""
+    s = LobbyState()
+    _bootstrap(s, "general", (1, "alice"), (2, "bob"))
+    _hello(s, 10, "helen", client_kind="human")
+    _send(s, 10, "join_room", {"room": "general"})
+    _send(s, 1, "open_thread", {
+        "room": "general", "members": ["alice", "bob"],
+        "private": True, "prompt": "",
+    })
+    out = _send(s, 10, "say", {"thread_id": "general-t001", "body": "leak"})
+    assert out[0].kind == "nack"
+    assert out[0].payload["reason"] == "private_thread"
+
+
+def test_public_thread_fanout_reaches_room_observers():
+    """C3 regression: design §4.3 — public threads fan out to all room
+    members, not just thread members."""
+    s = LobbyState()
+    _bootstrap(s, "general", (1, "alice"), (2, "bob"), (3, "observer"))
+    # Thread: alice + bob only; observer is in the room but NOT the thread.
+    _send(s, 1, "open_thread", {
+        "room": "general", "members": ["alice", "bob"],
+        "private": False, "prompt": "",
+    })
+    # No prompt -> cursor at alice. Alice says.
+    out = _send(s, 1, "say", {"thread_id": "general-t001", "body": "hey"})
+    says = _outbound_by_kind(out, "say")
+    session_ids = {s.session_id for s in says}
+    assert 2 in session_ids  # bob (thread member)
+    assert 3 in session_ids  # observer (room member, not in thread)
+
+
+def test_private_thread_fanout_excludes_room_observers():
+    """C3: private threads must NOT leak to non-member observers even
+    though they are in the same room."""
+    s = LobbyState()
+    _bootstrap(s, "general", (1, "alice"), (2, "bob"), (3, "observer"))
+    _send(s, 1, "open_thread", {
+        "room": "general", "members": ["alice", "bob"],
+        "private": True, "prompt": "",
+    })
+    out = _send(s, 1, "say", {"thread_id": "general-t001", "body": "secret"})
+    says = _outbound_by_kind(out, "say")
+    session_ids = {s.session_id for s in says}
+    assert 3 not in session_ids  # observer must not see private content
+    assert 2 in session_ids      # bob (member) does
+
+
+def test_current_speaker_leaving_emits_your_turn_to_next():
+    """H1 regression: when the current speaker leaves, the new cursor
+    holder must be notified via your_turn."""
+    s = LobbyState()
+    tid = _open_thread_abc(s)  # cursor at bob (1) after alice's prompt
+    out = _send(s, 2, "leave_thread", {"thread_id": tid})
+    turns = _outbound_by_kind(out, "your_turn")
+    # bob leaves; members becomes [alice, charlie]; cursor adjusts to
+    # charlie (was at bob's slot). Charlie gets the turn.
+    assert len(turns) == 1
+    assert turns[0].payload["name"] == "charlie"
+
+
+def test_non_current_speaker_leaving_does_not_emit_your_turn():
+    """H1: the converse — if a non-speaker leaves, no redundant
+    your_turn is fired."""
+    s = LobbyState()
+    tid = _open_thread_abc(s)  # cursor at bob
+    out = _send(s, 3, "leave_thread", {"thread_id": tid})  # charlie, not speaker
+    assert _outbound_by_kind(out, "your_turn") == []
+
+
+def test_open_thread_rejects_humans_in_members():
+    """H2 regression: humans are never in rotation, so they cannot
+    appear in the members list. (This implicitly forbids human-
+    initiated threads in v1; noted in design open items.)"""
+    s = LobbyState()
+    _bootstrap(s, "general", (1, "alice"), (2, "bob"))
+    _hello(s, 10, "helen", client_kind="human")
+    _send(s, 10, "join_room", {"room": "general"})
+    out = _send(s, 1, "open_thread", {
+        "room": "general", "members": ["alice", "helen"],
+        "private": False, "prompt": "",
+    })
+    assert out[0].kind == "nack"
+    assert out[0].payload["reason"].startswith("human_in_members")
+
+
+def test_clive_say_requires_room_membership_after_reconnect():
+    """A reconnecting clive who is still in thread.members but whose
+    old session's room membership was dropped must rejoin the room
+    before they can say."""
+    s = LobbyState()
+    tid = _open_thread_abc(s)  # cursor at bob after alice's prompt
+    # bob drops and reconnects without rejoining the room.
+    s.drop_session(2)
+    _hello(s, 22, "bob")
+    assert "bob" in s.threads[tid].members  # thread membership survives
+    out = _send(s, 22, "say", {"thread_id": tid, "body": "back"})
+    assert out[0].kind == "nack"
+    assert out[0].payload["reason"] == "not_in_room"
+
+
+def test_whitespace_only_say_body_is_nacked():
+    """M2: an entirely-whitespace body is not a valid message."""
+    s = LobbyState()
+    tid = _open_thread_abc(s)
+    out = _send(s, 2, "say", {"thread_id": tid, "body": "   \t\n"})
+    assert out[0].kind == "nack"
+    assert out[0].payload["reason"] == "invalid_body"
+
+
 def test_recent_window_caps_at_K():
     """your_turn.recent must be capped at recent_window (default 50)."""
     s = LobbyState()
