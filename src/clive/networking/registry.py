@@ -21,7 +21,9 @@ def _pid_alive(pid: int) -> bool:
 
 def register(name: str, pid: int, tmux_session: str, tmux_socket: str,
              toolset: str, task: str, conversational: bool, session_dir: str,
-             registry_dir: Path | None = None) -> Path:
+             registry_dir: Path | None = None,
+             role: str | None = None,
+             socket_path: str | None = None) -> Path:
     d = registry_dir or DEFAULT_REGISTRY_DIR
     d.mkdir(parents=True, exist_ok=True)
     entry = {
@@ -35,6 +37,12 @@ def register(name: str, pid: int, tmux_session: str, tmux_socket: str,
         "session_dir": session_dir,
         "started_at": time.time(),
     }
+    # Optional fields (omitted when unset so consumers that don't know
+    # about them never see a surprising key — see §9.6).
+    if role is not None:
+        entry["role"] = role
+    if socket_path is not None:
+        entry["socket_path"] = socket_path
     p = d / f"{name}.json"
     p.write_text(json.dumps(entry, indent=2))
     return p

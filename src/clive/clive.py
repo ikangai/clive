@@ -191,6 +191,30 @@ if __name__ == "__main__":
             step("Remote task timed out (300s)")
         raise SystemExit(proc.returncode if 'proc' in dir() else 1)
 
+    # ─── Special roles (rooms / lobby) ────────────────────────────────
+    role = getattr(args, "role", None)
+    if role == "lobby-client":
+        from lobby_client import run as _lobby_client_run
+        raise SystemExit(_lobby_client_run(
+            socket_path=getattr(args, "lobby_socket", None)
+        ))
+    if role == "broker":
+        from pathlib import Path as _Path
+        from lobby_server import LobbyServer
+        lobby_dir = _Path.home() / ".clive" / "lobby"
+        lobby_dir.mkdir(parents=True, exist_ok=True)
+        sock = getattr(args, "lobby_socket", None) or str(lobby_dir / "lobby.sock")
+        srv = LobbyServer(
+            socket_path=sock,
+            instance_name=getattr(args, "name", None) or "lobby",
+        )
+        srv.start()
+        try:
+            srv.run_forever()
+        except KeyboardInterrupt:
+            srv.shutdown()
+        raise SystemExit(0)
+
     # Named instance: register, check collision, set up deregister on exit
     _instance_name = getattr(args, 'name', None)
     if _instance_name:
