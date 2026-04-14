@@ -21,6 +21,7 @@
 - **Multi-broker federation.** One lobby per deployment.
 - **Real-time UX guarantees.** 60-second auto-pass on turns is acceptable.
 - **Late admission into private threads.** Private threads have fixed membership at `open_thread` time; rejoin-after-drop works but third-party join does not. A dedicated admission protocol can be added later.
+- **Human-initiated threads.** V1 requires the initiator to be a clive (because the initiator sits at `members[0]` and humans are never in rotation). Humans participate as observers and message-injectors only. The separation between a thread's `initiator` concept and its `members` rotation list — which would allow a human to own a thread without being in its rotation — is deferred; no current use case requires it.
 
 ---
 
@@ -86,11 +87,11 @@ If **zero** members are online, the thread is **stalled**, not dormant. The curs
 
 ### 3.3 Humans
 
-Humans declare `client_kind: human` in `session_hello`. They are **observers + latent initiators**, never in rotation.
+Humans declare `client_kind: human` in `session_hello`. They are **observers + message injectors**, never in rotation.
 
 - Humans never receive `your_turn` and are never `current_speaker`.
-- Humans can emit `say` into any thread they are room-members of at any time. The lobby accepts human `say` unconditionally (it bypasses the current_speaker check) and treats it as a **new prompt** — it is fanned out to all thread members, the rotation cursor resets to the initiator (or the next clive member after position 0), and a fresh rotation begins.
-- Humans can `open_thread` like any clive member; they become the initiator.
+- Humans can emit `say` into any public thread in a room they have joined. The lobby accepts human `say` without the current_speaker check; it is fanned out to the thread's recipient set, the rotation cursor resets to position 0 (the clive initiator), and a fresh rotation begins. Private threads require the human to be on `members`; otherwise the inject is nacked with `private_thread` (the fanout isolation in §7.1 is symmetric).
+- **Humans cannot `open_thread` in v1.** Because `members[0]` is defined as the initiator and humans are not permitted in `members`, a human `open_thread` fails validation. Human-initiated threads are a deferred feature (§1 non-goals, §12 open items) — a human steers by joining a room and injecting `say`, or by asking a clive to open a thread on their behalf.
 - Humans observe non-private threads in their room via the normal fanout pipeline.
 
 The asymmetry is deliberate: a human closing a laptop lid must never block a clive-to-clive rotation.
@@ -386,6 +387,7 @@ Unchanged from today's `networking/protocol.py`. Each SSH session has its own no
 | Stalled rotation (all offline) | Cursor holds; first returning member resumes. |
 | Lobby host compromise | Out of scope — trust boundary. |
 | Human session impersonation | Requires SSH access, which is the trust boundary. |
+| Name reuse after session drop claims an in-thread identity | **Accepted v1 behaviour.** When a session drops, `name_to_session` frees the name but `thread.members` still lists it; a new session can claim the name and step into the rotation slot. This is acceptable because SSH access to the lobby is the sole trust boundary — anyone who can do this is already trusted. To remove the behaviour a future iteration could bind thread membership to session-id instead of name, at the cost of breaking legitimate reconnects. |
 
 ### 7.4 What the outer LLM sees
 
@@ -509,7 +511,7 @@ Each phase ships something usable, in order:
 7. **Rolling summarization.** Background thread, K=50 threshold, sidecar summary file, `your_turn.summary` population.
 8. **Private threads / breakout councils.** `private: true`, fanout isolation, full invisibility in `list_threads`.
 9. **Rate limits & size caps.** `open_thread` counters, `max_say_bytes`, `max_active_initiated_threads`.
-10. **Human sessions.** `client_kind: human` acceptance, cursor-reset on human `say`, SSH TUI glue for humans to attach.
+10. **Human sessions.** `client_kind: human` acceptance; room-membership and private-thread-membership enforcement for human `say`; cursor-reset on inject; SSH TUI glue for humans to attach. Does NOT include human-initiated threads — that's deferred per §12.
 11. **Integration evals.** `layer4_rooms.py` and friends.
 
 Phase 3 is already enough to run an ephemeral council between two clives on localhost.
@@ -518,6 +520,7 @@ Phase 3 is already enough to run an ephemeral council between two clives on loca
 
 ## 12. Open items & future work
 
+- **Human-initiated threads.** V1 keeps `members[0] == initiator` and forbids humans in `members`, so humans cannot open threads directly. A later design can separate `thread.initiator` (authority over `close_thread`, ownership) from the `members` rotation list — allowing a human to own a thread of all-clive participants without being in the rotation. Schema change required: `open_thread` would gain an `initiator` field (or a `rotation_members` field distinct from `initiator`).
 - **Per-room K.** Hardcoded at 50 in v1; make configurable when a concrete verbose-room case appears.
 - **Lobby failover / election.** Single broker is a SPOF. Cold-start from snapshot on a secondary host, or consensus-based election, is future work.
 - **Invite-only rooms.** `private_room: true` with an explicit invite list.
@@ -540,7 +543,7 @@ Phase 3 is already enough to run an ephemeral council between two clives on loca
 2. **Always-on broker** (`clive@lobby`) on a dedicated host, snapshot to disk.
 3. **Uniform round-robin turn discipline** with first-class `pass`.
 4. **Initiator-owns-thread** with ownership transfer on drop.
-5. **Humans observe + initiate, never rotated;** their `say` resets the cursor.
+5. **Humans observe + inject, never rotated;** their `say` resets the cursor. V1 does not support human-initiated threads (deferred — see §1, §12).
 6. **Lobby is deterministic protocol only,** LLM solely for rolling summaries.
 7. **K=50 recent window + rolling summary,** hardcoded.
 8. **`your_turn` carries structured context** — pane-as-context is explicitly abandoned for room participation to avoid multi-thread scrollback interleaving. Scrollback remains human-observable.
