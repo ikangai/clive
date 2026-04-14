@@ -57,7 +57,10 @@ def test_build_messages_user_block_has_identity_header():
         "thread_id": "general-t007",
         "room": "general",
         "name": "alice",
-        "members": ["alice", "bob", "charlie"],
+        # Deliberately use names that do NOT overlap with `name: alice`
+        # so a substring-order assertion actually probes members-list
+        # ordering rather than being satisfied by the `name:` line.
+        "members": ["alice", "xavier", "yvonne"],
         "message_index": 3,
         "recent": [],
     }
@@ -66,8 +69,10 @@ def test_build_messages_user_block_has_identity_header():
     assert "alice" in user
     assert "general-t007" in user
     assert "general" in user
-    # member list preserved in order
-    assert user.index("alice") < user.index("bob") < user.index("charlie")
+    # Members line must preserve the ordered list verbatim. Testing
+    # the exact rendered substring catches both reordering bugs and
+    # separator-format drift.
+    assert "members: alice, xavier, yvonne" in user
 
 
 def test_build_messages_formats_recent_as_lines():
@@ -225,6 +230,33 @@ def test_decide_turn_produces_pass_frame():
     }
     client = _FakeClient("pass:\nDONE:")
     kind, out = decide_turn(payload, llm_client=client, driver_text="D")
+    assert kind == "pass"
+    assert out == {"thread_id": "T"}
+
+
+def test_decide_turn_degrades_to_pass_on_llm_exception(monkeypatch):
+    """Any runtime failure from llm.chat — network hiccup, provider
+    auth error, rate limit — must not break the rotation. The runner
+    logs and emits a pass frame instead, so the lobby's turn cursor
+    advances and other members keep moving. Uncaught exceptions here
+    would wedge the member's own event loop for the whole thread."""
+    payload = {
+        "thread_id": "T", "room": "r", "name": "alice",
+        "members": ["alice", "bob"], "message_index": 2, "recent": [],
+    }
+
+    class _RaisingClient:
+        chat = None  # unused; we patch llm.chat itself below
+
+    import llm as _llm
+
+    def _boom(*args, **kwargs):
+        raise ConnectionError("synthetic network failure")
+
+    monkeypatch.setattr(_llm, "chat", _boom)
+
+    kind, out = decide_turn(payload, llm_client=_RaisingClient(),
+                            driver_text="D")
     assert kind == "pass"
     assert out == {"thread_id": "T"}
 
