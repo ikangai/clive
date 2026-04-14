@@ -12,6 +12,7 @@ import time
 
 from command_extract import extract_command, extract_done
 from completion import wait_for_ready, wrap_command
+from context_compress import compress_context, make_llm_compressor
 from llm import get_client, chat, chat_stream
 from streaming_extract import EarlyDoneDetector
 from models import Subtask, SubtaskStatus, SubtaskResult, PaneInfo
@@ -109,6 +110,13 @@ def run_subtask_interactive(
     effective_model = pane_info.agent_model or MODEL
     budget = context_budget(effective_model)
 
+    # Build compressor once — uses a cheap model to summarize old turns
+    _obs_model = pane_info.observation_model
+    if _obs_model:
+        _compressor = make_llm_compressor(client, model=_obs_model)
+    else:
+        _compressor = None
+
     system_prompt = build_interactive_prompt(
         subtask_description=subtask.description,
         pane_name=subtask.pane,
@@ -166,7 +174,7 @@ def run_subtask_interactive(
             prev_screen = screen
 
             messages.append({"role": "user", "content": diff})
-            messages = _trim_messages(messages, max_user_turns=budget["max_user_turns"])
+            messages = compress_context(messages, max_user_turns=budget["max_user_turns"], compress_fn=_compressor)
 
             # Early DONE detection: abort streaming as soon as DONE:
             # appears, saving the 50-200 tokens of explanation that
