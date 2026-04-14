@@ -1,5 +1,50 @@
 # Changelog
 
+## 0.4.0 — Observation Loop Efficiency (2026-04-14)
+
+Six strategies that separate the observation loop into WAIT (free) / OBSERVE (cheap) / DECIDE (expensive) phases. The goal: the expensive main model is only called when genuine judgment is needed.
+
+### Added
+
+- **Per-pane model selection** — Drivers declare `agent_model` and `observation_model` tiers in frontmatter. Shell and data panes use cheap models (Haiku, Flash); browser and email use the default model. `runtime.resolve_model_tier()` maps tier labels (`fast`, `default`) to concrete model names per provider (7 providers supported).
+
+- **Observation event system** (`observation.py`) — `ScreenClassifier` converts raw tmux screen captures into structured `ScreenEvent`s (SUCCESS / ERROR / NEEDS_INPUT / RUNNING / UNKNOWN) using regex. Each event carries a `needs_llm` flag — when False, the main model is not needed. Reuses `INTERVENTION_PATTERNS` from `completion.py` (no duplication). `format_event_for_llm()` produces compact messages like `[OK exit:0] file1.txt` instead of raw screen diffs.
+
+- **Progressive context compression** (`context_compress.py`) — Replaces the bookend trim strategy (`_trim_messages`) with progressive compression. Old conversation turns are summarized by a cheap model into a running history, preserving information instead of dropping it. Falls back to bookend trimming when no observation model is configured. Compressor created once before the loop.
+
+- **Observation-action decoupling** — After each command, the `ScreenClassifier` fires in the interactive runner. When exit_code==0 and `needs_llm==False`, a compact `[OK exit:0] summary` replaces the full screen diff in the next LLM context. The main model still decides the next action, but with 60-80% fewer input tokens.
+
+- **Plan-Execute-Verify mode** (`planned_runner.py`) — New `"planned"` execution mode. The LLM generates a sequence of commands with verification criteria in ONE call (`build_planned_prompt`). The harness then executes each step mechanically — checking exit codes, handling retry/skip/abort — with zero additional LLM calls on the happy path. Added to `VALID_MODES`, dispatched in `executor.run_subtask()` before interactive mode, and included in the planner prompt.
+
+- **Native tool-calling support** (`tool_defs.py`, `llm.chat_with_tools`) — Three pane operation tools: `run_command`, `read_screen`, `complete`. `chat_with_tools()` supports Anthropic (native tools param), OpenAI-compatible (auto-converts schemas), and DelegateClient (falls back to text mode). `parse_tool_calls()` normalizes both response formats into uniform `{name, args, id}` dicts.
+
+- **Tool-calling interactive runner** (`toolcall_runner.py`) — Alternative to the text-based interactive runner. Uses native tool calls instead of regex command extraction. Key advantage: command batching — the model can emit multiple `run_command` calls in one response, each executed sequentially. Auto-detects provider support; falls back gracefully to text-based runner on unsupported providers or errors.
+
+### Changed
+
+- **Executor dispatch order** — `run_subtask()` now dispatches: skill > direct > script > planned > tool-calling interactive > text-based interactive. Tool-calling is attempted first for `interactive`/`streaming` modes when the provider supports it (OpenAI, Anthropic, OpenRouter, Gemini), with graceful fallback.
+
+- **Driver frontmatter** — All 6 driver files now declare model tiers. Shell/data/media/docs: `agent_model: fast`, `observation_model: fast`. Browser/email: `agent_model: default`, `observation_model: fast`.
+
+- **Planner prompt** — Mode guidance now includes all 5 modes (script, planned, interactive, streaming, direct) with clear selection criteria.
+
+### Tests
+
+- Full suite: 746 passing (+103 new). New test files: `test_pane_models.py` (12), `test_observation.py` (24), `test_context_compress.py` (10), `test_observation_decoupling.py` (4), `test_planned_runner.py` (14), `test_planned_integration.py` (4), `test_tool_calling.py` (18), `test_toolcall_runner.py` (11), `test_model_tiers.py` (17).
+
+### Expected cost savings
+
+| Strategy | Mechanism | Estimated savings |
+|---|---|---|
+| Per-pane models | Cheap models for shell/data tasks | 50-70% cost per pane |
+| Observation classification | Skip full diff when command succeeds | 60-80% fewer input tokens per turn |
+| Context compression | Summarize instead of drop old turns | 40-60% fewer input tokens |
+| Plan-Execute-Verify | 1 LLM call for multi-step tasks | 80-90% fewer LLM calls |
+| Tool-calling batching | Multiple commands per response | 30-50% fewer turns |
+| Combined | All strategies | 3-5x overall reduction |
+
+---
+
 ## 0.3.0 — BYOLLM delegation for remote clives (2026-04-13)
 
 Remote `clive@host` addressing now works for local LLM providers (LMStudio, Ollama) without any network tunneling. The conversational protocol was rewritten from line prefixes to authenticated framed sentinels, closing a spoofing surface that was merely theoretical with cloud providers but load-bearing the moment inference is delegated.

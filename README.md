@@ -89,16 +89,38 @@ The agent runs in three phases:
 2. **Execute** — Independent subtasks run in parallel on different tmux panes; dependent subtasks wait for their prerequisites. Each subtask runs in an isolated session directory (`/tmp/clive/{session_id}/`).
 3. **Summarize** — Results from all subtasks are synthesized into a final report
 
-### Observation levels
+### Execution modes
 
-The planner assigns an observation level per subtask — how often the agent reads the screen during execution:
+The planner assigns an execution mode per subtask — how much the agent observes during execution:
 
-| Level | How it works | When to use |
-|---|---|---|
-| **script** | Generate a shell script → execute in one shot → check exit code. On failure, read error and repair. | Deterministic pipelines, file ops, data extraction, known API calls. ~2.5x cheaper on tokens. |
-| **interactive** | Read screen → reason → type command → repeat. Full turn-by-turn loop. | Multi-step exploration, debugging, unknown content, interactive applications. |
+| Mode | How it works | When to use | LLM calls |
+|---|---|---|---|
+| **direct** | Execute a literal shell command. No LLM involved. | Simple commands the classifier recognizes directly. | 0 |
+| **script** | Generate a shell script → execute in one shot → check exit code. On failure, read error and repair. | Deterministic single-step pipelines, file ops, data extraction, known API calls. | 1 (+ repairs) |
+| **planned** | Generate a sequence of commands with verification criteria → execute each mechanically → check exit code per step. No LLM calls during execution. | Deterministic multi-step workflows: install+configure, fetch+process+save, multi-file operations. | 1 |
+| **interactive** | Read screen → reason → type command → repeat. Full turn-by-turn loop with observation classification. | Multi-step exploration, debugging, unknown content, interactive applications. | N turns |
+| **streaming** | Like interactive, with automatic intervention detection for prompts, passwords, and confirmations. | Package installs, operations requiring passwords, long-running processes. | N turns |
 
-The planner defaults to `script` when the task is deterministic. Interactive mode engages when the task requires observation and adaptation. Both use the same pane interface — the difference is observation frequency.
+The planner defaults to `script` or `planned` when the task is deterministic. Interactive mode engages when the task requires observation and adaptation. All modes use the same pane interface — the difference is observation frequency and LLM involvement.
+
+### Observation loop efficiency
+
+The interactive and streaming modes use a three-phase observation architecture that minimizes LLM costs:
+
+```
+WAIT (free)          OBSERVE (cheap)        DECIDE (expensive)
+markers, polling     regex classifier       main model
+exit codes           event formatting       only when needed
+intervention detect  compact summaries
+```
+
+**Per-pane model selection** — Each pane declares its own model tier via driver frontmatter. Shell and data panes use fast/cheap models (Haiku, Flash); browser and email use the default model. The tier system resolves labels like `fast` to concrete model names based on the active provider.
+
+**Observation classifier** — After each command, a regex-based `ScreenClassifier` categorizes the screen state (success/error/needs_input/running) and decides whether the main model needs to be consulted. On success, a compact event like `[OK exit:0] file1.txt\nfile2.txt` replaces the full screen diff — cutting token usage by 60-80%.
+
+**Progressive context compression** — Instead of dropping old conversation turns (the bookend trim), a cheap model summarizes them into a running history. The main model sees: system prompt + compressed history + current screen.
+
+**Native tool calling** — When the provider supports it (OpenAI, Anthropic, Gemini, OpenRouter), the interactive runner uses native tool calls (`run_command`, `read_screen`, `complete`) instead of text-based command extraction. This enables command batching — multiple commands per LLM response — reducing turn count.
 
 ### Architecture
 
@@ -619,6 +641,8 @@ The weakest point isn't the shell or the container — it's the CLI tools themse
 |---|---|---|
 | `LLM_PROVIDER` | `openrouter` | LLM provider: `openai`, `anthropic`, `gemini`, `openrouter`, `lmstudio`, `ollama` |
 | `AGENT_MODEL` | per-provider | Model override (each provider has a sensible default) |
+| `SCRIPT_MODEL` | `AGENT_MODEL` | Model for script/planned mode generation (can be cheaper) |
+| `CLASSIFIER_MODEL` | `gemini-3-flash` | Model for fast classification, context compression |
 | `OPENROUTER_API_KEY` | — | API key for OpenRouter |
 | `ANTHROPIC_API_KEY` | — | API key for Anthropic |
 | `OPENAI_API_KEY` | — | API key for OpenAI |
@@ -635,52 +659,57 @@ Local providers (`lmstudio`, `ollama`) don't need API keys.
 ```
 clive.py          — orchestrator: plan → execute → summarize
 planner.py        — LLM decomposes task into subtask DAG (JSON)
-executor.py       — DAG scheduler + per-subtask worker loops (script + interactive modes)
-session.py        — tmux session/pane management, session ID generation
+executor.py       — DAG scheduler + per-subtask worker loops, mode dispatcher
+session.py        — tmux session/pane management, per-pane model resolution
 toolsets.py       — tool registry with named profiles (minimal, standard, full, remote)
 models.py         — dataclasses: Subtask (with mode field), Plan, SubtaskResult, PaneInfo
-llm.py            — multi-provider LLM client (OpenAI, Anthropic, Gemini, OpenRouter, LMStudio, Ollama)
-prompts.py        — prompt templates (planner, worker, script generator, summarizer, triage)
+llm.py            — multi-provider LLM client with tool-calling support
+prompts.py        — prompt templates (planner, worker, script, planned, summarizer, triage)
+runtime.py        — shared primitives: safety checks, sandbox, model tier resolution
 output.py         — output routing: telemetry to stderr in --quiet mode, results to stdout, conversational protocol
-agents.py         — clive@host address parsing, local-first + YAML registry resolution, SSH command building (with delegate override + nonce injection)
+
+# Execution runners (one per mode)
+script_runner.py  — script mode: generate → execute → verify → repair
+interactive_runner.py — interactive mode: read-think-type loop with observation classification
+planned_runner.py — planned mode: generate step sequence → execute mechanically (0 LLM on happy path)
+toolcall_runner.py — tool-calling variant of interactive runner (native tool calls, command batching)
+
+# Observation & context
+observation.py    — screen event system: ScreenClassifier, ScreenEvent, format_event_for_llm
+context_compress.py — progressive context compression (summarize old turns via cheap model)
+completion.py     — three-strategy completion detection (marker/prompt/idle) + intervention patterns
+screen_diff.py    — screen diff utility (60-80% token savings after turn 1)
+command_extract.py — plain-text command extraction from LLM replies
+tool_defs.py      — native tool definitions (run_command, read_screen, complete) for tool-calling mode
+
+# Agent networking
+agents.py         — clive@host address parsing, local-first + YAML registry resolution, SSH command building
 agents_doctor.py  — `clive --agents-doctor` pre-flight checks (ssh/clive-installed/AcceptEnv)
 registry.py       — file-based instance registry (~/.clive/instances/), PID liveness, stale pruning
 dashboard.py      — dashboard snapshot (render_lines for TUI, render_snapshot for CLI)
 protocol.py       — framed sentinel protocol for clive-to-clive messages (nonce-authenticated)
 delegate_client.py — stdio-based LLM client used by inner when LLM_PROVIDER=delegate
 remote.py         — remote agent protocol: framed-frame parsers, pane decoder, SCP file transfer
+
+# UI
 tui.py            — Textual-based terminal UI with slash commands
-completion.py     — three-strategy completion detection (marker/prompt/idle)
 install.sh        — cross-platform installer
-drivers/          — auto-discovered driver prompts (per app_type)
-  shell.md        — bash shell reference card
-  browser.md      — lynx/curl/wget reference card
+
+# Drivers
+drivers/          — auto-discovered driver prompts with per-pane model tiers
+  shell.md        — bash shell reference card (agent_model: fast)
+  browser.md      — lynx/curl/wget reference card (agent_model: default)
+  email_cli.md    — neomutt/msmtp reference card (agent_model: default)
+  data.md         — data processing reference card (agent_model: fast)
   agent.md        — clive-to-clive peer conversation protocol
   default.md      — generic fallback driver
-tools/            — helper scripts
-  youtube.sh      — YouTube: list/get/captions/transcribe
-  podcast.sh      — Podcast: list/get/transcribe
-  claude.sh       — Anthropic Messages API wrapper
-evals/            — eval framework
-  harness/        — session fixture, verifier, metrics, runner CLI
-  layer2/         — Layer 2 eval tasks (shell, browser, script mode)
-  baselines/      — saved eval baselines for regression comparison
-selfmod/          — self-modification system (experimental)
-  __init__.py     — package init, is_enabled() flag check
-  gate.py         — deterministic gate: regex-based pattern scanner, immutable
-  constitution.py — file tier classification, constitution loader
-  audit.py        — append-only audit trail with hash-chained integrity
-  workspace.py    — git snapshot/rollback management
-  proposer.py     — LLM role: generates code modifications
-  reviewer.py     — LLM role: checks quality and correctness
-  auditor.py      — LLM role: checks governance compliance
-  pipeline.py     — orchestrates the full Propose → Review → Audit → Gate → Apply flow
+
+# Tools & scripts
+tools/            — helper scripts (youtube.sh, podcast.sh, claude.sh)
+evals/            — eval framework (harness, layer2, baselines)
+selfmod/          — self-modification system (experimental, gate/proposer/reviewer/auditor/pipeline)
 .clive/           — governance and audit data
-  constitution.md — self-modification governance rules and file tiers
-  audit/          — append-only modification audit trail (hash-chained JSON)
 docs/plans/       — implementation plans
-fetch_emails.sh   — IMAP email fetcher (used by the email tool)
-send_reply.sh     — email sender via msmtp
 requirements.txt  — Python dependencies
 TOOLS.md          — full tool catalog and profile documentation
 .env              — API keys and configuration (not committed)
