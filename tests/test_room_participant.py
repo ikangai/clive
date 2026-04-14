@@ -152,6 +152,57 @@ def test_informational_frames_produce_no_outbound():
         assert p.on_line(line) == [], f"{kind} triggered outbound"
 
 
+def test_successive_lines_each_dispatched_independently():
+    """Matches the actual production wire format: the lobby writes
+    each frame with a trailing '\\n', so the line parser delivers
+    exactly one frame per ``on_line`` call. `test_multiple_frames...`
+    (below) covers the defensive multi-frame case; this one covers
+    what actually runs."""
+    p = RoomParticipant(name="alice", nonce="n",
+                        llm_client=_FakeClient("say: 4\nDONE:"),
+                        driver_text="D")
+    say_line = encode("say", {"thread_id": "T1", "body": "setup",
+                              "from": "bob"}, nonce="n") + "\n"
+    yt_line = _your_turn_line("n")
+
+    assert p.on_line(say_line) == []          # informational, no outbound
+    out = p.on_line(yt_line)                  # your_turn → reply
+    frames = _frames(out, "n")
+    assert [f.kind for f in frames] == ["say"]
+    assert frames[0].payload == {"thread_id": "T1", "body": "4"}
+
+
+def test_driver_text_is_cached_after_first_your_turn(monkeypatch):
+    """The driver file is re-used across turns, not re-read each
+    time. Many rooms messages on the same thread would otherwise
+    pay a per-turn file IO tax for no reason. We pin this by
+    counting load_driver calls through the participant."""
+    import room_runner as _rr
+    calls = {"n": 0}
+    real = _rr.load_driver
+
+    def _counting_load():
+        calls["n"] += 1
+        return real()
+
+    monkeypatch.setattr(_rr, "load_driver", _counting_load)
+    # RoomParticipant imports load_driver at module import time, so
+    # we need to patch on the participant module too.
+    import room_participant as _rp
+    monkeypatch.setattr(_rp, "load_driver", _counting_load)
+
+    p = RoomParticipant(name="alice", nonce="n",
+                        llm_client=_FakeClient("pass:\nDONE:"))
+    # No driver_text passed — expect lazy load on first your_turn.
+    assert calls["n"] == 0
+    p.on_line(_your_turn_line("n"))
+    assert calls["n"] == 1, "driver was not loaded on first turn"
+    p.on_line(_your_turn_line("n"))
+    p.on_line(_your_turn_line("n"))
+    assert calls["n"] == 1, \
+        f"driver was re-loaded ({calls['n']} times) — should cache"
+
+
 def test_multiple_frames_on_one_line_each_dispatched():
     """Lobby sometimes batches frames into a single socket write
     (say fanout + your_turn during the same dispatch). The line

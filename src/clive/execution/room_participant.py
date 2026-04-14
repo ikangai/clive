@@ -32,7 +32,7 @@ from __future__ import annotations
 from typing import Optional
 
 from protocol import Frame, decode_all, encode
-from room_runner import decide_turn
+from room_runner import decide_turn, load_driver
 
 
 class RoomParticipant:
@@ -52,6 +52,12 @@ class RoomParticipant:
         self.name = name
         self.nonce = nonce
         self.llm_client = llm_client
+        # Tests inject a short stand-in via `driver_text="D"`. In
+        # production, `driver_text=None` means "load from disk" —
+        # cache it here so a chatty thread doesn't re-read the same
+        # ~500 bytes on every your_turn. Lazy load (rather than
+        # init-time) keeps __init__ free of filesystem coupling: a
+        # caller that only uses `bootstrap()` never hits disk.
         self._driver_text = driver_text
         self._model = model
 
@@ -86,6 +92,11 @@ class RoomParticipant:
 
     def _dispatch(self, frame: Frame) -> list[str]:
         if frame.kind == "your_turn":
+            # Lazy-cache the driver text on first turn. Subsequent
+            # turns reuse the same string — avoids reading
+            # drivers/room.md once per your_turn.
+            if self._driver_text is None:
+                self._driver_text = load_driver()
             kind, payload = decide_turn(
                 frame.payload,
                 llm_client=self.llm_client,
