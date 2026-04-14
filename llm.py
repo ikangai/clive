@@ -160,6 +160,82 @@ def chat(
     return content, pt, ct
 
 
+def chat_with_tools(
+    client,
+    messages: list[dict],
+    tools: list[dict],
+    max_tokens: int = 1024,
+    model: str | None = None,
+) -> tuple[list, str, int, int]:
+    """Send chat completion with tool definitions.
+
+    Returns (tool_calls_raw, text_content, prompt_tokens, completion_tokens).
+
+    tool_calls_raw is the provider-native list of tool-call objects; use
+    ``tool_defs.parse_tool_calls(raw, format=...)`` to normalise them.
+    """
+    from delegate_client import DelegateClient
+    if isinstance(client, DelegateClient):
+        # DelegateClient does not support tool calling — fall back to
+        # plain text chat and return no tool calls.
+        text, pt, ct = chat(client, messages, max_tokens=max_tokens, model=model)
+        return [], text, pt, ct
+
+    if isinstance(client, anthropic.Anthropic):
+        system = ""
+        filtered = []
+        for msg in messages:
+            if msg["role"] == "system":
+                system = msg["content"]
+            else:
+                filtered.append(msg)
+
+        system_blocks = (
+            [{"type": "text", "text": system, "cache_control": {"type": "ephemeral"}}]
+            if system else []
+        )
+
+        response = client.messages.create(
+            model=model or MODEL,
+            max_tokens=max_tokens,
+            system=system_blocks,
+            messages=filtered,
+            tools=tools,
+        )
+
+        # Separate text content and tool-use blocks
+        text_parts = []
+        tool_calls_raw = []
+        for block in response.content:
+            if getattr(block, "type", None) == "text":
+                text_parts.append(block.text)
+            else:
+                tool_calls_raw.append(block)
+
+        text = "\n".join(text_parts) if text_parts else ""
+        pt = response.usage.input_tokens if response.usage else 0
+        ct = response.usage.output_tokens if response.usage else 0
+        return tool_calls_raw, text, pt, ct
+
+    # OpenAI-compatible path
+    from tool_defs import tools_for_openai
+    openai_tools = tools_for_openai()
+
+    response = client.chat.completions.create(
+        model=model or MODEL,
+        messages=messages,
+        max_tokens=max_tokens,
+        tools=openai_tools,
+    )
+
+    choice = response.choices[0]
+    text = choice.message.content or ""
+    tool_calls_raw = choice.message.tool_calls or []
+    pt = response.usage.prompt_tokens if response.usage else 0
+    ct = response.usage.completion_tokens if response.usage else 0
+    return tool_calls_raw, text, pt, ct
+
+
 def chat_stream(
     client,
     messages: list[dict],
