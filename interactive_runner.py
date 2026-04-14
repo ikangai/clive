@@ -14,6 +14,7 @@ from command_extract import extract_command, extract_done
 from completion import wait_for_ready, wrap_command
 from context_compress import compress_context, make_llm_compressor
 from llm import get_client, chat, chat_stream
+from observation import ScreenClassifier, format_event_for_llm
 from streaming_extract import EarlyDoneDetector
 from models import Subtask, SubtaskStatus, SubtaskResult, PaneInfo
 from prompts import build_interactive_prompt
@@ -130,6 +131,7 @@ def run_subtask_interactive(
         {"role": "user", "content": f"Begin. Goal: {subtask.description}"},
     ]
     prev_screen = None
+    obs_classifier = ScreenClassifier()
 
     lock = _pane_locks.setdefault(subtask.pane, threading.Lock())
     with lock:
@@ -271,6 +273,14 @@ def run_subtask_interactive(
                         "do NOT issue a new shell command until this is resolved."
                     ),
                 })
+
+            # Observation classification: when a command succeeds and the
+            # screen doesn't need LLM judgment, inject a compact event
+            # instead of the raw screen diff — saves tokens on the next turn.
+            if exit_code is not None and exit_code == 0 and not detection.startswith("intervention:"):
+                obs_event = obs_classifier.classify(prev_screen, exit_code=exit_code)
+                if not obs_event.needs_llm:
+                    messages.append({"role": "user", "content": format_event_for_llm(obs_event)})
 
     # Exhausted turns
     final_screen = capture_pane(pane_info)
