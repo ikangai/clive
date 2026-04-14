@@ -1,9 +1,13 @@
 .env
 .venv/
 __pycache__/
-autoresearch-results.tsv
-.DS_Store
-.clive/audit/
 .eval_cache/
-autoresearch-results.tsv
+.clive/audit/
+
+# OS
+**/.DS_Store
+
+# Experiment artifacts
+autoresearch-results*.tsv
+*.prev*.tsv
 .autoresearch_verify.py
