@@ -13,8 +13,9 @@ import os
 import sys
 import time
 
-# Add project root to path
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
+# Add src/clive to path for flat imports
+_project_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+sys.path.insert(0, os.path.join(_project_root, "src", "clive"))
 
 from evals.harness.session_fixture import EvalFixture
 from evals.harness.verifier import verify_task

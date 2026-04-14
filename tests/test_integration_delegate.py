@@ -97,7 +97,7 @@ def test_delegate_client_over_subprocess_pipe(mock_lmstudio):
     inner_script = repo_root / "tests" / "_delegate_inner_harness.py"
 
     env = os.environ.copy()
-    env["PYTHONPATH"] = str(repo_root)
+    env["PYTHONPATH"] = str(repo_root / "src" / "clive")
     env["PYTHONUNBUFFERED"] = "1"
     env.pop("CLIVE_FRAME_NONCE", None)  # test runs nonceless
 

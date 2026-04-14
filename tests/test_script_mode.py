@@ -1,6 +1,5 @@
 """Tests for script mode prompt generation and model configuration."""
 import sys
-sys.path.insert(0, '.')
 from prompts import build_script_prompt
 
 

@@ -1,6 +1,5 @@
 """Integration tests for planned mode — planner awareness and end-to-end."""
 import sys
-sys.path.insert(0, '.')
 
 import json
 from unittest.mock import patch, MagicMock

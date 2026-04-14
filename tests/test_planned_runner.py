@@ -1,6 +1,5 @@
 """Tests for planned-mode execution runner."""
 import sys
-sys.path.insert(0, '.')
 
 from unittest.mock import MagicMock, patch, call
 import json

@@ -52,7 +52,7 @@ def test_stop_command_recognized():
 
     We verify this by checking the source code contains the exit conditions.
     """
-    with open(os.path.join(os.path.dirname(__file__), "..", "clive.py")) as f:
+    with open(os.path.join(os.path.dirname(__file__), "..", "src", "clive", "clive.py")) as f:
         source = f.read()
     assert '"/stop"' in source, "/stop not recognized as exit command"
     assert "keep_alive" in source, "keep_alive flag not found in conversational mode"

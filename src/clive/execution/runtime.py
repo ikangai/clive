@@ -78,7 +78,7 @@ def _wrap_for_sandbox(cmd: str, session_dir: str, sandboxed: bool = False, no_ne
     """Wrap a command through the sandbox script if sandboxing is enabled."""
     if not sandboxed and os.environ.get("CLIVE_SANDBOX") != "1":
         return cmd
-    script = os.path.join(os.path.dirname(__file__), "sandbox", "run.sh")
+    script = os.path.join(os.path.dirname(os.path.dirname(__file__)), "sandbox", "run.sh")
     parts = ["bash", shlex.quote(script), shlex.quote(session_dir)]
     if no_network:
         parts.append("--no-network")

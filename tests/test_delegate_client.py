@@ -185,7 +185,7 @@ def test_timeout_fires_when_outer_never_responds():
         "import os\n"
         "os.environ.setdefault('CLIVE_FRAME_NONCE', '')\n"
         "import sys, time\n"
-        "sys.path.insert(0, '.')\n"
+        "sys.path.insert(0, 'src/clive')\n"
         "from delegate_client import DelegateClient\n"
         "client = DelegateClient(stdout=sys.stdout, stdin=sys.stdin,\n"
         "                        poll_interval=0.05, timeout=1.5)\n"

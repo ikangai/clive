@@ -21,7 +21,7 @@ def test_load_missing_driver_returns_default(tmp_path):
 def test_load_driver_from_real_drivers_dir():
     """Once we create drivers/default.md, this should find it via fallback."""
     project_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-    drivers_dir = os.path.join(project_dir, "drivers")
+    drivers_dir = os.path.join(project_dir, "src", "clive", "drivers")
     # Test fallback — no driver for 'nonexistent' should return default
     result = load_driver("nonexistent", drivers_dir=drivers_dir)
     assert len(result) > 10

@@ -1,6 +1,5 @@
 """Tests for tiered intent resolution — Tier 0 (regex direct detection)."""
 import sys
-sys.path.insert(0, '.')
 
 
 def test_direct_ls():

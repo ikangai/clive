@@ -3,7 +3,7 @@
 import os
 
 # Path to drivers directory (relative to this file)
-_DRIVERS_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "drivers")
+_DRIVERS_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "drivers")
 
 DEFAULT_DRIVER = """You control this pane via shell commands.
 Read the screen output after each command to decide your next action.

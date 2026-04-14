@@ -2,7 +2,7 @@
 import os
 import subprocess
 
-ENTRYPOINT = os.path.join(os.path.dirname(__file__), "..", "server", "ssh_entrypoint.sh")
+ENTRYPOINT = os.path.join(os.path.dirname(__file__), "..", "src", "clive", "server", "ssh_entrypoint.sh")
 
 def test_entrypoint_exists_and_executable():
     assert os.path.isfile(ENTRYPOINT)

@@ -1,7 +1,6 @@
 """Tests for the observation event system."""
 
 import sys, os
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
 from observation import EventType, ScreenEvent, ScreenClassifier, format_event_for_llm, _MAX_SUMMARY
 

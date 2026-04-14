@@ -3,7 +3,7 @@
 import hashlib
 from pathlib import Path
 
-CONSTITUTION_PATH = Path(__file__).resolve().parent.parent / ".clive" / "constitution.md"
+CONSTITUTION_PATH = Path(__file__).resolve().parent.parent.parent.parent / ".clive" / "constitution.md"
 
 # File tier definitions — maps tier name to required approvals
 TIERS = {
@@ -61,8 +61,8 @@ def get_tier(filepath: str) -> str:
     try:
         rel = str(Path(filepath).resolve().relative_to(PROJECT_ROOT))
     except ValueError:
-        # Outside project — treat as OPEN
-        return "OPEN"
+        # Path not under project root — use as-is for pattern matching
+        rel = filepath
 
     for pattern, tier in FILE_TIERS:
         if pattern.endswith("/"):

@@ -9,7 +9,7 @@ import re
 from dataclasses import dataclass, field
 from enum import Enum
 
-from completion import INTERVENTION_PATTERNS
+from .completion import INTERVENTION_PATTERNS
 
 
 class EventType(Enum):

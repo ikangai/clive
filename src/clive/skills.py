@@ -14,7 +14,7 @@ Features:
 import os
 import re
 
-_SKILLS_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "skills")
+_SKILLS_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "skills_data")
 _skill_cache: dict[str, str] = {}
 
 

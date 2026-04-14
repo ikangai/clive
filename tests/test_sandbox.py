@@ -5,7 +5,7 @@ import os
 import platform
 import pytest
 
-SANDBOX_SCRIPT = os.path.join(os.path.dirname(__file__), "..", "sandbox", "run.sh")
+SANDBOX_SCRIPT = os.path.join(os.path.dirname(__file__), "..", "src", "clive", "sandbox", "run.sh")
 
 
 def test_sandbox_script_exists():
@@ -60,7 +60,7 @@ def test_sandbox_blocks_network_if_restricted(tmp_path):
 
 def test_sandbox_profile_loading():
     """Profile JSON must parse and contain expected keys."""
-    profile_path = os.path.join(os.path.dirname(__file__), "..", "sandbox", "profile.json")
+    profile_path = os.path.join(os.path.dirname(__file__), "..", "src", "clive", "sandbox", "profile.json")
     with open(profile_path) as f:
         profile = json.load(f)
     assert "fs_writable" in profile

@@ -22,7 +22,7 @@ from evolve_fitness import fitness_score
 from evolve_mutate import generate_variants, format_eval_summary
 
 
-DRIVERS_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "drivers")
+DRIVERS_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "drivers")
 HISTORY_DIR = os.path.join(DRIVERS_DIR, "history")
 
 

@@ -318,9 +318,9 @@ def test_load_plugin_commands_broken_plugin_does_not_crash(tmp_path):
 def test_no_if_cmd_ladder_in_tui_or_session_store():
     """Regression guard: the branch-count metric must stay at 0."""
     import re
-    root = os.path.dirname(os.path.dirname(__file__))
+    root = os.path.join(os.path.dirname(os.path.dirname(__file__)), "src", "clive")
     pattern = re.compile(r"^\s+(if|elif)\s+cmd\s")
-    for rel in ("tui.py", "session_store.py"):
+    for rel in (os.path.join("tui", "tui.py"), "session_store.py"):
         path = os.path.join(root, rel)
         with open(path) as f:
             matches = [
