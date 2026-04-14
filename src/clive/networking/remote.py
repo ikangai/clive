@@ -28,9 +28,19 @@ from protocol import KINDS, decode_all, latest, _FRAME_RE  # type: ignore[attr-d
 
 _log = logging.getLogger(__name__)
 
-# Kinds that we render into the LLM-facing decoded view. `alive` is
-# omitted because keepalives are supervisor signal, not LLM signal.
-_RENDERED_KINDS = frozenset(KINDS - {"alive"})
+# Kinds suppressed from the LLM-facing decoded view.
+# `alive` is keepalive/supervisor signal.
+# `session_hello` and the member→lobby "intent" frames (join_room, list_threads,
+# open_thread, close_thread, join_thread, leave_thread) are outbound-only from
+# a member's perspective; echoing them into that member's LLM context is noise.
+# Lobby→member responses (session_ack, threads, thread_opened, your_turn, nack)
+# and fanout frames (say, pass) DO render because the LLM needs to see them.
+_SUPPRESSED_KINDS = frozenset({
+    "alive", "session_hello",
+    "join_room", "list_threads", "open_thread",
+    "close_thread", "join_thread", "leave_thread",
+})
+_RENDERED_KINDS = frozenset(KINDS - _SUPPRESSED_KINDS)
 
 
 def parse_turn_state(screen: str, nonce: str = "") -> str | None:
@@ -153,6 +163,40 @@ def _render_frame(kind: str, payload: dict) -> str:
         # without cluttering the LLM's context with raw message bodies.
         rid = payload.get("id", "?")
         return f"⎇ CLIVE» {kind} id={rid}"
+    # ── Rooms / lobby frames ────────────────────────────────────────────
+    if kind == "say":
+        author = payload.get("from", "?")
+        tid = payload.get("thread_id", "?")
+        body = payload.get("body", "")
+        return f"⎇ CLIVE» say from {author} [thread {tid}]: {body}"
+    if kind == "pass":
+        author = payload.get("from", "?")
+        tid = payload.get("thread_id", "?")
+        return f"⎇ CLIVE» pass from {author} [thread {tid}]"
+    if kind == "your_turn":
+        # Deliberately do NOT dump `recent` / `summary` — the room_runner
+        # consumes the structured payload directly. Rendering them here
+        # would give the LLM the same content twice.
+        tid = payload.get("thread_id", "?")
+        idx = payload.get("message_index", "?")
+        return f"⎇ CLIVE» your_turn [thread {tid} msg {idx}]"
+    if kind == "thread_opened":
+        tid = payload.get("thread_id", "?")
+        return f"⎇ CLIVE» thread_opened: {tid}"
+    if kind == "nack":
+        reason = payload.get("reason", "?")
+        ref = payload.get("ref_kind", "?")
+        return f"⎇ CLIVE» nack: {reason} (ref: {ref})"
+    if kind == "session_ack":
+        name = payload.get("name", "?")
+        accepted = payload.get("accepted", False)
+        reason = payload.get("reason")
+        tail = f" reason={reason}" if reason else ""
+        return f"⎇ CLIVE» session_ack name={name} accepted={accepted}{tail}"
+    if kind == "threads":
+        room = payload.get("room", "?")
+        count = len(payload.get("threads", []))
+        return f"⎇ CLIVE» threads [room {room}]: {count} visible"
     # Fallback for any future kind: render kind + compact payload
     return f"⎇ CLIVE» {kind}: {json.dumps(payload, separators=(',', ':'))}"
 
