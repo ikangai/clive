@@ -238,7 +238,21 @@ def run_subtask(
     if subtask.max_turns == 15:  # default wasn't overridden
         subtask.max_turns = _MODE_TURNS.get(subtask.mode, 8)
 
-    # Interactive and streaming modes → v2 worker
+    # Interactive and streaming modes — try tool-calling runner first
+    if subtask.mode in ("interactive", "streaming"):
+        from llm import PROVIDER_NAME
+        _toolcall_providers = {"openai", "anthropic", "openrouter", "gemini"}
+        if PROVIDER_NAME in _toolcall_providers:
+            try:
+                from toolcall_runner import run_subtask_toolcall
+                return run_subtask_toolcall(
+                    subtask=subtask, pane_info=pane_info, dep_context=dep_context,
+                    on_event=on_event, session_dir=session_dir,
+                )
+            except Exception:
+                log.debug("Tool-calling runner failed, falling back to text-based", exc_info=True)
+
+    # Fallback: text-based interactive runner
     return run_subtask_interactive(
         subtask=subtask,
         pane_info=pane_info,
