@@ -657,60 +657,77 @@ Local providers (`lmstudio`, `ollama`) don't need API keys.
 ## Project structure
 
 ```
-clive.py          — orchestrator: plan → execute → summarize
-planner.py        — LLM decomposes task into subtask DAG (JSON)
-executor.py       — DAG scheduler + per-subtask worker loops, mode dispatcher
-session.py        — tmux session/pane management, per-pane model resolution
-toolsets.py       — tool registry with named profiles (minimal, standard, full, remote)
-models.py         — dataclasses: Subtask (with mode field), Plan, SubtaskResult, PaneInfo
-llm.py            — multi-provider LLM client with tool-calling support
-prompts.py        — prompt templates (planner, worker, script, planned, summarizer, triage)
-runtime.py        — shared primitives: safety checks, sandbox, model tier resolution
-output.py         — output routing: telemetry to stderr in --quiet mode, results to stdout, conversational protocol
+clive.py              — entry-point wrapper (forwards to src/clive/)
+tui.py                — TUI entry-point wrapper
+install.sh            — cross-platform installer
+requirements.txt      — Python dependencies
+TOOLS.md              — full tool catalog and profile documentation
 
-# Execution runners (one per mode)
-script_runner.py  — script mode: generate → execute → verify → repair
-interactive_runner.py — interactive mode: read-think-type loop with observation classification
-planned_runner.py — planned mode: generate step sequence → execute mechanically (0 LLM on happy path)
-toolcall_runner.py — tool-calling variant of interactive runner (native tool calls, command batching)
+src/clive/            — main source package
+  clive.py            — orchestrator: plan → execute → summarize
+  models.py           — dataclasses: Subtask, Plan, SubtaskResult, PaneInfo
+  config.py           — per-tool configuration (credentials, native config generation)
+  output.py           — output routing: telemetry to stderr, results to stdout
+  router.py           — 3-tier intent classification (direct → classifier → planner)
 
-# Observation & context
-observation.py    — screen event system: ScreenClassifier, ScreenEvent, format_event_for_llm
-context_compress.py — progressive context compression (summarize old turns via cheap model)
-completion.py     — three-strategy completion detection (marker/prompt/idle) + intervention patterns
-screen_diff.py    — screen diff utility (60-80% token savings after turn 1)
-command_extract.py — plain-text command extraction from LLM replies
-tool_defs.py      — native tool definitions (run_command, read_screen, complete) for tool-calling mode
+  llm/                — LLM inference layer
+    llm.py            — multi-provider client with tool-calling support
+    prompts.py        — prompt templates (planner, worker, script, planned, summarizer)
+    tool_defs.py      — native tool definitions (run_command, read_screen, complete)
+    delegate_client.py — stdio-based client for LLM_PROVIDER=delegate
 
-# Agent networking
-agents.py         — clive@host address parsing, local-first + YAML registry resolution, SSH command building
-agents_doctor.py  — `clive --agents-doctor` pre-flight checks (ssh/clive-installed/AcceptEnv)
-registry.py       — file-based instance registry (~/.clive/instances/), PID liveness, stale pruning
-dashboard.py      — dashboard snapshot (render_lines for TUI, render_snapshot for CLI)
-protocol.py       — framed sentinel protocol for clive-to-clive messages (nonce-authenticated)
-delegate_client.py — stdio-based LLM client used by inner when LLM_PROVIDER=delegate
-remote.py         — remote agent protocol: framed-frame parsers, pane decoder, SCP file transfer
+  planning/           — task decomposition
+    planner.py        — LLM decomposes task into subtask DAG (JSON)
+    dag_scheduler.py  — parallel DAG execution with dependency tracking
+    summarizer.py     — synthesizes results from all subtasks
 
-# UI
-tui.py            — Textual-based terminal UI with slash commands
-install.sh        — cross-platform installer
+  execution/          — mode-specific runners
+    executor.py       — mode dispatcher + direct-mode worker
+    runtime.py        — shared primitives: safety checks, sandbox, model tiers
+    script_runner.py  — script mode: generate → execute → verify → repair
+    interactive_runner.py — interactive mode: read-think-type loop
+    planned_runner.py — planned mode: 1 LLM call → mechanical execution
+    toolcall_runner.py — tool-calling mode: native tool calls, command batching
+    skill_runner.py   — executable skill runner (zero LLM)
 
-# Drivers
-drivers/          — auto-discovered driver prompts with per-pane model tiers
-  shell.md        — bash shell reference card (agent_model: fast)
-  browser.md      — lynx/curl/wget reference card (agent_model: default)
-  email_cli.md    — neomutt/msmtp reference card (agent_model: default)
-  data.md         — data processing reference card (agent_model: fast)
-  agent.md        — clive-to-clive peer conversation protocol
-  default.md      — generic fallback driver
+  observation/        — screen classification & context
+    observation.py    — ScreenClassifier, ScreenEvent, format_event_for_llm
+    completion.py     — completion detection (marker/prompt/idle) + intervention
+    screen_diff.py    — screen diffing (60-80% token savings)
+    context_compress.py — progressive context compression via cheap model
+    command_extract.py — plain-text command extraction from LLM replies
 
-# Tools & scripts
-tools/            — helper scripts (youtube.sh, podcast.sh, claude.sh)
-evals/            — eval framework (harness, layer2, baselines)
-selfmod/          — self-modification system (experimental, gate/proposer/reviewer/auditor/pipeline)
-.clive/           — governance and audit data
-docs/plans/       — implementation plans
-requirements.txt  — Python dependencies
-TOOLS.md          — full tool catalog and profile documentation
-.env              — API keys and configuration (not committed)
+  session/            — pane and tool management
+    session.py        — tmux session/pane management, per-pane model resolution
+    toolsets.py       — tool registry with named profiles
+    commands.py       — CLI tool availability checking
+
+  networking/         — agent-to-agent communication
+    agents.py         — clive@host addressing, SSH command building
+    protocol.py       — framed sentinel protocol (nonce-authenticated)
+    registry.py       — instance registry (~/.clive/instances/)
+    remote.py         — remote agent protocol, SCP file transfer
+    dashboard.py      — running instances dashboard
+
+  tui/                — terminal UI
+    tui.py            — Textual-based TUI with slash commands
+    tui_commands.py   — slash command handlers
+    tui_task_runner.py — async task execution for TUI
+
+  evolution/          — prompt evolution (experimental)
+    evolve.py         — evolution loop
+    evolve_fitness.py — fitness scoring via evals
+    evolve_mutate.py  — LLM-driven prompt mutation
+
+  selfmod/            — self-modification system (experimental)
+  server/             — production server components
+  sandbox/            — sandboxing (bwrap/sandbox-exec)
+  drivers/            — auto-discovered driver prompts (per app_type)
+  tools/              — helper scripts (youtube.sh, podcast.sh, etc.)
+
+tests/                — 746 unit tests
+evals/                — eval framework (harness, layer1-4, baselines)
+docs/                 — documentation, specs, plans
+.clive/               — governance and audit data
+.env                  — API keys and configuration (not committed)
 ```

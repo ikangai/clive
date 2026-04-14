@@ -158,13 +158,13 @@ sys.exit(1)
 
 setup_repo() {
     # Are we already inside the clive repo?
-    if [[ -f "clive.py" && -f "toolsets.py" ]]; then
+    if [[ -f "clive.py" && -d "src/clive" ]]; then
         INSTALL_DIR="$(pwd)"
         info "Already in clive repo: ${INSTALL_DIR}"
         return
     fi
 
-    if [[ -d "${INSTALL_DIR}" && -f "${INSTALL_DIR}/clive.py" ]]; then
+    if [[ -d "${INSTALL_DIR}" && -d "${INSTALL_DIR}/src/clive" ]]; then
         info "clive already installed at ${INSTALL_DIR}"
         ask "Update? [Y/n]"
         read -r answer
