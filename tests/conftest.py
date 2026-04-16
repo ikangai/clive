@@ -2,8 +2,13 @@
 import sys
 import os
 
-# Add src/clive/ to sys.path so flat imports like `from models import Subtask` work
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src", "clive"))
+_here = os.path.dirname(__file__)
+# Add repo root FIRST so `from evals.harness...` resolves (evals/ lives there),
+# then src/clive/ so flat imports like `from models import Subtask` take
+# priority over any shadowing packages at repo root (e.g. the clive.py
+# wrapper — tests want src/clive/clive.py, not the root wrapper).
+sys.path.insert(0, os.path.join(_here, ".."))
+sys.path.insert(0, os.path.join(_here, "..", "src", "clive"))
 
 
 def pytest_configure(config):
