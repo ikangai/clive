@@ -13,3 +13,4 @@ __pycache__/
 autoresearch-results*.tsv
 *.prev*.tsv
 .autoresearch_verify.py
+security-audit-results.tsv
