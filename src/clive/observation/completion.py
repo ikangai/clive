@@ -40,13 +40,17 @@ INTERVENTION_PATTERNS = [
 ]
 
 # Map ByteEvent kinds (from observation.byte_classifier.BYTE_PATTERNS) to the
-# intervention:<type> strings produced by the poll path. Only kinds the L2
-# byte classifier can actually emit appear here — "fatal_error", "disk_error",
-# "overwrite_prompt", "continue_prompt" are screen-regex-only today.
+# intervention:<type> strings produced by the poll path. Four kinds are
+# mapped today: password_prompt, confirm_prompt, permission_error, and
+# error_keyword (Traceback|FATAL|panic: -> fatal_error, matching the poll
+# path's FATAL:|panic: pattern). The remaining poll-path kinds —
+# "overwrite_prompt", "continue_prompt", "disk_error" — are event-path-
+# unreachable because the L2 byte classifier has no patterns for them.
 _INTERVENTION_KIND_MAP = {
     "password_prompt": "password_prompt",
     "confirm_prompt":  "confirmation_prompt",
     "permission_error": "permission_error",
+    "error_keyword": "fatal_error",
 }
 
 
@@ -72,6 +76,14 @@ def wait_for_ready(
     no running loop, a temporary loop is spun up. If called from inside a
     running loop, raises RuntimeError — callers in async contexts should
     `await await_ready_events(...)` directly.
+
+    Note on the event-driven path:
+    The temp-loop bridge is safe only when the queue is not being produced
+    on a different loop concurrently. Production code consuming a queue
+    produced by `PaneStream` (which runs on the pane's own asyncio loop,
+    Task 1.5) must either `await await_ready_events(...)` on that loop, or
+    bridge via `asyncio.run_coroutine_threadsafe(await_ready_events(...),
+    pane_loop)`. Do not rely on this convenience path in that case.
     """
     if event_source is None:
         return _wait_polling(
