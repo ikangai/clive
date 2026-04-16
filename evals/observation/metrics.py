@@ -24,7 +24,7 @@ class ScenarioAgg:
     scenario_id: str
     mode: str
     n: int
-    median_e2e_ms: float
+    median_e2e_ms: float | None
     median_detect_ms: float | None
     missed_rate: float
     median_cost: float
@@ -41,7 +41,7 @@ def aggregate(runs: list[RunResult]) -> ScenarioAgg:
     spec_waste = [r.spec_waste for r in runs if r.spec_waste is not None]
     return ScenarioAgg(
         scenario_id=scenario_id, mode=mode, n=len(runs),
-        median_e2e_ms=median(latencies) if latencies else 0.0,
+        median_e2e_ms=median(latencies) if latencies else None,
         median_detect_ms=median(detect) if detect else None,
         missed_rate=sum(1 for r in runs if r.missed) / len(runs),
         median_cost=median(r.cost_tokens for r in runs),
@@ -61,7 +61,14 @@ def format_markdown_report(rows: dict[str, dict[str, ScenarioAgg]]) -> str:
     lines += [header, sep]
     for sid in scenarios:
         cells = [sid]
-        cells += [f"{rows[m].get(sid).median_e2e_ms:.0f}" if sid in rows[m] else "-" for m in modes]
-        cells += [f"{rows[m].get(sid).missed_rate*100:.0f}%" if sid in rows[m] else "-" for m in modes]
+        for m in modes:
+            agg = rows[m].get(sid)
+            if agg is None or agg.median_e2e_ms is None:
+                cells.append("-")
+            else:
+                cells.append(f"{agg.median_e2e_ms:.0f}")
+        for m in modes:
+            agg = rows[m].get(sid)
+            cells.append(f"{agg.missed_rate*100:.0f}%" if agg else "-")
         lines.append("| " + " | ".join(cells) + " |")
     return "\n".join(lines) + "\n"
