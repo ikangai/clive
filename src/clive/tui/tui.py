@@ -17,8 +17,6 @@ Usage:
     python clive.py --tui
 """
 
-import io
-import json
 import os
 import shutil
 import subprocess
