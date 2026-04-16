@@ -15,7 +15,7 @@ from output import step, detail, progress
 from toolsets import CATEGORIES, resolve_toolset, check_commands, build_tools_summary
 from models import Plan, Subtask
 from planner import create_plan, display_plan
-from clive_core import run, _setup_session, _expand_toolset
+from clive_core import run, _setup_session, _expand_toolset, _is_direct
 
 
 def run_repl(args, instance_name=None, output_format="default", register_fn=None):
@@ -138,13 +138,7 @@ def run_repl(args, instance_name=None, output_format="default", register_fn=None
 
 
 def run_dry_run(args):
-    """Plan-only mode: resolve toolset, create plan, display it, then clean up.
-
-    Note: references a module-level ``_is_trivial`` name that is not
-    currently defined (pre-existing latent bug preserved verbatim from
-    clive.py). Calling this function with a trivial task will raise
-    NameError — matching the behavior prior to extraction.
-    """
+    """Plan-only mode: resolve toolset, create plan, display it, then clean up."""
     if not args.task:
         import sys
         print("Error: --dry-run requires a task argument.", file=sys.stderr)
@@ -155,7 +149,7 @@ def run_dry_run(args):
     tools_summary = build_tools_summary(
         check_health(panes), available_cmds, resolved["endpoints"],
     )
-    if _is_trivial(args.task, len(panes)):  # noqa: F821 (pre-existing latent bug)
+    if _is_direct(args.task, len(panes)):
         first_pane = list(panes.keys())[0]
         plan = Plan(task=args.task, subtasks=[
             Subtask(id="1", description=args.task, pane=first_pane, mode="script"),
