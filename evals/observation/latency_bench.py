@@ -146,6 +146,101 @@ def run_scenario_baseline(scenario: Scenario) -> RunResult:
                 pass
 
 
+def run_scenario_phase1(scenario: Scenario) -> RunResult:
+    """Run a scenario against the Phase 1 FIFO+ByteClassifier pipeline.
+
+    Invariants:
+      * mode = "phase1"
+      * detect_latency_ms populated (Phase 1 has the L2 stage)
+      * cost_tokens = 0 (no LLM calls)
+      * For Phase 1, detect_latency_ms == e2e_latency_ms (no LLM
+        involved; detection IS the e2e for bench purposes).
+      * For baseline_blind scenarios (color_only): phase1 MUST detect —
+        that's the load-bearing demo that L2 sees pure-SGR signals the
+        poll path cannot.
+      * Session is always killed and FIFO unlinked in ``finally``.
+    """
+    import asyncio
+    from fifo_stream import PaneStream
+    from byte_classifier import ByteEvent  # noqa: F401  (type only)
+
+    run_id = uuid.uuid4().hex
+    session = f"bench-p1-{run_id}"
+    fifo_path = f"/tmp/clive-bench/{run_id}-p1.fifo"
+    os.makedirs(os.path.dirname(fifo_path), exist_ok=True)
+    if os.path.exists(fifo_path):
+        os.unlink(fifo_path)
+    os.mkfifo(fifo_path)
+
+    subprocess.run(
+        ["tmux", "new-session", "-d", "-s", session, "bash"],
+        check=True,
+    )
+    try:
+        # Let the shell write its initial prompt before we start piping
+        # — same reasoning as run_scenario_baseline.
+        time.sleep(0.1)
+        # pipe-pane all future output to the FIFO that PaneStream reads.
+        subprocess.run(
+            [
+                "tmux", "pipe-pane", "-t", f"{session}:0.0",
+                f"cat > {fifo_path}",
+            ],
+            check=True,
+        )
+
+        async def _run() -> tuple[float | None, bool]:
+            stream = PaneStream.from_fifo_path(fifo_path)
+            q = stream.subscribe()
+            try:
+                t0 = time.monotonic()
+                subprocess.run(
+                    [
+                        "tmux", "send-keys", "-t", f"{session}:0.0",
+                        scenario.shell_command, "Enter",
+                    ],
+                    check=True,
+                )
+                deadline = t0 + 10.0
+                targets = set(scenario.expected_l2_kinds)
+                while True:
+                    remaining = deadline - time.monotonic()
+                    if remaining <= 0:
+                        return None, True
+                    try:
+                        evt = await asyncio.wait_for(q.get(), timeout=remaining)
+                    except asyncio.TimeoutError:
+                        return None, True
+                    if evt.kind in targets:
+                        return time.monotonic() - t0, False
+                    # Event didn't match — keep draining until a target
+                    # lands or we hit the deadline.
+            finally:
+                await stream.close()
+
+        latency, missed = asyncio.run(_run())
+        latency_ms = latency * 1000 if latency is not None else 0.0
+        return RunResult(
+            scenario_id=scenario.id,
+            mode="phase1",
+            detect_latency_ms=latency_ms if not missed else None,
+            e2e_latency_ms=latency_ms,
+            missed=missed,
+            cost_tokens=0,
+        )
+    finally:
+        subprocess.run(
+            ["tmux", "kill-session", "-t", session],
+            check=False,
+            capture_output=True,
+        )
+        if os.path.exists(fifo_path):
+            try:
+                os.unlink(fifo_path)
+            except OSError:
+                pass
+
+
 def _poll_for_baseline(
     session: str,
     scenario: Scenario,
@@ -210,6 +305,8 @@ def main(argv: list[str] | None = None) -> None:
         for i in range(args.runs):
             if args.mode == "baseline":
                 results.append(run_scenario_baseline(scenario))
+            elif args.mode == "phase1":
+                results.append(run_scenario_phase1(scenario))
             else:
                 raise NotImplementedError(
                     f"mode={args.mode} lands in a later task"
