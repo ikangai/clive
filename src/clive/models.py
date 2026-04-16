@@ -5,11 +5,18 @@ from __future__ import annotations
 import logging
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import Optional
+from typing import TYPE_CHECKING, Optional
 
 log = logging.getLogger(__name__)
 
 import libtmux
+
+if TYPE_CHECKING:
+    # Forward-ref imports only — avoids circular imports at runtime
+    # since PaneStream/PaneLoop live in observation/ and execution/
+    # which import from models.
+    from fifo_stream import PaneStream
+    from pane_loop import PaneLoop
 
 
 class SubtaskStatus(Enum):
@@ -131,3 +138,8 @@ class PaneInfo:
     # When set, runners use these instead of the global MODEL/SCRIPT_MODEL.
     agent_model: Optional[str] = None
     observation_model: Optional[str] = None
+    # Streaming observation pipeline (Task 1.4). Populated only when
+    # CLIVE_STREAMING_OBS=1; otherwise remain None and runners fall
+    # back to the polling observation path. See session._maybe_attach_stream.
+    stream: Optional["PaneStream"] = None
+    pane_loop: Optional["PaneLoop"] = None

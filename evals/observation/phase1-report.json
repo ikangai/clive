@@ -1,0 +1,545 @@
+{
+  "mode": "phase1",
+  "runs": [
+    {
+      "scenario_id": "error_scroll",
+      "mode": "phase1",
+      "detect_latency_ms": 518.1932079940452,
+      "e2e_latency_ms": 518.1932079940452,
+      "missed": false,
+      "cost_tokens": 0,
+      "spec_waste": null
+    },
+    {
+      "scenario_id": "error_scroll",
+      "mode": "phase1",
+      "detect_latency_ms": 522.9150840023067,
+      "e2e_latency_ms": 522.9150840023067,
+      "missed": false,
+      "cost_tokens": 0,
+      "spec_waste": null
+    },
+    {
+      "scenario_id": "error_scroll",
+      "mode": "phase1",
+      "detect_latency_ms": 510.9566250030184,
+      "e2e_latency_ms": 510.9566250030184,
+      "missed": false,
+      "cost_tokens": 0,
+      "spec_waste": null
+    },
+    {
+      "scenario_id": "error_scroll",
+      "mode": "phase1",
+      "detect_latency_ms": 518.9237500017043,
+      "e2e_latency_ms": 518.9237500017043,
+      "missed": false,
+      "cost_tokens": 0,
+      "spec_waste": null
+    },
+    {
+      "scenario_id": "error_scroll",
+      "mode": "phase1",
+      "detect_latency_ms": 518.9763750022394,
+      "e2e_latency_ms": 518.9763750022394,
+      "missed": false,
+      "cost_tokens": 0,
+      "spec_waste": null
+    },
+    {
+      "scenario_id": "error_scroll",
+      "mode": "phase1",
+      "detect_latency_ms": 515.4083750021528,
+      "e2e_latency_ms": 515.4083750021528,
+      "missed": false,
+      "cost_tokens": 0,
+      "spec_waste": null
+    },
+    {
+      "scenario_id": "error_scroll",
+      "mode": "phase1",
+      "detect_latency_ms": 519.5080829944345,
+      "e2e_latency_ms": 519.5080829944345,
+      "missed": false,
+      "cost_tokens": 0,
+      "spec_waste": null
+    },
+    {
+      "scenario_id": "error_scroll",
+      "mode": "phase1",
+      "detect_latency_ms": 518.8700829967274,
+      "e2e_latency_ms": 518.8700829967274,
+      "missed": false,
+      "cost_tokens": 0,
+      "spec_waste": null
+    },
+    {
+      "scenario_id": "error_scroll",
+      "mode": "phase1",
+      "detect_latency_ms": 520.9117499980493,
+      "e2e_latency_ms": 520.9117499980493,
+      "missed": false,
+      "cost_tokens": 0,
+      "spec_waste": null
+    },
+    {
+      "scenario_id": "error_scroll",
+      "mode": "phase1",
+      "detect_latency_ms": 519.6316670044325,
+      "e2e_latency_ms": 519.6316670044325,
+      "missed": false,
+      "cost_tokens": 0,
+      "spec_waste": null
+    },
+    {
+      "scenario_id": "password_prompt",
+      "mode": "phase1",
+      "detect_latency_ms": 40.26533399883192,
+      "e2e_latency_ms": 40.26533399883192,
+      "missed": false,
+      "cost_tokens": 0,
+      "spec_waste": null
+    },
+    {
+      "scenario_id": "password_prompt",
+      "mode": "phase1",
+      "detect_latency_ms": 34.25208400585689,
+      "e2e_latency_ms": 34.25208400585689,
+      "missed": false,
+      "cost_tokens": 0,
+      "spec_waste": null
+    },
+    {
+      "scenario_id": "password_prompt",
+      "mode": "phase1",
+      "detect_latency_ms": 35.12683299777564,
+      "e2e_latency_ms": 35.12683299777564,
+      "missed": false,
+      "cost_tokens": 0,
+      "spec_waste": null
+    },
+    {
+      "scenario_id": "password_prompt",
+      "mode": "phase1",
+      "detect_latency_ms": 34.25087500363588,
+      "e2e_latency_ms": 34.25087500363588,
+      "missed": false,
+      "cost_tokens": 0,
+      "spec_waste": null
+    },
+    {
+      "scenario_id": "password_prompt",
+      "mode": "phase1",
+      "detect_latency_ms": 34.59016600390896,
+      "e2e_latency_ms": 34.59016600390896,
+      "missed": false,
+      "cost_tokens": 0,
+      "spec_waste": null
+    },
+    {
+      "scenario_id": "password_prompt",
+      "mode": "phase1",
+      "detect_latency_ms": 62.60866599768633,
+      "e2e_latency_ms": 62.60866599768633,
+      "missed": false,
+      "cost_tokens": 0,
+      "spec_waste": null
+    },
+    {
+      "scenario_id": "password_prompt",
+      "mode": "phase1",
+      "detect_latency_ms": 62.766542003373615,
+      "e2e_latency_ms": 62.766542003373615,
+      "missed": false,
+      "cost_tokens": 0,
+      "spec_waste": null
+    },
+    {
+      "scenario_id": "password_prompt",
+      "mode": "phase1",
+      "detect_latency_ms": 34.05812499840977,
+      "e2e_latency_ms": 34.05812499840977,
+      "missed": false,
+      "cost_tokens": 0,
+      "spec_waste": null
+    },
+    {
+      "scenario_id": "password_prompt",
+      "mode": "phase1",
+      "detect_latency_ms": 34.45679099968402,
+      "e2e_latency_ms": 34.45679099968402,
+      "missed": false,
+      "cost_tokens": 0,
+      "spec_waste": null
+    },
+    {
+      "scenario_id": "password_prompt",
+      "mode": "phase1",
+      "detect_latency_ms": 34.599083999637514,
+      "e2e_latency_ms": 34.599083999637514,
+      "missed": false,
+      "cost_tokens": 0,
+      "spec_waste": null
+    },
+    {
+      "scenario_id": "confirm_prompt",
+      "mode": "phase1",
+      "detect_latency_ms": 11.62520900106756,
+      "e2e_latency_ms": 11.62520900106756,
+      "missed": false,
+      "cost_tokens": 0,
+      "spec_waste": null
+    },
+    {
+      "scenario_id": "confirm_prompt",
+      "mode": "phase1",
+      "detect_latency_ms": 11.703957999998238,
+      "e2e_latency_ms": 11.703957999998238,
+      "missed": false,
+      "cost_tokens": 0,
+      "spec_waste": null
+    },
+    {
+      "scenario_id": "confirm_prompt",
+      "mode": "phase1",
+      "detect_latency_ms": 11.268834001384676,
+      "e2e_latency_ms": 11.268834001384676,
+      "missed": false,
+      "cost_tokens": 0,
+      "spec_waste": null
+    },
+    {
+      "scenario_id": "confirm_prompt",
+      "mode": "phase1",
+      "detect_latency_ms": 11.675749999994878,
+      "e2e_latency_ms": 11.675749999994878,
+      "missed": false,
+      "cost_tokens": 0,
+      "spec_waste": null
+    },
+    {
+      "scenario_id": "confirm_prompt",
+      "mode": "phase1",
+      "detect_latency_ms": 12.014459003694355,
+      "e2e_latency_ms": 12.014459003694355,
+      "missed": false,
+      "cost_tokens": 0,
+      "spec_waste": null
+    },
+    {
+      "scenario_id": "confirm_prompt",
+      "mode": "phase1",
+      "detect_latency_ms": 12.161334001575597,
+      "e2e_latency_ms": 12.161334001575597,
+      "missed": false,
+      "cost_tokens": 0,
+      "spec_waste": null
+    },
+    {
+      "scenario_id": "confirm_prompt",
+      "mode": "phase1",
+      "detect_latency_ms": 11.839708000479732,
+      "e2e_latency_ms": 11.839708000479732,
+      "missed": false,
+      "cost_tokens": 0,
+      "spec_waste": null
+    },
+    {
+      "scenario_id": "confirm_prompt",
+      "mode": "phase1",
+      "detect_latency_ms": 12.036416999762878,
+      "e2e_latency_ms": 12.036416999762878,
+      "missed": false,
+      "cost_tokens": 0,
+      "spec_waste": null
+    },
+    {
+      "scenario_id": "confirm_prompt",
+      "mode": "phase1",
+      "detect_latency_ms": 11.690374994941521,
+      "e2e_latency_ms": 11.690374994941521,
+      "missed": false,
+      "cost_tokens": 0,
+      "spec_waste": null
+    },
+    {
+      "scenario_id": "confirm_prompt",
+      "mode": "phase1",
+      "detect_latency_ms": 11.745374999009073,
+      "e2e_latency_ms": 11.745374999009073,
+      "missed": false,
+      "cost_tokens": 0,
+      "spec_waste": null
+    },
+    {
+      "scenario_id": "spinner_ok",
+      "mode": "phase1",
+      "detect_latency_ms": 1565.8860829935293,
+      "e2e_latency_ms": 1565.8860829935293,
+      "missed": false,
+      "cost_tokens": 0,
+      "spec_waste": null
+    },
+    {
+      "scenario_id": "spinner_ok",
+      "mode": "phase1",
+      "detect_latency_ms": 1563.6832499949378,
+      "e2e_latency_ms": 1563.6832499949378,
+      "missed": false,
+      "cost_tokens": 0,
+      "spec_waste": null
+    },
+    {
+      "scenario_id": "spinner_ok",
+      "mode": "phase1",
+      "detect_latency_ms": 1559.3759999974282,
+      "e2e_latency_ms": 1559.3759999974282,
+      "missed": false,
+      "cost_tokens": 0,
+      "spec_waste": null
+    },
+    {
+      "scenario_id": "spinner_ok",
+      "mode": "phase1",
+      "detect_latency_ms": 1559.982165999827,
+      "e2e_latency_ms": 1559.982165999827,
+      "missed": false,
+      "cost_tokens": 0,
+      "spec_waste": null
+    },
+    {
+      "scenario_id": "spinner_ok",
+      "mode": "phase1",
+      "detect_latency_ms": 1565.9615830008988,
+      "e2e_latency_ms": 1565.9615830008988,
+      "missed": false,
+      "cost_tokens": 0,
+      "spec_waste": null
+    },
+    {
+      "scenario_id": "spinner_ok",
+      "mode": "phase1",
+      "detect_latency_ms": 1570.0297920047888,
+      "e2e_latency_ms": 1570.0297920047888,
+      "missed": false,
+      "cost_tokens": 0,
+      "spec_waste": null
+    },
+    {
+      "scenario_id": "spinner_ok",
+      "mode": "phase1",
+      "detect_latency_ms": 1564.2395000031684,
+      "e2e_latency_ms": 1564.2395000031684,
+      "missed": false,
+      "cost_tokens": 0,
+      "spec_waste": null
+    },
+    {
+      "scenario_id": "spinner_ok",
+      "mode": "phase1",
+      "detect_latency_ms": 1562.489292002283,
+      "e2e_latency_ms": 1562.489292002283,
+      "missed": false,
+      "cost_tokens": 0,
+      "spec_waste": null
+    },
+    {
+      "scenario_id": "spinner_ok",
+      "mode": "phase1",
+      "detect_latency_ms": 1557.4346669964143,
+      "e2e_latency_ms": 1557.4346669964143,
+      "missed": false,
+      "cost_tokens": 0,
+      "spec_waste": null
+    },
+    {
+      "scenario_id": "spinner_ok",
+      "mode": "phase1",
+      "detect_latency_ms": 1559.0146249960526,
+      "e2e_latency_ms": 1559.0146249960526,
+      "missed": false,
+      "cost_tokens": 0,
+      "spec_waste": null
+    },
+    {
+      "scenario_id": "spinner_fail",
+      "mode": "phase1",
+      "detect_latency_ms": null,
+      "e2e_latency_ms": 0.0,
+      "missed": true,
+      "cost_tokens": 0,
+      "spec_waste": null
+    },
+    {
+      "scenario_id": "spinner_fail",
+      "mode": "phase1",
+      "detect_latency_ms": null,
+      "e2e_latency_ms": 0.0,
+      "missed": true,
+      "cost_tokens": 0,
+      "spec_waste": null
+    },
+    {
+      "scenario_id": "spinner_fail",
+      "mode": "phase1",
+      "detect_latency_ms": null,
+      "e2e_latency_ms": 0.0,
+      "missed": true,
+      "cost_tokens": 0,
+      "spec_waste": null
+    },
+    {
+      "scenario_id": "spinner_fail",
+      "mode": "phase1",
+      "detect_latency_ms": null,
+      "e2e_latency_ms": 0.0,
+      "missed": true,
+      "cost_tokens": 0,
+      "spec_waste": null
+    },
+    {
+      "scenario_id": "spinner_fail",
+      "mode": "phase1",
+      "detect_latency_ms": null,
+      "e2e_latency_ms": 0.0,
+      "missed": true,
+      "cost_tokens": 0,
+      "spec_waste": null
+    },
+    {
+      "scenario_id": "spinner_fail",
+      "mode": "phase1",
+      "detect_latency_ms": null,
+      "e2e_latency_ms": 0.0,
+      "missed": true,
+      "cost_tokens": 0,
+      "spec_waste": null
+    },
+    {
+      "scenario_id": "spinner_fail",
+      "mode": "phase1",
+      "detect_latency_ms": null,
+      "e2e_latency_ms": 0.0,
+      "missed": true,
+      "cost_tokens": 0,
+      "spec_waste": null
+    },
+    {
+      "scenario_id": "spinner_fail",
+      "mode": "phase1",
+      "detect_latency_ms": null,
+      "e2e_latency_ms": 0.0,
+      "missed": true,
+      "cost_tokens": 0,
+      "spec_waste": null
+    },
+    {
+      "scenario_id": "spinner_fail",
+      "mode": "phase1",
+      "detect_latency_ms": null,
+      "e2e_latency_ms": 0.0,
+      "missed": true,
+      "cost_tokens": 0,
+      "spec_waste": null
+    },
+    {
+      "scenario_id": "spinner_fail",
+      "mode": "phase1",
+      "detect_latency_ms": null,
+      "e2e_latency_ms": 0.0,
+      "missed": true,
+      "cost_tokens": 0,
+      "spec_waste": null
+    },
+    {
+      "scenario_id": "color_only",
+      "mode": "phase1",
+      "detect_latency_ms": 1014.8742079982185,
+      "e2e_latency_ms": 1014.8742079982185,
+      "missed": false,
+      "cost_tokens": 0,
+      "spec_waste": null
+    },
+    {
+      "scenario_id": "color_only",
+      "mode": "phase1",
+      "detect_latency_ms": 1020.6620419994579,
+      "e2e_latency_ms": 1020.6620419994579,
+      "missed": false,
+      "cost_tokens": 0,
+      "spec_waste": null
+    },
+    {
+      "scenario_id": "color_only",
+      "mode": "phase1",
+      "detect_latency_ms": 1021.5485830049147,
+      "e2e_latency_ms": 1021.5485830049147,
+      "missed": false,
+      "cost_tokens": 0,
+      "spec_waste": null
+    },
+    {
+      "scenario_id": "color_only",
+      "mode": "phase1",
+      "detect_latency_ms": 1019.2056250016321,
+      "e2e_latency_ms": 1019.2056250016321,
+      "missed": false,
+      "cost_tokens": 0,
+      "spec_waste": null
+    },
+    {
+      "scenario_id": "color_only",
+      "mode": "phase1",
+      "detect_latency_ms": 1021.9306670041988,
+      "e2e_latency_ms": 1021.9306670041988,
+      "missed": false,
+      "cost_tokens": 0,
+      "spec_waste": null
+    },
+    {
+      "scenario_id": "color_only",
+      "mode": "phase1",
+      "detect_latency_ms": 1016.6942910000216,
+      "e2e_latency_ms": 1016.6942910000216,
+      "missed": false,
+      "cost_tokens": 0,
+      "spec_waste": null
+    },
+    {
+      "scenario_id": "color_only",
+      "mode": "phase1",
+      "detect_latency_ms": 1018.8040420034667,
+      "e2e_latency_ms": 1018.8040420034667,
+      "missed": false,
+      "cost_tokens": 0,
+      "spec_waste": null
+    },
+    {
+      "scenario_id": "color_only",
+      "mode": "phase1",
+      "detect_latency_ms": 1019.6835419992567,
+      "e2e_latency_ms": 1019.6835419992567,
+      "missed": false,
+      "cost_tokens": 0,
+      "spec_waste": null
+    },
+    {
+      "scenario_id": "color_only",
+      "mode": "phase1",
+      "detect_latency_ms": 1015.3666250043898,
+      "e2e_latency_ms": 1015.3666250043898,
+      "missed": false,
+      "cost_tokens": 0,
+      "spec_waste": null
+    },
+    {
+      "scenario_id": "color_only",
+      "mode": "phase1",
+      "detect_latency_ms": 1019.6413329977077,
+      "e2e_latency_ms": 1019.6413329977077,
+      "missed": false,
+      "cost_tokens": 0,
+      "spec_waste": null
+    }
+  ]
+}
