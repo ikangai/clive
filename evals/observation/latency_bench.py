@@ -32,6 +32,7 @@ from pathlib import Path
 
 from evals.observation.scenarios import Scenario, SCENARIOS
 from evals.observation.metrics import RunResult, aggregate, format_markdown_report
+from completion import wrap_command
 
 
 # Text patterns per expected L2 kind — mirrors today's wait_for_ready /
@@ -66,7 +67,7 @@ def _oracle_fifo_path(run_id: str) -> str:
     return p
 
 
-def run_scenario_baseline(scenario: Scenario) -> RunResult:
+def run_scenario_baseline(scenario: Scenario, timeout: float = 10.0) -> RunResult:
     """Run a scenario against today's poll-based loop, measure latency.
 
     Invariants:
@@ -108,17 +109,25 @@ def run_scenario_baseline(scenario: Scenario) -> RunResult:
         # screen pre-command.)
         time.sleep(0.1)
 
+        # Wrap the command the same way production does (interactive_runner
+        # always calls wrap_command before send-keys). This makes baseline
+        # and phase1 measurements apples-to-apples: both see the same
+        # EXIT:<n> ___DONE_... completion marker on the pane.
+        wrapped, marker = wrap_command(
+            scenario.shell_command, subtask_id=f"bench-{run_id[:8]}",
+        )
+
         t0 = time.monotonic()
         subprocess.run(
             [
                 "tmux", "send-keys", "-t", f"{session}:0.0",
-                scenario.shell_command, "Enter",
+                wrapped, "Enter",
             ],
             check=True,
         )
 
         t_detect, missed = _poll_for_baseline(
-            session, scenario, start=t0, timeout=10.0,
+            session, scenario, start=t0, timeout=timeout, marker=marker,
         )
         # When missed, e2e is reported as 0.0 per RunResult contract
         # (see metrics.py — aggregate() filters missed runs from latency
@@ -146,7 +155,7 @@ def run_scenario_baseline(scenario: Scenario) -> RunResult:
                 pass
 
 
-def run_scenario_phase1(scenario: Scenario) -> RunResult:
+def run_scenario_phase1(scenario: Scenario, timeout: float = 10.0) -> RunResult:
     """Run a scenario against the Phase 1 FIFO+ByteClassifier pipeline.
 
     Invariants:
@@ -189,6 +198,14 @@ def run_scenario_phase1(scenario: Scenario) -> RunResult:
             check=True,
         )
 
+        # Wrap the command the same way production does. The ByteClassifier
+        # cmd_end pattern matches EXIT:\d+ ___DONE_ — the digit guard rejects
+        # the "EXIT:$?" literal in the send-keys echo, so only the real
+        # completion fires the event.
+        wrapped, _marker = wrap_command(
+            scenario.shell_command, subtask_id=f"bench-p1-{run_id[:8]}",
+        )
+
         async def _run() -> tuple[float | None, bool]:
             stream = PaneStream.from_fifo_path(fifo_path)
             q = stream.subscribe()
@@ -197,11 +214,11 @@ def run_scenario_phase1(scenario: Scenario) -> RunResult:
                 subprocess.run(
                     [
                         "tmux", "send-keys", "-t", f"{session}:0.0",
-                        scenario.shell_command, "Enter",
+                        wrapped, "Enter",
                     ],
                     check=True,
                 )
-                deadline = t0 + 10.0
+                deadline = t0 + timeout
                 targets = set(scenario.expected_l2_kinds)
                 while True:
                     remaining = deadline - time.monotonic()
@@ -246,11 +263,16 @@ def _poll_for_baseline(
     scenario: Scenario,
     start: float,
     timeout: float,
+    marker: str | None = None,
 ) -> tuple[float | None, bool]:
     """Mimic today's wait_for_ready: capture-pane at adaptive 10→500ms backoff.
 
     Returns (t_detect, missed). When no target fires before ``timeout``,
     returns (None, True).
+
+    When ``marker`` is provided and cmd_end is an expected kind, the marker
+    substring is added to the cmd_end targets — matches production's
+    completion detection via wrap_command.
     """
     poll_interval = 0.010
     deadline = start + timeout
@@ -258,6 +280,8 @@ def _poll_for_baseline(
     targets: list[str] = []
     for kind in scenario.expected_l2_kinds:
         targets.extend(_TEXT_TARGETS.get(kind, []))
+    if marker and "cmd_end" in scenario.expected_l2_kinds:
+        targets.append(marker)
 
     # Snapshot the starting screen so cmd_end / prompt-style patterns
     # that were already on screen pre-command don't count as detection.
@@ -295,6 +319,10 @@ def main(argv: list[str] | None = None) -> None:
     )
     ap.add_argument("--runs", type=int, default=50)
     ap.add_argument("--out", default="evals/observation/report.json")
+    ap.add_argument(
+        "--timeout", type=float, default=10.0,
+        help="Per-run scenario timeout in seconds (default: 10.0)",
+    )
     args = ap.parse_args(argv)
 
     if not shutil.which("tmux"):
@@ -304,9 +332,9 @@ def main(argv: list[str] | None = None) -> None:
     for scenario in SCENARIOS:
         for i in range(args.runs):
             if args.mode == "baseline":
-                results.append(run_scenario_baseline(scenario))
+                results.append(run_scenario_baseline(scenario, timeout=args.timeout))
             elif args.mode == "phase1":
-                results.append(run_scenario_phase1(scenario))
+                results.append(run_scenario_phase1(scenario, timeout=args.timeout))
             else:
                 raise NotImplementedError(
                     f"mode={args.mode} lands in a later task"

@@ -4,8 +4,8 @@
     {
       "scenario_id": "error_scroll",
       "mode": "phase1",
-      "detect_latency_ms": 513.8440419977996,
-      "e2e_latency_ms": 513.8440419977996,
+      "detect_latency_ms": 518.1932079940452,
+      "e2e_latency_ms": 518.1932079940452,
       "missed": false,
       "cost_tokens": 0,
       "spec_waste": null
@@ -13,8 +13,8 @@
     {
       "scenario_id": "error_scroll",
       "mode": "phase1",
-      "detect_latency_ms": 518.5977920045843,
-      "e2e_latency_ms": 518.5977920045843,
+      "detect_latency_ms": 522.9150840023067,
+      "e2e_latency_ms": 522.9150840023067,
       "missed": false,
       "cost_tokens": 0,
       "spec_waste": null
@@ -22,8 +22,8 @@
     {
       "scenario_id": "error_scroll",
       "mode": "phase1",
-      "detect_latency_ms": 519.2351669975324,
-      "e2e_latency_ms": 519.2351669975324,
+      "detect_latency_ms": 510.9566250030184,
+      "e2e_latency_ms": 510.9566250030184,
       "missed": false,
       "cost_tokens": 0,
       "spec_waste": null
@@ -31,8 +31,8 @@
     {
       "scenario_id": "error_scroll",
       "mode": "phase1",
-      "detect_latency_ms": 518.6197090006317,
-      "e2e_latency_ms": 518.6197090006317,
+      "detect_latency_ms": 518.9237500017043,
+      "e2e_latency_ms": 518.9237500017043,
       "missed": false,
       "cost_tokens": 0,
       "spec_waste": null
@@ -40,8 +40,8 @@
     {
       "scenario_id": "error_scroll",
       "mode": "phase1",
-      "detect_latency_ms": 513.388458006375,
-      "e2e_latency_ms": 513.388458006375,
+      "detect_latency_ms": 518.9763750022394,
+      "e2e_latency_ms": 518.9763750022394,
       "missed": false,
       "cost_tokens": 0,
       "spec_waste": null
@@ -49,8 +49,8 @@
     {
       "scenario_id": "error_scroll",
       "mode": "phase1",
-      "detect_latency_ms": 515.5226249989937,
-      "e2e_latency_ms": 515.5226249989937,
+      "detect_latency_ms": 515.4083750021528,
+      "e2e_latency_ms": 515.4083750021528,
       "missed": false,
       "cost_tokens": 0,
       "spec_waste": null
@@ -58,8 +58,8 @@
     {
       "scenario_id": "error_scroll",
       "mode": "phase1",
-      "detect_latency_ms": 515.6313749976107,
-      "e2e_latency_ms": 515.6313749976107,
+      "detect_latency_ms": 519.5080829944345,
+      "e2e_latency_ms": 519.5080829944345,
       "missed": false,
       "cost_tokens": 0,
       "spec_waste": null
@@ -67,8 +67,8 @@
     {
       "scenario_id": "error_scroll",
       "mode": "phase1",
-      "detect_latency_ms": 514.395666999917,
-      "e2e_latency_ms": 514.395666999917,
+      "detect_latency_ms": 518.8700829967274,
+      "e2e_latency_ms": 518.8700829967274,
       "missed": false,
       "cost_tokens": 0,
       "spec_waste": null
@@ -76,8 +76,8 @@
     {
       "scenario_id": "error_scroll",
       "mode": "phase1",
-      "detect_latency_ms": 519.5106250030221,
-      "e2e_latency_ms": 519.5106250030221,
+      "detect_latency_ms": 520.9117499980493,
+      "e2e_latency_ms": 520.9117499980493,
       "missed": false,
       "cost_tokens": 0,
       "spec_waste": null
@@ -85,98 +85,8 @@
     {
       "scenario_id": "error_scroll",
       "mode": "phase1",
-      "detect_latency_ms": 518.3019999967655,
-      "e2e_latency_ms": 518.3019999967655,
-      "missed": false,
-      "cost_tokens": 0,
-      "spec_waste": null
-    },
-    {
-      "scenario_id": "error_scroll",
-      "mode": "phase1",
-      "detect_latency_ms": 515.9185000011348,
-      "e2e_latency_ms": 515.9185000011348,
-      "missed": false,
-      "cost_tokens": 0,
-      "spec_waste": null
-    },
-    {
-      "scenario_id": "error_scroll",
-      "mode": "phase1",
-      "detect_latency_ms": 517.4613749986747,
-      "e2e_latency_ms": 517.4613749986747,
-      "missed": false,
-      "cost_tokens": 0,
-      "spec_waste": null
-    },
-    {
-      "scenario_id": "error_scroll",
-      "mode": "phase1",
-      "detect_latency_ms": 521.7539169971133,
-      "e2e_latency_ms": 521.7539169971133,
-      "missed": false,
-      "cost_tokens": 0,
-      "spec_waste": null
-    },
-    {
-      "scenario_id": "error_scroll",
-      "mode": "phase1",
-      "detect_latency_ms": 517.4832500051707,
-      "e2e_latency_ms": 517.4832500051707,
-      "missed": false,
-      "cost_tokens": 0,
-      "spec_waste": null
-    },
-    {
-      "scenario_id": "error_scroll",
-      "mode": "phase1",
-      "detect_latency_ms": 515.8933749989956,
-      "e2e_latency_ms": 515.8933749989956,
-      "missed": false,
-      "cost_tokens": 0,
-      "spec_waste": null
-    },
-    {
-      "scenario_id": "error_scroll",
-      "mode": "phase1",
-      "detect_latency_ms": 517.5801250006771,
-      "e2e_latency_ms": 517.5801250006771,
-      "missed": false,
-      "cost_tokens": 0,
-      "spec_waste": null
-    },
-    {
-      "scenario_id": "error_scroll",
-      "mode": "phase1",
-      "detect_latency_ms": 521.1200419944362,
-      "e2e_latency_ms": 521.1200419944362,
-      "missed": false,
-      "cost_tokens": 0,
-      "spec_waste": null
-    },
-    {
-      "scenario_id": "error_scroll",
-      "mode": "phase1",
-      "detect_latency_ms": 517.9457499980344,
-      "e2e_latency_ms": 517.9457499980344,
-      "missed": false,
-      "cost_tokens": 0,
-      "spec_waste": null
-    },
-    {
-      "scenario_id": "error_scroll",
-      "mode": "phase1",
-      "detect_latency_ms": 519.981875004305,
-      "e2e_latency_ms": 519.981875004305,
-      "missed": false,
-      "cost_tokens": 0,
-      "spec_waste": null
-    },
-    {
-      "scenario_id": "error_scroll",
-      "mode": "phase1",
-      "detect_latency_ms": 513.8508749951143,
-      "e2e_latency_ms": 513.8508749951143,
+      "detect_latency_ms": 519.6316670044325,
+      "e2e_latency_ms": 519.6316670044325,
       "missed": false,
       "cost_tokens": 0,
       "spec_waste": null
@@ -184,8 +94,8 @@
     {
       "scenario_id": "password_prompt",
       "mode": "phase1",
-      "detect_latency_ms": 39.965084004506934,
-      "e2e_latency_ms": 39.965084004506934,
+      "detect_latency_ms": 40.26533399883192,
+      "e2e_latency_ms": 40.26533399883192,
       "missed": false,
       "cost_tokens": 0,
       "spec_waste": null
@@ -193,8 +103,8 @@
     {
       "scenario_id": "password_prompt",
       "mode": "phase1",
-      "detect_latency_ms": 34.09316699980991,
-      "e2e_latency_ms": 34.09316699980991,
+      "detect_latency_ms": 34.25208400585689,
+      "e2e_latency_ms": 34.25208400585689,
       "missed": false,
       "cost_tokens": 0,
       "spec_waste": null
@@ -202,8 +112,8 @@
     {
       "scenario_id": "password_prompt",
       "mode": "phase1",
-      "detect_latency_ms": 35.18808299850207,
-      "e2e_latency_ms": 35.18808299850207,
+      "detect_latency_ms": 35.12683299777564,
+      "e2e_latency_ms": 35.12683299777564,
       "missed": false,
       "cost_tokens": 0,
       "spec_waste": null
@@ -211,8 +121,8 @@
     {
       "scenario_id": "password_prompt",
       "mode": "phase1",
-      "detect_latency_ms": 33.87245799967786,
-      "e2e_latency_ms": 33.87245799967786,
+      "detect_latency_ms": 34.25087500363588,
+      "e2e_latency_ms": 34.25087500363588,
       "missed": false,
       "cost_tokens": 0,
       "spec_waste": null
@@ -220,8 +130,8 @@
     {
       "scenario_id": "password_prompt",
       "mode": "phase1",
-      "detect_latency_ms": 27.814041000965517,
-      "e2e_latency_ms": 27.814041000965517,
+      "detect_latency_ms": 34.59016600390896,
+      "e2e_latency_ms": 34.59016600390896,
       "missed": false,
       "cost_tokens": 0,
       "spec_waste": null
@@ -229,8 +139,8 @@
     {
       "scenario_id": "password_prompt",
       "mode": "phase1",
-      "detect_latency_ms": 34.28133299894398,
-      "e2e_latency_ms": 34.28133299894398,
+      "detect_latency_ms": 62.60866599768633,
+      "e2e_latency_ms": 62.60866599768633,
       "missed": false,
       "cost_tokens": 0,
       "spec_waste": null
@@ -238,8 +148,8 @@
     {
       "scenario_id": "password_prompt",
       "mode": "phase1",
-      "detect_latency_ms": 34.798458000295796,
-      "e2e_latency_ms": 34.798458000295796,
+      "detect_latency_ms": 62.766542003373615,
+      "e2e_latency_ms": 62.766542003373615,
       "missed": false,
       "cost_tokens": 0,
       "spec_waste": null
@@ -247,8 +157,8 @@
     {
       "scenario_id": "password_prompt",
       "mode": "phase1",
-      "detect_latency_ms": 33.94124999613268,
-      "e2e_latency_ms": 33.94124999613268,
+      "detect_latency_ms": 34.05812499840977,
+      "e2e_latency_ms": 34.05812499840977,
       "missed": false,
       "cost_tokens": 0,
       "spec_waste": null
@@ -256,8 +166,8 @@
     {
       "scenario_id": "password_prompt",
       "mode": "phase1",
-      "detect_latency_ms": 34.6791249976377,
-      "e2e_latency_ms": 34.6791249976377,
+      "detect_latency_ms": 34.45679099968402,
+      "e2e_latency_ms": 34.45679099968402,
       "missed": false,
       "cost_tokens": 0,
       "spec_waste": null
@@ -265,98 +175,8 @@
     {
       "scenario_id": "password_prompt",
       "mode": "phase1",
-      "detect_latency_ms": 34.04133299773093,
-      "e2e_latency_ms": 34.04133299773093,
-      "missed": false,
-      "cost_tokens": 0,
-      "spec_waste": null
-    },
-    {
-      "scenario_id": "password_prompt",
-      "mode": "phase1",
-      "detect_latency_ms": 27.510209001775365,
-      "e2e_latency_ms": 27.510209001775365,
-      "missed": false,
-      "cost_tokens": 0,
-      "spec_waste": null
-    },
-    {
-      "scenario_id": "password_prompt",
-      "mode": "phase1",
-      "detect_latency_ms": 33.96875000180444,
-      "e2e_latency_ms": 33.96875000180444,
-      "missed": false,
-      "cost_tokens": 0,
-      "spec_waste": null
-    },
-    {
-      "scenario_id": "password_prompt",
-      "mode": "phase1",
-      "detect_latency_ms": 33.510833003674634,
-      "e2e_latency_ms": 33.510833003674634,
-      "missed": false,
-      "cost_tokens": 0,
-      "spec_waste": null
-    },
-    {
-      "scenario_id": "password_prompt",
-      "mode": "phase1",
-      "detect_latency_ms": 34.110249995137565,
-      "e2e_latency_ms": 34.110249995137565,
-      "missed": false,
-      "cost_tokens": 0,
-      "spec_waste": null
-    },
-    {
-      "scenario_id": "password_prompt",
-      "mode": "phase1",
-      "detect_latency_ms": 40.59520799637539,
-      "e2e_latency_ms": 40.59520799637539,
-      "missed": false,
-      "cost_tokens": 0,
-      "spec_waste": null
-    },
-    {
-      "scenario_id": "password_prompt",
-      "mode": "phase1",
-      "detect_latency_ms": 34.11616600351408,
-      "e2e_latency_ms": 34.11616600351408,
-      "missed": false,
-      "cost_tokens": 0,
-      "spec_waste": null
-    },
-    {
-      "scenario_id": "password_prompt",
-      "mode": "phase1",
-      "detect_latency_ms": 34.37904100428568,
-      "e2e_latency_ms": 34.37904100428568,
-      "missed": false,
-      "cost_tokens": 0,
-      "spec_waste": null
-    },
-    {
-      "scenario_id": "password_prompt",
-      "mode": "phase1",
-      "detect_latency_ms": 33.36824999860255,
-      "e2e_latency_ms": 33.36824999860255,
-      "missed": false,
-      "cost_tokens": 0,
-      "spec_waste": null
-    },
-    {
-      "scenario_id": "password_prompt",
-      "mode": "phase1",
-      "detect_latency_ms": 34.0338750029332,
-      "e2e_latency_ms": 34.0338750029332,
-      "missed": false,
-      "cost_tokens": 0,
-      "spec_waste": null
-    },
-    {
-      "scenario_id": "password_prompt",
-      "mode": "phase1",
-      "detect_latency_ms": 34.832750003261026,
-      "e2e_latency_ms": 34.832750003261026,
+      "detect_latency_ms": 34.599083999637514,
+      "e2e_latency_ms": 34.599083999637514,
       "missed": false,
       "cost_tokens": 0,
       "spec_waste": null
@@ -364,8 +184,8 @@
     {
       "scenario_id": "confirm_prompt",
       "mode": "phase1",
-      "detect_latency_ms": 11.294709001958836,
-      "e2e_latency_ms": 11.294709001958836,
+      "detect_latency_ms": 11.62520900106756,
+      "e2e_latency_ms": 11.62520900106756,
       "missed": false,
       "cost_tokens": 0,
       "spec_waste": null
@@ -373,8 +193,8 @@
     {
       "scenario_id": "confirm_prompt",
       "mode": "phase1",
-      "detect_latency_ms": 11.690333994920366,
-      "e2e_latency_ms": 11.690333994920366,
+      "detect_latency_ms": 11.703957999998238,
+      "e2e_latency_ms": 11.703957999998238,
       "missed": false,
       "cost_tokens": 0,
       "spec_waste": null
@@ -382,8 +202,8 @@
     {
       "scenario_id": "confirm_prompt",
       "mode": "phase1",
-      "detect_latency_ms": 11.177833999681752,
-      "e2e_latency_ms": 11.177833999681752,
+      "detect_latency_ms": 11.268834001384676,
+      "e2e_latency_ms": 11.268834001384676,
       "missed": false,
       "cost_tokens": 0,
       "spec_waste": null
@@ -391,8 +211,8 @@
     {
       "scenario_id": "confirm_prompt",
       "mode": "phase1",
-      "detect_latency_ms": 12.242332995811012,
-      "e2e_latency_ms": 12.242332995811012,
+      "detect_latency_ms": 11.675749999994878,
+      "e2e_latency_ms": 11.675749999994878,
       "missed": false,
       "cost_tokens": 0,
       "spec_waste": null
@@ -400,8 +220,8 @@
     {
       "scenario_id": "confirm_prompt",
       "mode": "phase1",
-      "detect_latency_ms": 11.96324999909848,
-      "e2e_latency_ms": 11.96324999909848,
+      "detect_latency_ms": 12.014459003694355,
+      "e2e_latency_ms": 12.014459003694355,
       "missed": false,
       "cost_tokens": 0,
       "spec_waste": null
@@ -409,8 +229,8 @@
     {
       "scenario_id": "confirm_prompt",
       "mode": "phase1",
-      "detect_latency_ms": 11.117082998680416,
-      "e2e_latency_ms": 11.117082998680416,
+      "detect_latency_ms": 12.161334001575597,
+      "e2e_latency_ms": 12.161334001575597,
       "missed": false,
       "cost_tokens": 0,
       "spec_waste": null
@@ -418,8 +238,8 @@
     {
       "scenario_id": "confirm_prompt",
       "mode": "phase1",
-      "detect_latency_ms": 11.531542004377116,
-      "e2e_latency_ms": 11.531542004377116,
+      "detect_latency_ms": 11.839708000479732,
+      "e2e_latency_ms": 11.839708000479732,
       "missed": false,
       "cost_tokens": 0,
       "spec_waste": null
@@ -427,8 +247,8 @@
     {
       "scenario_id": "confirm_prompt",
       "mode": "phase1",
-      "detect_latency_ms": 12.073249999957625,
-      "e2e_latency_ms": 12.073249999957625,
+      "detect_latency_ms": 12.036416999762878,
+      "e2e_latency_ms": 12.036416999762878,
       "missed": false,
       "cost_tokens": 0,
       "spec_waste": null
@@ -436,8 +256,8 @@
     {
       "scenario_id": "confirm_prompt",
       "mode": "phase1",
-      "detect_latency_ms": 11.385417004930787,
-      "e2e_latency_ms": 11.385417004930787,
+      "detect_latency_ms": 11.690374994941521,
+      "e2e_latency_ms": 11.690374994941521,
       "missed": false,
       "cost_tokens": 0,
       "spec_waste": null
@@ -445,98 +265,8 @@
     {
       "scenario_id": "confirm_prompt",
       "mode": "phase1",
-      "detect_latency_ms": 11.51512499927776,
-      "e2e_latency_ms": 11.51512499927776,
-      "missed": false,
-      "cost_tokens": 0,
-      "spec_waste": null
-    },
-    {
-      "scenario_id": "confirm_prompt",
-      "mode": "phase1",
-      "detect_latency_ms": 11.705625001923181,
-      "e2e_latency_ms": 11.705625001923181,
-      "missed": false,
-      "cost_tokens": 0,
-      "spec_waste": null
-    },
-    {
-      "scenario_id": "confirm_prompt",
-      "mode": "phase1",
-      "detect_latency_ms": 12.007833996904083,
-      "e2e_latency_ms": 12.007833996904083,
-      "missed": false,
-      "cost_tokens": 0,
-      "spec_waste": null
-    },
-    {
-      "scenario_id": "confirm_prompt",
-      "mode": "phase1",
-      "detect_latency_ms": 11.565375003556255,
-      "e2e_latency_ms": 11.565375003556255,
-      "missed": false,
-      "cost_tokens": 0,
-      "spec_waste": null
-    },
-    {
-      "scenario_id": "confirm_prompt",
-      "mode": "phase1",
-      "detect_latency_ms": 13.036707998253405,
-      "e2e_latency_ms": 13.036707998253405,
-      "missed": false,
-      "cost_tokens": 0,
-      "spec_waste": null
-    },
-    {
-      "scenario_id": "confirm_prompt",
-      "mode": "phase1",
-      "detect_latency_ms": 11.643874997389503,
-      "e2e_latency_ms": 11.643874997389503,
-      "missed": false,
-      "cost_tokens": 0,
-      "spec_waste": null
-    },
-    {
-      "scenario_id": "confirm_prompt",
-      "mode": "phase1",
-      "detect_latency_ms": 12.026374999550171,
-      "e2e_latency_ms": 12.026374999550171,
-      "missed": false,
-      "cost_tokens": 0,
-      "spec_waste": null
-    },
-    {
-      "scenario_id": "confirm_prompt",
-      "mode": "phase1",
-      "detect_latency_ms": 11.879208002937958,
-      "e2e_latency_ms": 11.879208002937958,
-      "missed": false,
-      "cost_tokens": 0,
-      "spec_waste": null
-    },
-    {
-      "scenario_id": "confirm_prompt",
-      "mode": "phase1",
-      "detect_latency_ms": 12.795333997928537,
-      "e2e_latency_ms": 12.795333997928537,
-      "missed": false,
-      "cost_tokens": 0,
-      "spec_waste": null
-    },
-    {
-      "scenario_id": "confirm_prompt",
-      "mode": "phase1",
-      "detect_latency_ms": 11.768457996367943,
-      "e2e_latency_ms": 11.768457996367943,
-      "missed": false,
-      "cost_tokens": 0,
-      "spec_waste": null
-    },
-    {
-      "scenario_id": "confirm_prompt",
-      "mode": "phase1",
-      "detect_latency_ms": 11.2890000018524,
-      "e2e_latency_ms": 11.2890000018524,
+      "detect_latency_ms": 11.745374999009073,
+      "e2e_latency_ms": 11.745374999009073,
       "missed": false,
       "cost_tokens": 0,
       "spec_waste": null
@@ -544,270 +274,90 @@
     {
       "scenario_id": "spinner_ok",
       "mode": "phase1",
-      "detect_latency_ms": null,
-      "e2e_latency_ms": 0.0,
-      "missed": true,
+      "detect_latency_ms": 1565.8860829935293,
+      "e2e_latency_ms": 1565.8860829935293,
+      "missed": false,
       "cost_tokens": 0,
       "spec_waste": null
     },
     {
       "scenario_id": "spinner_ok",
       "mode": "phase1",
-      "detect_latency_ms": null,
-      "e2e_latency_ms": 0.0,
-      "missed": true,
+      "detect_latency_ms": 1563.6832499949378,
+      "e2e_latency_ms": 1563.6832499949378,
+      "missed": false,
       "cost_tokens": 0,
       "spec_waste": null
     },
     {
       "scenario_id": "spinner_ok",
       "mode": "phase1",
-      "detect_latency_ms": null,
-      "e2e_latency_ms": 0.0,
-      "missed": true,
+      "detect_latency_ms": 1559.3759999974282,
+      "e2e_latency_ms": 1559.3759999974282,
+      "missed": false,
       "cost_tokens": 0,
       "spec_waste": null
     },
     {
       "scenario_id": "spinner_ok",
       "mode": "phase1",
-      "detect_latency_ms": null,
-      "e2e_latency_ms": 0.0,
-      "missed": true,
+      "detect_latency_ms": 1559.982165999827,
+      "e2e_latency_ms": 1559.982165999827,
+      "missed": false,
       "cost_tokens": 0,
       "spec_waste": null
     },
     {
       "scenario_id": "spinner_ok",
       "mode": "phase1",
-      "detect_latency_ms": null,
-      "e2e_latency_ms": 0.0,
-      "missed": true,
+      "detect_latency_ms": 1565.9615830008988,
+      "e2e_latency_ms": 1565.9615830008988,
+      "missed": false,
       "cost_tokens": 0,
       "spec_waste": null
     },
     {
       "scenario_id": "spinner_ok",
       "mode": "phase1",
-      "detect_latency_ms": null,
-      "e2e_latency_ms": 0.0,
-      "missed": true,
+      "detect_latency_ms": 1570.0297920047888,
+      "e2e_latency_ms": 1570.0297920047888,
+      "missed": false,
       "cost_tokens": 0,
       "spec_waste": null
     },
     {
       "scenario_id": "spinner_ok",
       "mode": "phase1",
-      "detect_latency_ms": null,
-      "e2e_latency_ms": 0.0,
-      "missed": true,
+      "detect_latency_ms": 1564.2395000031684,
+      "e2e_latency_ms": 1564.2395000031684,
+      "missed": false,
       "cost_tokens": 0,
       "spec_waste": null
     },
     {
       "scenario_id": "spinner_ok",
       "mode": "phase1",
-      "detect_latency_ms": null,
-      "e2e_latency_ms": 0.0,
-      "missed": true,
+      "detect_latency_ms": 1562.489292002283,
+      "e2e_latency_ms": 1562.489292002283,
+      "missed": false,
       "cost_tokens": 0,
       "spec_waste": null
     },
     {
       "scenario_id": "spinner_ok",
       "mode": "phase1",
-      "detect_latency_ms": null,
-      "e2e_latency_ms": 0.0,
-      "missed": true,
+      "detect_latency_ms": 1557.4346669964143,
+      "e2e_latency_ms": 1557.4346669964143,
+      "missed": false,
       "cost_tokens": 0,
       "spec_waste": null
     },
     {
       "scenario_id": "spinner_ok",
       "mode": "phase1",
-      "detect_latency_ms": null,
-      "e2e_latency_ms": 0.0,
-      "missed": true,
-      "cost_tokens": 0,
-      "spec_waste": null
-    },
-    {
-      "scenario_id": "spinner_ok",
-      "mode": "phase1",
-      "detect_latency_ms": null,
-      "e2e_latency_ms": 0.0,
-      "missed": true,
-      "cost_tokens": 0,
-      "spec_waste": null
-    },
-    {
-      "scenario_id": "spinner_ok",
-      "mode": "phase1",
-      "detect_latency_ms": null,
-      "e2e_latency_ms": 0.0,
-      "missed": true,
-      "cost_tokens": 0,
-      "spec_waste": null
-    },
-    {
-      "scenario_id": "spinner_ok",
-      "mode": "phase1",
-      "detect_latency_ms": null,
-      "e2e_latency_ms": 0.0,
-      "missed": true,
-      "cost_tokens": 0,
-      "spec_waste": null
-    },
-    {
-      "scenario_id": "spinner_ok",
-      "mode": "phase1",
-      "detect_latency_ms": null,
-      "e2e_latency_ms": 0.0,
-      "missed": true,
-      "cost_tokens": 0,
-      "spec_waste": null
-    },
-    {
-      "scenario_id": "spinner_ok",
-      "mode": "phase1",
-      "detect_latency_ms": null,
-      "e2e_latency_ms": 0.0,
-      "missed": true,
-      "cost_tokens": 0,
-      "spec_waste": null
-    },
-    {
-      "scenario_id": "spinner_ok",
-      "mode": "phase1",
-      "detect_latency_ms": null,
-      "e2e_latency_ms": 0.0,
-      "missed": true,
-      "cost_tokens": 0,
-      "spec_waste": null
-    },
-    {
-      "scenario_id": "spinner_ok",
-      "mode": "phase1",
-      "detect_latency_ms": null,
-      "e2e_latency_ms": 0.0,
-      "missed": true,
-      "cost_tokens": 0,
-      "spec_waste": null
-    },
-    {
-      "scenario_id": "spinner_ok",
-      "mode": "phase1",
-      "detect_latency_ms": null,
-      "e2e_latency_ms": 0.0,
-      "missed": true,
-      "cost_tokens": 0,
-      "spec_waste": null
-    },
-    {
-      "scenario_id": "spinner_ok",
-      "mode": "phase1",
-      "detect_latency_ms": null,
-      "e2e_latency_ms": 0.0,
-      "missed": true,
-      "cost_tokens": 0,
-      "spec_waste": null
-    },
-    {
-      "scenario_id": "spinner_ok",
-      "mode": "phase1",
-      "detect_latency_ms": null,
-      "e2e_latency_ms": 0.0,
-      "missed": true,
-      "cost_tokens": 0,
-      "spec_waste": null
-    },
-    {
-      "scenario_id": "spinner_fail",
-      "mode": "phase1",
-      "detect_latency_ms": null,
-      "e2e_latency_ms": 0.0,
-      "missed": true,
-      "cost_tokens": 0,
-      "spec_waste": null
-    },
-    {
-      "scenario_id": "spinner_fail",
-      "mode": "phase1",
-      "detect_latency_ms": null,
-      "e2e_latency_ms": 0.0,
-      "missed": true,
-      "cost_tokens": 0,
-      "spec_waste": null
-    },
-    {
-      "scenario_id": "spinner_fail",
-      "mode": "phase1",
-      "detect_latency_ms": null,
-      "e2e_latency_ms": 0.0,
-      "missed": true,
-      "cost_tokens": 0,
-      "spec_waste": null
-    },
-    {
-      "scenario_id": "spinner_fail",
-      "mode": "phase1",
-      "detect_latency_ms": null,
-      "e2e_latency_ms": 0.0,
-      "missed": true,
-      "cost_tokens": 0,
-      "spec_waste": null
-    },
-    {
-      "scenario_id": "spinner_fail",
-      "mode": "phase1",
-      "detect_latency_ms": null,
-      "e2e_latency_ms": 0.0,
-      "missed": true,
-      "cost_tokens": 0,
-      "spec_waste": null
-    },
-    {
-      "scenario_id": "spinner_fail",
-      "mode": "phase1",
-      "detect_latency_ms": null,
-      "e2e_latency_ms": 0.0,
-      "missed": true,
-      "cost_tokens": 0,
-      "spec_waste": null
-    },
-    {
-      "scenario_id": "spinner_fail",
-      "mode": "phase1",
-      "detect_latency_ms": null,
-      "e2e_latency_ms": 0.0,
-      "missed": true,
-      "cost_tokens": 0,
-      "spec_waste": null
-    },
-    {
-      "scenario_id": "spinner_fail",
-      "mode": "phase1",
-      "detect_latency_ms": null,
-      "e2e_latency_ms": 0.0,
-      "missed": true,
-      "cost_tokens": 0,
-      "spec_waste": null
-    },
-    {
-      "scenario_id": "spinner_fail",
-      "mode": "phase1",
-      "detect_latency_ms": null,
-      "e2e_latency_ms": 0.0,
-      "missed": true,
-      "cost_tokens": 0,
-      "spec_waste": null
-    },
-    {
-      "scenario_id": "spinner_fail",
-      "mode": "phase1",
-      "detect_latency_ms": null,
-      "e2e_latency_ms": 0.0,
-      "missed": true,
+      "detect_latency_ms": 1559.0146249960526,
+      "e2e_latency_ms": 1559.0146249960526,
+      "missed": false,
       "cost_tokens": 0,
       "spec_waste": null
     },
@@ -904,8 +454,8 @@
     {
       "scenario_id": "color_only",
       "mode": "phase1",
-      "detect_latency_ms": 1027.9220419979538,
-      "e2e_latency_ms": 1027.9220419979538,
+      "detect_latency_ms": 1014.8742079982185,
+      "e2e_latency_ms": 1014.8742079982185,
       "missed": false,
       "cost_tokens": 0,
       "spec_waste": null
@@ -913,8 +463,8 @@
     {
       "scenario_id": "color_only",
       "mode": "phase1",
-      "detect_latency_ms": 1021.403917002317,
-      "e2e_latency_ms": 1021.403917002317,
+      "detect_latency_ms": 1020.6620419994579,
+      "e2e_latency_ms": 1020.6620419994579,
       "missed": false,
       "cost_tokens": 0,
       "spec_waste": null
@@ -922,8 +472,8 @@
     {
       "scenario_id": "color_only",
       "mode": "phase1",
-      "detect_latency_ms": 1018.6118749988964,
-      "e2e_latency_ms": 1018.6118749988964,
+      "detect_latency_ms": 1021.5485830049147,
+      "e2e_latency_ms": 1021.5485830049147,
       "missed": false,
       "cost_tokens": 0,
       "spec_waste": null
@@ -931,8 +481,8 @@
     {
       "scenario_id": "color_only",
       "mode": "phase1",
-      "detect_latency_ms": 1030.6712500023423,
-      "e2e_latency_ms": 1030.6712500023423,
+      "detect_latency_ms": 1019.2056250016321,
+      "e2e_latency_ms": 1019.2056250016321,
       "missed": false,
       "cost_tokens": 0,
       "spec_waste": null
@@ -940,8 +490,8 @@
     {
       "scenario_id": "color_only",
       "mode": "phase1",
-      "detect_latency_ms": 1029.8039589979453,
-      "e2e_latency_ms": 1029.8039589979453,
+      "detect_latency_ms": 1021.9306670041988,
+      "e2e_latency_ms": 1021.9306670041988,
       "missed": false,
       "cost_tokens": 0,
       "spec_waste": null
@@ -949,8 +499,8 @@
     {
       "scenario_id": "color_only",
       "mode": "phase1",
-      "detect_latency_ms": 1027.0087080061785,
-      "e2e_latency_ms": 1027.0087080061785,
+      "detect_latency_ms": 1016.6942910000216,
+      "e2e_latency_ms": 1016.6942910000216,
       "missed": false,
       "cost_tokens": 0,
       "spec_waste": null
@@ -958,8 +508,8 @@
     {
       "scenario_id": "color_only",
       "mode": "phase1",
-      "detect_latency_ms": 1020.6851249968167,
-      "e2e_latency_ms": 1020.6851249968167,
+      "detect_latency_ms": 1018.8040420034667,
+      "e2e_latency_ms": 1018.8040420034667,
       "missed": false,
       "cost_tokens": 0,
       "spec_waste": null
@@ -967,8 +517,8 @@
     {
       "scenario_id": "color_only",
       "mode": "phase1",
-      "detect_latency_ms": 1022.1254159987438,
-      "e2e_latency_ms": 1022.1254159987438,
+      "detect_latency_ms": 1019.6835419992567,
+      "e2e_latency_ms": 1019.6835419992567,
       "missed": false,
       "cost_tokens": 0,
       "spec_waste": null
@@ -976,8 +526,8 @@
     {
       "scenario_id": "color_only",
       "mode": "phase1",
-      "detect_latency_ms": 1027.8955000030692,
-      "e2e_latency_ms": 1027.8955000030692,
+      "detect_latency_ms": 1015.3666250043898,
+      "e2e_latency_ms": 1015.3666250043898,
       "missed": false,
       "cost_tokens": 0,
       "spec_waste": null
@@ -985,98 +535,8 @@
     {
       "scenario_id": "color_only",
       "mode": "phase1",
-      "detect_latency_ms": 1027.3446659994079,
-      "e2e_latency_ms": 1027.3446659994079,
-      "missed": false,
-      "cost_tokens": 0,
-      "spec_waste": null
-    },
-    {
-      "scenario_id": "color_only",
-      "mode": "phase1",
-      "detect_latency_ms": 1019.6558749958058,
-      "e2e_latency_ms": 1019.6558749958058,
-      "missed": false,
-      "cost_tokens": 0,
-      "spec_waste": null
-    },
-    {
-      "scenario_id": "color_only",
-      "mode": "phase1",
-      "detect_latency_ms": 1025.3189590002876,
-      "e2e_latency_ms": 1025.3189590002876,
-      "missed": false,
-      "cost_tokens": 0,
-      "spec_waste": null
-    },
-    {
-      "scenario_id": "color_only",
-      "mode": "phase1",
-      "detect_latency_ms": 1022.2192500004894,
-      "e2e_latency_ms": 1022.2192500004894,
-      "missed": false,
-      "cost_tokens": 0,
-      "spec_waste": null
-    },
-    {
-      "scenario_id": "color_only",
-      "mode": "phase1",
-      "detect_latency_ms": 1025.8297500040499,
-      "e2e_latency_ms": 1025.8297500040499,
-      "missed": false,
-      "cost_tokens": 0,
-      "spec_waste": null
-    },
-    {
-      "scenario_id": "color_only",
-      "mode": "phase1",
-      "detect_latency_ms": 1021.8477500020526,
-      "e2e_latency_ms": 1021.8477500020526,
-      "missed": false,
-      "cost_tokens": 0,
-      "spec_waste": null
-    },
-    {
-      "scenario_id": "color_only",
-      "mode": "phase1",
-      "detect_latency_ms": 1017.0726659998763,
-      "e2e_latency_ms": 1017.0726659998763,
-      "missed": false,
-      "cost_tokens": 0,
-      "spec_waste": null
-    },
-    {
-      "scenario_id": "color_only",
-      "mode": "phase1",
-      "detect_latency_ms": 1018.5365830038791,
-      "e2e_latency_ms": 1018.5365830038791,
-      "missed": false,
-      "cost_tokens": 0,
-      "spec_waste": null
-    },
-    {
-      "scenario_id": "color_only",
-      "mode": "phase1",
-      "detect_latency_ms": 1021.4124580015778,
-      "e2e_latency_ms": 1021.4124580015778,
-      "missed": false,
-      "cost_tokens": 0,
-      "spec_waste": null
-    },
-    {
-      "scenario_id": "color_only",
-      "mode": "phase1",
-      "detect_latency_ms": 1024.2285000058473,
-      "e2e_latency_ms": 1024.2285000058473,
-      "missed": false,
-      "cost_tokens": 0,
-      "spec_waste": null
-    },
-    {
-      "scenario_id": "color_only",
-      "mode": "phase1",
-      "detect_latency_ms": 1024.246665998362,
-      "e2e_latency_ms": 1024.246665998362,
+      "detect_latency_ms": 1019.6413329977077,
+      "e2e_latency_ms": 1019.6413329977077,
       "missed": false,
       "cost_tokens": 0,
       "spec_waste": null
