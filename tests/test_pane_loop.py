@@ -1,5 +1,7 @@
 """Tests for PaneLoop — per-pane asyncio loop on a background thread."""
 import asyncio
+import time
+
 import pytest
 from pane_loop import PaneLoop
 
@@ -25,8 +27,12 @@ def test_loop_stops_cleanly():
 def test_submit_after_stop_raises():
     loop = PaneLoop.start()
     loop.stop()
-    with pytest.raises(RuntimeError):
-        loop.submit(asyncio.sleep(0))
+    coro = asyncio.sleep(0)
+    try:
+        with pytest.raises(RuntimeError):
+            loop.submit(coro)
+    finally:
+        coro.close()
 
 
 def test_multiple_concurrent_submits():
@@ -48,3 +54,31 @@ def test_stop_is_idempotent():
     loop = PaneLoop.start()
     loop.stop()
     loop.stop()  # should be safe
+
+
+def test_submit_propagates_exception():
+    """An exception inside the submitted coroutine re-raises on .result()."""
+    loop = PaneLoop.start()
+    try:
+        async def boom():
+            raise ValueError("nope")
+        fut = loop.submit(boom())
+        with pytest.raises(ValueError, match="nope"):
+            fut.result(timeout=1.0)
+    finally:
+        loop.stop()
+
+
+def test_stop_cancels_running_task():
+    """stop() must cancel an in-flight coroutine (via the _run() finally
+    block's gather-with-cancellation), not block for the coroutine's natural
+    duration."""
+    loop = PaneLoop.start()
+    async def long():
+        await asyncio.sleep(10)
+    loop.submit(long())
+    time.sleep(0.05)  # let it start awaiting
+    t0 = time.monotonic()
+    loop.stop()
+    assert time.monotonic() - t0 < 1.0, "stop() should not wait for sleep(10)"
+    assert not loop.thread.is_alive()
