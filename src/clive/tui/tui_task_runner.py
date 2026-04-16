@@ -7,7 +7,6 @@ Extracted from tui.py. These were methods on CliveApp; they now take
 
 import json
 import os
-import shutil
 import time
 
 from textual.widgets import RichLog
