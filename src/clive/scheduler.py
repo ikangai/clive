@@ -109,32 +109,30 @@ def remove_schedule(name: str) -> bool:
     return False
 
 
-def pause_schedule(name: str) -> bool:
-    """Pause a schedule (keep definition, remove cron entry)."""
+def _toggle_schedule(name: str, active: bool) -> bool:
     path = os.path.join(SCHEDULE_DIR, f"{name}.json")
     if not os.path.exists(path):
         return False
     with open(path) as f:
         entry = json.load(f)
-    entry["active"] = False
+    entry["active"] = active
     with open(path, "w") as f:
         json.dump(entry, f, indent=2)
-    _uninstall_cron(name)
+    if active:
+        _install_cron(entry)
+    else:
+        _uninstall_cron(name)
     return True
+
+
+def pause_schedule(name: str) -> bool:
+    """Pause a schedule (keep definition, remove cron entry)."""
+    return _toggle_schedule(name, False)
 
 
 def resume_schedule(name: str) -> bool:
     """Resume a paused schedule."""
-    path = os.path.join(SCHEDULE_DIR, f"{name}.json")
-    if not os.path.exists(path):
-        return False
-    with open(path) as f:
-        entry = json.load(f)
-    entry["active"] = True
-    with open(path, "w") as f:
-        json.dump(entry, f, indent=2)
-    _install_cron(entry)
-    return True
+    return _toggle_schedule(name, True)
 
 
 def list_schedules() -> list[dict]:
