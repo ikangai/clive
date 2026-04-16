@@ -12,6 +12,8 @@ from models import PaneInfo
 from prompts import load_driver_meta
 from runtime import resolve_model_tier
 
+log = logging.getLogger(__name__)
+
 SESSION_NAME = "clive"
 SOCKET_NAME = "clive"  # Dedicated tmux server socket — isolates clive from user sessions
 
@@ -156,7 +158,7 @@ def add_pane(session: libtmux.Session, tool: dict, session_dir: str | None = Non
         poll = min(poll * 2, 0.3)
 
     driver_meta = load_driver_meta(tool["app_type"])
-    return PaneInfo(
+    info = PaneInfo(
         pane=pane,
         app_type=tool["app_type"],
         description=tool["description"],
@@ -166,6 +168,120 @@ def add_pane(session: libtmux.Session, tool: dict, session_dir: str | None = Non
         agent_model=resolve_model_tier(driver_meta.get("agent_model")),
         observation_model=resolve_model_tier(driver_meta.get("observation_model")),
     )
+    _maybe_attach_stream(info, session_dir)
+    return info
+
+
+def _maybe_attach_stream(pane_info: PaneInfo, session_dir: str | None) -> None:
+    """Attach a PaneStream + PaneLoop to pane_info if CLIVE_STREAMING_OBS=1.
+
+    Creates ``{session_dir or /tmp/clive}/pipes/{pane_name}.fifo``, runs
+    ``tmux pipe-pane -o 'cat > <fifo>'`` so tmux writes all pane output
+    into the pipe, spins up a PaneLoop (per-pane asyncio loop on a
+    background thread), and constructs a PaneStream on that loop so
+    its reader task lives alongside later consumers.
+
+    Silent fallback on any failure: pane_info.stream stays None and
+    the polling observation path continues to work unchanged.
+    """
+    import os
+    if os.environ.get("CLIVE_STREAMING_OBS") != "1":
+        return
+
+    base = session_dir or "/tmp/clive"
+    fifo_dir = os.path.join(base, "pipes")
+    fifo_path = os.path.join(fifo_dir, f"{pane_info.name}.fifo")
+
+    pane_loop = None
+    try:
+        os.makedirs(fifo_dir, exist_ok=True)
+        # Idempotent: stale FIFO from a previous non-cleaned run shouldn't
+        # block a fresh attach.
+        if os.path.exists(fifo_path):
+            os.unlink(fifo_path)
+        os.mkfifo(fifo_path)
+
+        # Start tmux writing to the FIFO before we open the read side.
+        # PaneStream uses O_NONBLOCK so open order is actually flexible,
+        # but running pipe-pane first means bytes start flowing sooner.
+        pane_info.pane.cmd("pipe-pane", "-o", f"cat > {fifo_path}")
+
+        from pane_loop import PaneLoop
+        from fifo_stream import PaneStream
+        pane_loop = PaneLoop.start()
+
+        # PaneStream.from_fifo_path calls asyncio.create_task, which
+        # requires a running loop. Submit it to the pane loop so the
+        # reader task is bound to the loop that will consume its queue.
+        async def _create():
+            return PaneStream.from_fifo_path(fifo_path)
+        stream = pane_loop.submit(_create()).result(timeout=2.0)
+
+        pane_info.pane_loop = pane_loop
+        pane_info.stream = stream
+    except Exception as e:
+        log.warning(
+            "stream setup failed for pane %s: %s (falling back to poll path)",
+            pane_info.name, e,
+        )
+        if pane_loop is not None:
+            try:
+                pane_loop.stop()
+            except Exception:
+                pass
+        pane_info.stream = None
+        pane_info.pane_loop = None
+
+
+def detach_stream(pane_info: PaneInfo) -> None:
+    """Reverse of ``_maybe_attach_stream``. Safe to call if nothing attached.
+
+    Order matters: tmux pipe-pane off first (stop writers), then close
+    the PaneStream on its own loop, stop the loop, finally unlink the
+    FIFO. Exceptions at each step are logged but don't halt teardown.
+    """
+    import os
+    stream = pane_info.stream
+    pane_loop = pane_info.pane_loop
+    if stream is None and pane_loop is None:
+        return
+
+    # Grab fifo_path before we null anything.
+    fifo_path = stream.fifo_path if stream is not None else None
+
+    # Toggle pipe-pane off. The -o flag toggles the active pipe when
+    # given no shell command, matching the state we set in attach.
+    try:
+        pane_info.pane.cmd("pipe-pane", "-o")
+    except Exception as e:
+        log.warning("pipe-pane off failed for %s: %s", pane_info.name, e)
+
+    # Close the stream on the loop that owns its reader task.
+    if (
+        stream is not None
+        and pane_loop is not None
+        and pane_loop.thread
+        and pane_loop.thread.is_alive()
+    ):
+        try:
+            pane_loop.submit(stream.close()).result(timeout=2.0)
+        except Exception as e:
+            log.warning("stream.close() failed for %s: %s", pane_info.name, e)
+
+    if pane_loop is not None:
+        try:
+            pane_loop.stop()
+        except Exception:
+            pass
+
+    if fifo_path and os.path.exists(fifo_path):
+        try:
+            os.unlink(fifo_path)
+        except OSError as e:
+            log.warning("fifo unlink failed for %s: %s", fifo_path, e)
+
+    pane_info.stream = None
+    pane_info.pane_loop = None
 
 
 def add_conversational_pane(session: libtmux.Session) -> libtmux.Pane:
