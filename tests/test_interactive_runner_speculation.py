@@ -65,9 +65,25 @@ def test_no_stream_path_does_not_construct_scheduler():
     SchedCls.assert_not_called()
 
 
-def test_stream_path_constructs_scheduler_and_spawns_watch():
+def test_stream_path_does_not_construct_scheduler_without_flag(monkeypatch):
+    """With stream+loop present but CLIVE_SPECULATE unset, scheduler is not built."""
+    monkeypatch.delenv("CLIVE_SPECULATE", raising=False)
+    info = _pane_info_with_stream()
+    subtask = _minimal_subtask()
+
+    with patch("interactive_runner.SpeculationScheduler") as SchedCls, \
+         patch("interactive_runner.chat_stream", return_value=("DONE: ok", 0, 0)), \
+         patch("interactive_runner.extract_command", return_value=None), \
+         patch("interactive_runner.extract_done", return_value="done"):
+        run_subtask_interactive(subtask, info, "dep ctx", session_dir="/tmp/x")
+
+    SchedCls.assert_not_called()
+
+
+def test_stream_path_constructs_scheduler_and_spawns_watch(monkeypatch):
     """With a stream + pane_loop, the runner constructs a scheduler and
     spawns _spec_watch on the loop."""
+    monkeypatch.setenv("CLIVE_SPECULATE", "1")
     info = _pane_info_with_stream()
     subtask = _minimal_subtask()
 
@@ -97,8 +113,9 @@ def test_stream_path_constructs_scheduler_and_spawns_watch():
             arg.close()
 
 
-def test_accepted_spec_result_short_circuits_chat_stream():
+def test_accepted_spec_result_short_circuits_chat_stream(monkeypatch):
     """When try_consume returns a non-None reply, chat_stream is NOT called."""
+    monkeypatch.setenv("CLIVE_SPECULATE", "1")
     info = _pane_info_with_stream()
     subtask = _minimal_subtask()
 
@@ -123,8 +140,9 @@ def test_accepted_spec_result_short_circuits_chat_stream():
             arg.close()
 
 
-def test_watch_future_cancelled_on_exit():
+def test_watch_future_cancelled_on_exit(monkeypatch):
     """Runner cancels the _spec_watch future on return."""
+    monkeypatch.setenv("CLIVE_SPECULATE", "1")
     info = _pane_info_with_stream()
     subtask = _minimal_subtask()
 

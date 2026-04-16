@@ -172,6 +172,40 @@ def test_accept_cancels_older_calls():
     older.cancel.assert_called_once()
 
 
+def test_metrics_snapshot_tracks_fires_accepts_and_cancellations():
+    client = MagicMock()
+    fut = _ready_future(reply="ok")
+    pl = _make_pane_loop([fut])
+    sched = SpeculationScheduler(client, model="test", pane_loop=pl)
+    sched.MIN_FIRE_INTERVAL = 0.0  # disable rate limit for deterministic counting
+
+    sched.fire(_evt(), messages_snapshot=[])
+    sched.try_consume(current_messages=[])
+
+    m = sched.snapshot_metrics()
+    assert m["fires_total"] == 1
+    assert m["accepts_total"] == 1
+    assert m["discards_snapshot_mismatch"] == 0
+    assert m["cancellations_total"] == 0
+
+
+def test_metrics_snapshot_tracks_rate_limit_and_mismatch():
+    client = MagicMock()
+    fut_stale = _ready_future(reply="stale")
+    pl = _make_pane_loop([fut_stale, _pending_future()])
+    sched = SpeculationScheduler(client, model="test", pane_loop=pl)
+    # Keep rate limit in force: second fire immediately after first
+
+    sched.fire(_evt(), messages_snapshot=[{"role": "user", "content": "snap"}])
+    sched.fire(_evt(), messages_snapshot=[])  # rate-limited
+    sched.try_consume(current_messages=[{"role": "user", "content": "different"}])  # mismatch
+
+    m = sched.snapshot_metrics()
+    assert m["fires_total"] == 1
+    assert m["fires_rate_limited"] == 1
+    assert m["discards_snapshot_mismatch"] == 1
+
+
 def test_circuit_breaker_disables_after_threshold():
     client = MagicMock()
     pl = _make_pane_loop([_pending_future() for _ in range(20)])

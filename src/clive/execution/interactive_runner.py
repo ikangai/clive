@@ -6,6 +6,7 @@ dependency on executor.
 """
 
 import logging
+import os
 import re
 import threading
 import time
@@ -165,7 +166,8 @@ def run_subtask_interactive(
     # polled from the runner thread before each chat_stream call.
     scheduler = None
     spec_watch_future = None
-    if pane_info.stream is not None and pane_info.pane_loop is not None:
+    _speculate_enabled = os.environ.get("CLIVE_SPECULATE") == "1"
+    if _speculate_enabled and pane_info.stream is not None and pane_info.pane_loop is not None:
         scheduler = SpeculationScheduler(
             client, effective_model, pane_loop=pane_info.pane_loop,
         )
@@ -358,3 +360,8 @@ def run_subtask_interactive(
         # they become unreferenced when the scheduler goes out of scope.
         if spec_watch_future is not None:
             spec_watch_future.cancel()
+        if scheduler is not None:
+            log.info(
+                "speculation metrics for pane %s: %s",
+                pane_info.name, scheduler.snapshot_metrics(),
+            )

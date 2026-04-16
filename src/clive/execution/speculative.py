@@ -68,6 +68,14 @@ class SpeculationScheduler:
         self.accepted_version: int = 0
         self._last_fire_ts: float = 0.0
         self._cancel_times: collections.deque = collections.deque(maxlen=32)
+        # Instrumentation counters (Phase 2 real-use observation).
+        self.fires_total: int = 0
+        self.fires_rate_limited: int = 0
+        self.fires_breaker_tripped: int = 0
+        self.accepts_total: int = 0
+        self.discards_snapshot_mismatch: int = 0
+        self.discards_exception: int = 0
+        self.cancellations_total: int = 0
 
     # --- Public API ----------------------------------------------------
 
@@ -75,10 +83,12 @@ class SpeculationScheduler:
         """Submit a speculative chat call. Returns True if fired, False if
         rate-limited or breaker-tripped."""
         if self._breaker_tripped():
+            self.fires_breaker_tripped += 1
             return False
 
         now = time.monotonic()
         if now - self._last_fire_ts < self.MIN_FIRE_INTERVAL:
+            self.fires_rate_limited += 1
             return False
         self._last_fire_ts = now
 
@@ -101,6 +111,7 @@ class SpeculationScheduler:
             messages_snapshot=list(messages_snapshot),
             started_at=now,
         ))
+        self.fires_total += 1
         return True
 
     def try_consume(self, current_messages: list[dict]) -> tuple[str | None, int, int]:
@@ -119,15 +130,18 @@ class SpeculationScheduler:
                 continue
             if not self._snapshot_matches(call.messages_snapshot, current_messages):
                 self.in_flight.remove(call)
+                self.discards_snapshot_mismatch += 1
                 continue
             try:
                 reply, pt, ct = call.future.result()
             except Exception as exc:
                 log.warning("speculative call v=%d raised: %r", call.version, exc)
                 self.in_flight.remove(call)
+                self.discards_exception += 1
                 continue
             self.accepted_version = call.version
             self._cancel_older_than(call.version)
+            self.accepts_total += 1
             return reply, pt, ct
         return None, 0, 0
 
@@ -153,6 +167,23 @@ class SpeculationScheduler:
 
     def _record_cancel(self) -> None:
         self._cancel_times.append(time.monotonic())
+        self.cancellations_total += 1
+
+    def snapshot_metrics(self) -> dict[str, int]:
+        """Return a snapshot of scheduler counters.
+
+        Stable interface for external callers (dashboards, tests,
+        telemetry). Counters are monotonic over the scheduler's lifetime.
+        """
+        return {
+            "fires_total": self.fires_total,
+            "fires_rate_limited": self.fires_rate_limited,
+            "fires_breaker_tripped": self.fires_breaker_tripped,
+            "accepts_total": self.accepts_total,
+            "discards_snapshot_mismatch": self.discards_snapshot_mismatch,
+            "discards_exception": self.discards_exception,
+            "cancellations_total": self.cancellations_total,
+        }
 
     def _breaker_tripped(self) -> bool:
         now = time.monotonic()

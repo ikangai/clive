@@ -68,3 +68,12 @@ Both wins match the design doc's motivations (§1: "text-only classifier ... col
 Shipped option **B** on 2026-04-16: revised criterion 1 in the design doc §8.3 to credit new-detection wins on scenarios baseline fundamentally cannot see, and flipped `CLIVE_STREAMING_OBS` to default-on (opt-out via `=0`). The revision acknowledges the floor effect honestly — Phase 1 is a clear net win (two new detection paths, zero regressions, 15–20% latency gains where baseline already detects), and the original 30% bar was unreachable only because baseline was already catching at the adaptive-poll floor on those scenarios.
 
 `CLIVE_STREAMING_OBS` is default-on. Set `=0` to fall back to the polling observation path.
+
+---
+
+## Phase 2 — deferred gate
+
+Phase 2 (SpeculationScheduler + runner integration) ships behind `CLIVE_SPECULATE=1`
+(default off). The synthetic-bench gate was replaced with real-use instrumentation:
+`SpeculationScheduler.snapshot_metrics()` exposes fire/accept/discard/cancel counters,
+logged at runner teardown. See design doc §8.3 for rationale.
