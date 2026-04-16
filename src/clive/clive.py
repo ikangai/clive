@@ -41,34 +41,12 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-from output import progress, step, detail, activity, finish, result
-from session import (
-    setup_session, check_health, generate_session_id, add_pane,
-    SESSION_NAME, SOCKET_NAME,
-)
-from toolsets import (
-    resolve_toolset, check_commands, build_tools_summary,
-    print_availability, list_toolsets, list_categories,
-    find_category, normalize_tool_name,
-    DEFAULT_TOOLSET, PROFILES, CATEGORIES, PANES, COMMANDS, ENDPOINTS,
-)
-from planner import create_plan, display_plan
-from executor import execute_plan, cancel as cancel_executor, reset_cancel, is_cancelled
-from router import route_task
-from models import SubtaskStatus, Plan, Subtask, ClassifierResult
-from llm import get_client, chat, CLASSIFIER_MODEL, PROVIDER_NAME, MODEL
-from prompts import build_summarizer_prompt, build_classifier_prompt
-from config import get_unconfigured, run_setup, find_config_schema, is_configured
-import summarizer
+from output import step, detail, result
+from llm import get_client, PROVIDER_NAME
 
-# Runtime helpers (routing, session setup, run loop) live in clive_core.
-# Re-export _is_direct for tests that `from clive import _is_direct`.
-from clive_core import (
-    run,
-    _setup_session,
-    _expand_toolset,
-    _is_direct,
-)
+# Runtime helpers live in clive_core.
+# _is_direct is re-exported so tests can `from clive import _is_direct`.
+from clive_core import run, _is_direct  # noqa: F401
 
 
 # --- Entry Point --------------------------------------------------------------
