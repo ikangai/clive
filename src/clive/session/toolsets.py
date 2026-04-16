@@ -26,8 +26,6 @@ Public API:
 
 import subprocess
 
-from output import progress
-
 # ── Pane definitions ─────────────────────────────────────────────────────────
 # Each creates a tmux window — a conversation channel the agent controls.
 # Only use a separate pane when the tool needs persistent state (TUI)
@@ -628,46 +626,6 @@ def build_tools_summary(
     if not sections:
         return "No tools available. Only basic shell commands can be used."
     return "\n\n".join(sections)
-
-
-def print_availability(
-    pane_status: dict[str, dict],
-    available_commands: list[dict],
-    missing_commands: list[dict],
-    endpoints: list[dict],
-    categories: list[str],
-) -> None:
-    """Print a startup status table showing what's available."""
-    cat_str = ", ".join(categories)
-    progress(f"  Categories: {cat_str}")
-    progress("")
-
-    # Commands
-    if available_commands or missing_commands:
-        progress("  Commands:")
-        for cmd in available_commands:
-            desc = cmd["description"].split(" — ")[0] if " — " in cmd["description"] else cmd["description"][:40]
-            progress(f"    + {cmd['name']:20s} {desc}")
-        for cmd in missing_commands:
-            install = cmd.get("install", "")
-            progress(f"    - {cmd['name']:20s} not found ({install})")
-        progress("")
-
-    # Endpoints
-    if endpoints:
-        progress(f"  APIs: {len(endpoints)} endpoints (always available)")
-        progress("")
-
-
-# ── Legacy API (backward compatible) ─────────────────────────────────────────
-
-def get_toolset(name: str) -> list[dict]:
-    """Return pane tool list for a named profile.
-
-    Legacy API — use resolve_toolset() for the full three-surface model.
-    """
-    resolved = resolve_toolset(name)
-    return resolved["panes"]
 
 
 def list_toolsets() -> dict[str, list[str]]:
