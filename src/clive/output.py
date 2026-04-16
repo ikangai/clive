@@ -9,6 +9,9 @@ This enables clive as a shell primitive:
 """
 import sys
 import threading
+import time
+
+from protocol import encode
 
 _quiet = False
 _conversational = False
@@ -114,10 +117,7 @@ def is_conversational() -> bool:
 
 def _emit_framed_progress(msg: str):
     """Emit a framed progress frame. Used by the telemetry path in
-    conversational mode so the outer parser can see step/detail/activity
-    messages. Imports protocol lazily to avoid an import cycle at module
-    load."""
-    from protocol import encode
+    conversational mode so the outer parser can see step/detail/activity."""
     print(encode("progress", {"text": msg}), flush=True)
 
 
@@ -195,36 +195,29 @@ def result(msg: str):
 
 def emit_turn(state: str):
     """Emit a framed turn-state message. States: thinking, waiting, done, failed."""
-    from protocol import encode
     print(encode("turn", {"state": state}), flush=True)
 
 
 def emit_context(data: dict):
     """Emit a framed context message with an arbitrary JSON-serializable dict."""
-    from protocol import encode
     print(encode("context", data), flush=True)
 
 
 def emit_question(question: str):
     """Emit a framed question message."""
-    from protocol import encode
     print(encode("question", {"text": question}), flush=True)
 
 
 def emit_file(name: str):
     """Emit a framed file-available message."""
-    from protocol import encode
     print(encode("file", {"name": name}), flush=True)
 
 
 def emit_progress(text: str):
     """Emit a framed progress message."""
-    from protocol import encode
     print(encode("progress", {"text": text}), flush=True)
 
 
 def emit_alive():
     """Emit a framed keepalive message with current wall-clock timestamp."""
-    import time
-    from protocol import encode
     print(encode("alive", {"ts": time.time()}), flush=True)
