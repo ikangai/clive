@@ -123,6 +123,10 @@ intervention detect  compact summaries
 
 **Native tool calling** — When the provider supports it (OpenAI, Anthropic, Gemini, OpenRouter), the interactive runner uses native tool calls (`run_command`, `read_screen`, `complete`) instead of text-based command extraction. This enables command batching — multiple commands per LLM response — reducing turn count.
 
+**Streaming observation (v0.7.0)** — In addition to the post-command classifier, each pane now also streams raw bytes through `tmux pipe-pane` into a per-pane FIFO, where an async byte classifier detects ANSI SGR alerts (red/yellow text, blink), known prompts (`password:`, `[y/N]`), error keywords (`Traceback`, `FATAL`), and command-end markers in real time. The runner's `wait_for_ready` blocks on these events instead of polling `capture-pane` — so the agent sees a colored error the moment the bytes arrive, not up to 500 ms later. ANSI-only signals that `capture-pane -p` silently strips (status bars, color-without-text changes) are no longer invisible.
+
+Default-on; `CLIVE_STREAMING_OBS=0` opts out to the polling path. An opt-in speculation scheduler (`CLIVE_SPECULATE=1`) can fire the main LLM call speculatively on high-confidence events so inference overlaps with pane settling; version-stamped cancel-on-supersede guarantees ordering, and bounded concurrency + a circuit breaker cap the cost.
+
 ### Session state across tasks
 
 The REPL and TUI hold state across tasks so follow-ups work naturally:

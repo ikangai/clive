@@ -1,5 +1,64 @@
 # Changelog
 
+## 0.7.0 — Streaming observation + speculative decision (2026-04-16)
+
+Event-driven replacement for the poll-based observation loop. Raw pane bytes flow through `tmux pipe-pane` into a per-pane FIFO, an async byte classifier detects ANSI SGR alerts, prompts, error keywords, and command-end markers in real time, and `wait_for_ready` blocks on events instead of polling `capture-pane`. The agent sees a colored error the moment the bytes arrive (not up to 500 ms later), and signals that `capture-pane -p` strips by default (blink attributes, color-only changes) are no longer invisible.
+
+Phase 1 ships default-on. Phase 2 (speculative LLM calls that overlap inference with pane settling) ships feature-flagged off via `CLIVE_SPECULATE=1` pending real-use observation of the accept-rate metric. See [design doc](docs/plans/2026-04-16-streaming-observation-design.md).
+
+### Added
+
+- **L2 byte classifier** (`observation/byte_classifier.py`) — Regex patterns over raw pane bytes (pre-render, ANSI intact). Detects SGR red/yellow foreground and background, blink attribute, `[Pp]assword:` / `[y/N]` / `Are you sure` prompts, `Traceback|FATAL|panic:` keywords, `Permission denied`, and the `EXIT:<n> ___DONE_` completion marker. 128-byte carryover for cross-chunk matches; per-kind monotonic dedup so an earlier pattern's match at offset N doesn't suppress a later pattern's match at offset M < N.
+
+- **Per-pane FIFO reader** (`observation/fifo_stream.py`) — Non-blocking `os.read` loop that feeds chunks to the classifier and fans ByteEvents out to subscriber queues. `last_byte_ts` heartbeat for L1 activity detection; drop-newest backpressure on full queues.
+
+- **Per-pane asyncio loop** (`execution/pane_loop.py`) — Daemon-thread event loop that hosts the FIFO reader and speculation scheduler. Bridges the synchronous `interactive_runner` to the async observation pipeline via `submit(coro) -> Future`.
+
+- **Event-driven `wait_for_ready`** (`observation/completion.py`) — New `await_ready_events` coroutine consumes ByteEvents from a subscription queue with the same `(screen, detection_method)` return contract as the poll path. Intervention ByteEvent kinds map to the existing `intervention:<type>` detection strings. `wait_for_ready` gains optional `event_source=` kwarg; when unset (or when the pane has no stream), behavior is bit-identical to the previous poll loop.
+
+- **Pane lifecycle wiring** (`session/session.py`) — `add_pane` now creates the FIFO, runs `tmux pipe-pane`, spawns the pane loop, and attaches a `PaneStream` to `PaneInfo`. Silent fallback to polling on any failure (mkfifo errors, tmux issues, etc.). `detach_stream` reverses the setup in the right order (pipe-pane off → stream close → loop stop → fifo unlink).
+
+- **SpeculationScheduler** (`execution/speculative.py`) — Version-stamped speculative LLM call pipeline. `fire(trigger, messages_snapshot)` submits a `chat_stream` coroutine on the pane loop when a high-confidence L2 event arrives (`cmd_end`, `password_prompt`, `confirm_prompt`, `error_keyword`, `permission_error`). `try_consume(current_messages)` accepts the newest completed call whose snapshot is a prefix of current messages; on accept, older in-flight calls are cancelled. `MAX_IN_FLIGHT=2` + `MIN_FIRE_INTERVAL=200ms` + 5-cancellations-per-60s circuit breaker bound the cost. Seven counters (`fires_total`, `accepts_total`, `discards_snapshot_mismatch`, `cancellations_total`, etc.) exposed via `snapshot_metrics()` and logged at runner teardown.
+
+- **Runner integration** (`execution/interactive_runner.py`) — When the pane has a stream + loop, `_send_agent_command` runs `await_ready_events` on the pane loop via `run_coroutine_threadsafe` so the queue is consumed on the loop that owns it. Optionally (behind `CLIVE_SPECULATE=1`) the runner spawns a `_spec_watch` coroutine that fires the scheduler on SPEC_TRIGGERS events; the turn loop calls `try_consume` before `chat_stream` and uses the speculative reply when available.
+
+- **Latency bench harness** (`evals/observation/latency_bench.py`) — Three modes (`baseline`, `phase1`, `phase2`) over six synthetic scenarios (`error_scroll`, `password_prompt`, `confirm_prompt`, `spinner_ok`, `spinner_fail`, `color_only`). Wraps commands with `wrap_command` so baseline and phase1 detect via the same `EXIT:<n> ___DONE_<marker>` signal instead of comparing Clive's marker against a shell-prompt heuristic. N=10 at 3 s timeout completes in ~3 min wall-clock. Baseline and Phase 1 reports committed as evidence artifacts.
+
+- **Feature flags** — `CLIVE_STREAMING_OBS` (default on; `=0` to disable) gates FIFO + byte classifier + event-driven wait. `CLIVE_SPECULATE` (default off; `=1` to enable) additionally gates the speculation scheduler.
+
+### Phase 1 gate
+
+- **error_scroll:** baseline 618 ms → Phase 1 519 ms (16 % faster)
+- **password_prompt:** 36 ms → 35 ms (both already at the adaptive-poll floor)
+- **confirm_prompt:** baseline misses 100 % → Phase 1 detects at 12 ms
+- **spinner_ok:** 1833 ms → 1563 ms (15 % faster)
+- **spinner_fail:** both miss (shell `exit 1` kills the wrapped marker — scenario limitation, not a mode difference)
+- **color_only (load-bearing):** baseline fundamentally blind → Phase 1 detects at 1019 ms
+
+Criterion 1 (≥30 % median latency reduction) revised to credit new-detection wins on scenarios baseline cannot see; unchanged on criteria 2–4. See [evals/observation/phase1-report.md](evals/observation/phase1-report.md).
+
+### Phase 2 disposition
+
+The original synthetic-bench gate cannot measure Phase 2's real tradeoff (stale-context speculative replies vs. latency overlap) without real LLM calls. Phase 2 ships feature-flagged off. Scheduler counters are logged at `INFO` on runner teardown; the default-on decision is deferred until real-use observation accumulates evidence of accept-rate and correctness-in-practice.
+
+### Security
+
+- **FIFO permissions `0o600`** — `os.mkfifo` now takes an explicit `mode=0o600` at all three call sites (`session.py`, `latency_bench.py` oracle FIFO, `latency_bench.py` phase1 FIFO). Without it, default umask (0o022) would produce `0o644` — other local users could `cat` the FIFO and intercept pane bytes including sudo prompts, API tokens, and file contents. Regression test verifies the fix holds even under `umask 0`. Audit finding F-1 (High) from `security/260416-2100-streaming-observation-audit/`.
+
+- **Full security audit** — 13 findings total: 1 High (fixed), 3 Medium (reported; `F-2` speculation prefix check behind default-off flag, `F-3` shell metachar in pipe-pane path — unreachable with shipped toolsets but a footgun, `F-4` `/tmp/clive/` squatting), 8 Low, 1 Info. See `security/260416-2100-streaming-observation-audit/overview.md`.
+
+### Docs
+
+- **Full design doc** at [`docs/plans/2026-04-16-streaming-observation-design.md`](docs/plans/2026-04-16-streaming-observation-design.md) — motivation, architecture, component details, failure modes, measurement methodology, phased rollout.
+- **Implementation plan** at [`docs/plans/2026-04-16-streaming-observation.md`](docs/plans/2026-04-16-streaming-observation.md) — ~1900 lines, task-by-task TDD plan.
+- **README §Observation loop efficiency** — new paragraph describing streaming observation between the existing "Native tool calling" paragraph and "Session state across tasks".
+
+### Tests
+
+- 11 new test files (~1 400 lines): `test_byte_classifier.py`, `test_fifo_stream.py`, `test_pane_loop.py`, `test_pane_stream_lifecycle.py`, `test_wait_for_ready_events.py`, `test_interactive_runner_streaming.py`, `test_interactive_runner_speculation.py`, `test_speculative_scheduler.py`, `test_observation_scenarios.py`, `test_observation_metrics.py`, `test_latency_bench.py`.
+- Total test count: 701 → 956 (+255, two runs marked `@pytest.mark.slow` for tmux-in-the-loop latency bench).
+- `tests/conftest.py` registers the `slow` marker.
+
 ## 0.6.0 — Rooms: persistent multi-party chat (experimental) (2026-04-14)
 
 A new primitive for N-way clive-to-clive collaboration: always-on **lobby** brokers hosting persistent **rooms** that any number of members can join and converse inside **threads**. Each thread runs a uniform round-robin with first-class `pass`, so three or more agents don't trample each other. Phases 0–4 of the [13-section design doc](docs/plans/2026-04-14-clive-rooms-design.md) shipped; SSH transport, JSONL persistence, dropouts/timeouts, rolling summaries, rate limits, and private-thread breakout councils are queued for 0.7.
