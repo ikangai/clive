@@ -62,25 +62,22 @@ class _Pulse:
                 break
             i += 1
 
-    def finalize(self):
-        """Stop animation and write final static line."""
+    def _stop_and_write(self, text: str):
         self._stop.set()
         self._thread.join(timeout=1)
         try:
-            self.stream.write(f"\r{self.indent}{self.symbol} {self.text}\033[K\n")
+            self.stream.write(text)
             self.stream.flush()
         except (OSError, ValueError):
             pass
 
+    def finalize(self):
+        """Stop animation and write final static line."""
+        self._stop_and_write(f"\r{self.indent}{self.symbol} {self.text}\033[K\n")
+
     def replace(self, full_line):
         """Stop animation and replace this line with different content."""
-        self._stop.set()
-        self._thread.join(timeout=1)
-        try:
-            self.stream.write(f"\r{full_line}\033[K\n")
-            self.stream.flush()
-        except (OSError, ValueError):
-            pass
+        self._stop_and_write(f"\r{full_line}\033[K\n")
 
 
 def _stop_active():
