@@ -95,7 +95,7 @@ if __name__ == "__main__":
         raise SystemExit(1)
 
     # Check API key early (skip for list/version commands)
-    from llm import _provider, PROVIDER_NAME
+    from llm import _provider
     _api_key_env = _provider.get("api_key_env")
     if _api_key_env and not os.environ.get(_api_key_env):
         if not any(getattr(args, f, False) for f in ["list_toolsets", "list_tools", "list_skills", "list_schedules"]):
@@ -360,7 +360,6 @@ if __name__ == "__main__":
             if getattr(args, "join", None):
                 from lobby_connector import connect_local, ConnectError
                 from room_participant import RoomParticipant
-                from llm import get_client as _get_llm_client
 
                 rooms_by_lobby: dict[str, list[str]] = {}
                 for spec in args.join:
@@ -373,7 +372,7 @@ if __name__ == "__main__":
 
                 _member_name = _instance_name or "anonymous"
                 try:
-                    _llm_client = _get_llm_client()
+                    _llm_client = get_client()
                 except Exception as e:
                     print(f"--join: cannot build LLM client: {e}",
                           file=sys.stderr)
@@ -475,5 +474,4 @@ if __name__ == "__main__":
     summary = run(args.task, toolset_spec=args.toolset, output_format=output_format, max_tokens=args.max_tokens)
 
     if args.bool:
-        import sys
         sys.exit(0 if summary.strip().upper().startswith("YES") else 1)
