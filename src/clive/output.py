@@ -99,11 +99,6 @@ def set_quiet(quiet: bool):
     _quiet = quiet
 
 
-def is_quiet() -> bool:
-    """Check if quiet mode is active."""
-    return _quiet
-
-
 def set_conversational(enabled: bool):
     """Enable/disable conversational output mode (clive-to-clive)."""
     global _conversational
