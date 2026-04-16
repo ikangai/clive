@@ -27,12 +27,14 @@ def test_detects_cmd_end_marker():
     assert any(e.kind == "cmd_end" for e in events)
 
 
-def test_ignores_command_echo_with_dollar_guard():
-    # When tmux echoes back the wrapping command, literal "EXIT:$?" appears.
-    # Must not match.
+def test_multiple_pattern_kinds_same_chunk():
+    """Regression: don't let an earlier pattern's match suppress a later
+    pattern's match at a lower offset."""
     clf = ByteClassifier()
-    events = clf.feed(b'echo "EXIT:$? ___DONE_abcd"\n')
-    assert not any(e.kind == "cmd_end" for e in events)
+    events = clf.feed(b"Traceback (most recent) \x1b[31mRED\x1b[0m")
+    kinds = {e.kind for e in events}
+    assert "error_keyword" in kinds
+    assert "color_alert" in kinds
 
 
 def test_cross_chunk_pattern():

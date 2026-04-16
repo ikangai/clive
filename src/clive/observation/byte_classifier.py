@@ -7,8 +7,11 @@ and Clive's own command-end markers. Emits ByteEvent for each match.
 Stateless across invocations except for:
   - _carryover: last (MAX_PATTERN_LEN - 1) bytes, to catch patterns
     split across chunk boundaries.
-  - _last_emitted_pos: monotonic byte offset of the most recent match,
-    to avoid double-firing when feed() is called with overlapping data.
+  - _last_emitted_pos: per-kind monotonic byte offset of the most
+    recent match, to avoid double-firing when feed() is called with
+    overlapping data. Keyed by kind so an earlier pattern's match at
+    a high offset doesn't suppress a later pattern's match at a lower
+    offset within the same chunk.
 """
 import re
 import time
@@ -27,11 +30,11 @@ BYTE_PATTERNS: list[tuple[re.Pattern, str]] = [
     (re.compile(rb'Are you sure'),                      "confirm_prompt"),
     (re.compile(rb'Traceback|FATAL|panic:'),            "error_keyword"),
     (re.compile(rb'Permission denied'),                 "permission_error"),
+    # cmd_end: \d+ is intentional — prevents matching unexpanded echoes
+    # like "EXIT:$? ___DONE_..." (which would be a command echo, not a
+    # real completion marker).
     (re.compile(rb'EXIT:\d+ ___DONE_'),                 "cmd_end"),
 ]
-
-# Echoes of wrap_command contain "EXIT:$" (unexpanded). Excluded below.
-_CMD_ECHO_GUARD = re.compile(rb'EXIT:\$')
 
 
 @dataclass
@@ -46,7 +49,7 @@ class ByteClassifier:
     def __init__(self):
         self._carryover = b""
         self._stream_pos = 0
-        self._last_emitted_pos = -1
+        self._last_emitted_pos: dict[str, int] = {}
 
     def feed(self, chunk: bytes) -> list[ByteEvent]:
         if not chunk and not self._carryover:
@@ -58,18 +61,17 @@ class ByteClassifier:
         for pattern, kind in BYTE_PATTERNS:
             for m in pattern.finditer(window):
                 abs_pos = window_base + m.start()
-                if abs_pos <= self._last_emitted_pos:
+                if abs_pos <= self._last_emitted_pos.get(kind, -1):
                     continue
-                if kind == "cmd_end":
-                    if _CMD_ECHO_GUARD.search(window, max(0, m.start() - 16), m.end()):
-                        continue
                 events.append(ByteEvent(
                     kind=kind,
                     match_bytes=m.group(0),
                     stream_offset=abs_pos,
                     timestamp=time.monotonic(),
                 ))
-                self._last_emitted_pos = max(self._last_emitted_pos, abs_pos)
+                self._last_emitted_pos[kind] = max(
+                    self._last_emitted_pos.get(kind, -1), abs_pos
+                )
 
         self._stream_pos += len(chunk)
         tail_len = min(MAX_PATTERN_LEN - 1, len(window))
