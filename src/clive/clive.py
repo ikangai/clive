@@ -89,29 +89,15 @@ if __name__ == "__main__":
 
     # ─── One-shot subcommand dispatch ─────────────────────────────────
     import cli_handlers as _ch
-    if args.list_toolsets: _ch.handle_list_toolsets(args)
-    if args.list_tools: _ch.handle_list_tools(args)
-    if args.setup: _ch.handle_setup(args)
-    if args.tui: _ch.handle_tui(args)
     if args.safe_mode:
         os.environ["CLIVE_EXPERIMENTAL_SELFMOD"] = "0"
         print("Safe mode: self-modification disabled.")
-    if args.undo: _ch.handle_undo(args)
-    if args.selfmod: _ch.handle_selfmod(args)
-    if args.list_skills: _ch.handle_list_skills(args)
-    if args.evolve: _ch.handle_evolve(args)
-    if args.list_schedules: _ch.handle_list_schedules(args)
-    if args.remove_schedule: _ch.handle_remove_schedule(args)
-    if args.pause_schedule: _ch.handle_pause_schedule(args)
-    if args.resume_schedule: _ch.handle_resume_schedule(args)
-    if args.run_now: _ch.handle_run_now(args)
-    if args.history: _ch.handle_history(args)
-    if args.dashboard: _ch.handle_dashboard(args)
-    if args.agents_doctor: _ch.handle_agents_doctor(args)
-    if args.stop: _ch.handle_stop(args)
-    if args.instances: _ch.handle_instances(args)
-    if args.status: _ch.handle_status(args)
-    if args.serve: _ch.handle_serve(args)
+    for _flag in ("list_toolsets", "list_tools", "setup", "tui", "undo",
+                  "selfmod", "list_skills", "evolve", "list_schedules",
+                  "remove_schedule", "pause_schedule", "resume_schedule",
+                  "run_now", "history", "dashboard", "agents_doctor", "stop",
+                  "instances", "status", "serve"):
+        if getattr(args, _flag, False): getattr(_ch, f"handle_{_flag}")(args)
 
     from output import set_quiet
     output_format = "default"
