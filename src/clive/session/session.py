@@ -201,7 +201,10 @@ def _maybe_attach_stream(pane_info: PaneInfo, session_dir: str | None) -> None:
         # block a fresh attach.
         if os.path.exists(fifo_path):
             os.unlink(fifo_path)
-        os.mkfifo(fifo_path)
+        # mode=0o600: pane bytes are sensitive (may contain sudo prompts,
+        # API tokens, file contents). Default umask would give 0o644 and
+        # let other local users read the FIFO. Security audit finding F-1.
+        os.mkfifo(fifo_path, mode=0o600)
 
         # Start tmux writing to the FIFO before we open the read side.
         # PaneStream uses O_NONBLOCK so open order is actually flexible,

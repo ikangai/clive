@@ -1,5 +1,6 @@
 """Tests for PaneStream lifecycle attached to PaneInfo."""
 import os
+import stat
 import tempfile
 from unittest.mock import MagicMock, patch
 
@@ -42,6 +43,32 @@ def test_stream_attached_by_default_when_flag_unset(monkeypatch, fake_pane_info,
         assert fake_pane_info.pane_loop is not None
     finally:
         detach_stream(fake_pane_info)
+
+
+def test_fifo_created_with_owner_only_permissions(monkeypatch, fake_pane_info, tmp_session_dir):
+    """Regression for security audit F-1: pane-bytes FIFO must be 0o600.
+
+    Pane bytes can carry passwords, tokens, file contents. Default umask
+    on macOS/Linux is 0o022 which would make the FIFO 0o644 — readable by
+    any local user. os.mkfifo must be called with an explicit mode=0o600.
+    """
+    # Set a permissive umask to prove the fix is independent of process umask
+    old_umask = os.umask(0o000)
+    try:
+        monkeypatch.setenv("CLIVE_STREAMING_OBS", "1")
+        _maybe_attach_stream(fake_pane_info, tmp_session_dir)
+        try:
+            fifo_path = os.path.join(tmp_session_dir, "pipes", "shell.fifo")
+            assert os.path.exists(fifo_path)
+            mode = stat.S_IMODE(os.stat(fifo_path).st_mode)
+            assert mode == 0o600, (
+                f"FIFO permissions are 0o{mode:o}, expected 0o600. "
+                "Pane bytes would be readable by other local users."
+            )
+        finally:
+            detach_stream(fake_pane_info)
+    finally:
+        os.umask(old_umask)
 
 
 def test_stream_attached_when_flag_set(monkeypatch, fake_pane_info, tmp_session_dir):

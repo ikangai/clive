@@ -63,7 +63,9 @@ def _oracle_fifo_path(run_id: str) -> str:
     os.makedirs(os.path.dirname(p), exist_ok=True)
     if os.path.exists(p):
         os.unlink(p)
-    os.mkfifo(p)
+    # Owner-only — pane bytes may carry sensitive content. See F-1 in
+    # security/260416-2100-streaming-observation-audit/findings.md.
+    os.mkfifo(p, mode=0o600)
     return p
 
 
@@ -179,7 +181,8 @@ def run_scenario_phase1(scenario: Scenario, timeout: float = 10.0) -> RunResult:
     os.makedirs(os.path.dirname(fifo_path), exist_ok=True)
     if os.path.exists(fifo_path):
         os.unlink(fifo_path)
-    os.mkfifo(fifo_path)
+    # Owner-only FIFO — see F-1 in the streaming-observation audit.
+    os.mkfifo(fifo_path, mode=0o600)
 
     subprocess.run(
         ["tmux", "new-session", "-d", "-s", session, "bash"],
