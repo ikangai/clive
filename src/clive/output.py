@@ -118,9 +118,7 @@ def _emit_framed_progress(msg: str):
 
 def progress(msg: str):
     """Legacy progress output. Stops any active animation first."""
-    if _conversational:
-        _emit_framed_progress(msg)
-        return
+    if _conversational: _emit_framed_progress(msg); return
     with _lock:
         _stop_active()
     print(msg, file=_stream())
@@ -128,9 +126,7 @@ def progress(msg: str):
 
 def step(msg: str):
     """Major step marker with pulsating ⏺."""
-    if _conversational:
-        _emit_framed_progress(msg)
-        return
+    if _conversational: _emit_framed_progress(msg); return
     global _active
     with _lock:
         _stop_active()
@@ -145,9 +141,7 @@ def step(msg: str):
 
 def detail(msg: str):
     """Indented detail line. Replaces any active activity pulse."""
-    if _conversational:
-        _emit_framed_progress(msg)
-        return
+    if _conversational: _emit_framed_progress(msg); return
     global _active
     with _lock:
         if _active and _active.indent:
@@ -160,9 +154,7 @@ def detail(msg: str):
 
 def activity(msg: str):
     """In-progress activity line with pulsating ◌ indicator."""
-    if _conversational:
-        _emit_framed_progress(msg)
-        return
+    if _conversational: _emit_framed_progress(msg); return
     global _active
     with _lock:
         _stop_active()
