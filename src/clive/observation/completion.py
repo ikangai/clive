@@ -9,11 +9,18 @@ Intervention detection (for streaming observation level):
 Scans screen for patterns that indicate the agent should intervene
 (prompts for input, errors, confirmations). Returns early with
 method="intervention" when detected.
+
+Event-driven path (streaming observation pipeline):
+When an asyncio.Queue of ByteEvents is provided, `await_ready_events`
+blocks on those events instead of polling `capture-pane`. See
+`await_ready_events` and `wait_for_ready(event_source=...)`.
 """
 
+import asyncio
 import re
 import time
 import uuid
+from typing import Optional
 
 from models import PaneInfo
 
@@ -32,6 +39,16 @@ INTERVENTION_PATTERNS = [
     (re.compile(r'No space left on device'), "disk_error"),
 ]
 
+# Map ByteEvent kinds (from observation.byte_classifier.BYTE_PATTERNS) to the
+# intervention:<type> strings produced by the poll path. Only kinds the L2
+# byte classifier can actually emit appear here — "fatal_error", "disk_error",
+# "overwrite_prompt", "continue_prompt" are screen-regex-only today.
+_INTERVENTION_KIND_MAP = {
+    "password_prompt": "password_prompt",
+    "confirm_prompt":  "confirmation_prompt",
+    "permission_error": "permission_error",
+}
+
 
 def wait_for_ready(
     pane_info: PaneInfo,
@@ -39,6 +56,7 @@ def wait_for_ready(
     timeout: float | None = None,
     max_wait: float = MAX_WAIT,
     detect_intervention: bool = False,
+    event_source: "Optional[asyncio.Queue]" = None,
 ) -> tuple[str, str]:
     """
     Wait for a pane command to complete.
@@ -46,9 +64,53 @@ def wait_for_ready(
     Returns (screen_content, detection_method) where detection_method is
     one of: "marker", "prompt", "idle", "max_wait", "intervention:<type>".
 
-    Uses adaptive polling (10ms → 500ms exponential backoff) for fast
-    detection of quick commands while avoiding CPU waste on slow ones.
+    When `event_source` is None (default), uses adaptive polling
+    (10ms -> 500ms exponential backoff) of `capture-pane`.
+
+    When `event_source` is provided, consumes ByteEvents from the queue
+    instead. This requires an asyncio loop; if called from a thread with
+    no running loop, a temporary loop is spun up. If called from inside a
+    running loop, raises RuntimeError — callers in async contexts should
+    `await await_ready_events(...)` directly.
     """
+    if event_source is None:
+        return _wait_polling(
+            pane_info, marker, timeout, max_wait, detect_intervention,
+        )
+
+    # Event-driven path needs an asyncio loop. If a loop is already
+    # running in this thread, blocking on run_until_complete would
+    # deadlock — force the caller to use the async entry point.
+    try:
+        asyncio.get_running_loop()
+    except RuntimeError:
+        # No running loop in this thread — safe to spin a temp one.
+        loop = asyncio.new_event_loop()
+        try:
+            return loop.run_until_complete(await_ready_events(
+                pane_info,
+                event_source,
+                marker=marker,
+                timeout=timeout,
+                max_wait=max_wait,
+                detect_intervention=detect_intervention,
+            ))
+        finally:
+            loop.close()
+    raise RuntimeError(
+        "wait_for_ready(event_source=...) called from a running loop; "
+        "use 'await await_ready_events(...)' directly instead."
+    )
+
+
+def _wait_polling(
+    pane_info: PaneInfo,
+    marker: str | None,
+    timeout: float | None,
+    max_wait: float,
+    detect_intervention: bool,
+) -> tuple[str, str]:
+    """Poll-path implementation of wait_for_ready. Unchanged behavior."""
     idle_timeout = timeout or pane_info.idle_timeout or DEFAULT_IDLE_TIMEOUT
     last_content = ""
     last_change = time.time()
@@ -100,6 +162,71 @@ def wait_for_ready(
         poll_interval = min(poll_interval * 2, 0.5)  # exponential backoff
 
 
+async def await_ready_events(
+    pane_info: PaneInfo,
+    event_source: asyncio.Queue,
+    marker: str | None = None,
+    timeout: float | None = None,
+    max_wait: float = MAX_WAIT,
+    detect_intervention: bool = False,
+) -> tuple[str, str]:
+    """Async, event-driven counterpart to `wait_for_ready`.
+
+    Blocks on ByteEvents delivered via `event_source` (typically a
+    PaneStream subscriber queue) instead of polling `capture-pane`.
+    Returns `(screen_content, detection_method)` with the same
+    `detection_method` vocabulary as the poll path:
+    "marker", "idle", "max_wait", "intervention:<type>".
+
+    Note: "prompt" (the [AGENT_READY] $ sentinel) is poll-only — the
+    byte classifier does not emit a dedicated event for it today.
+    Callers that need prompt-sentinel detection should stay on the
+    poll path or add a classifier pattern.
+    """
+    idle = timeout or pane_info.idle_timeout or DEFAULT_IDLE_TIMEOUT
+    start = time.time()
+    method = "max_wait"
+
+    while True:
+        remaining = max_wait - (time.time() - start)
+        if remaining <= 0:
+            method = "max_wait"
+            break
+
+        # Cap per-event wait at the smaller of idle and remaining — we
+        # want to treat "no events for idle seconds" as idle even if
+        # max_wait hasn't fired yet.
+        wait_slice = min(idle, remaining)
+        try:
+            evt = await asyncio.wait_for(event_source.get(), timeout=wait_slice)
+        except asyncio.TimeoutError:
+            # If max_wait already elapsed, the next loop iteration would
+            # return max_wait; prefer idle when there's headroom.
+            if max_wait - (time.time() - start) <= 0:
+                method = "max_wait"
+            else:
+                method = "idle"
+            break
+
+        # cmd_end with marker match -> "marker"
+        if marker and evt.kind == "cmd_end":
+            if marker.encode() in evt.match_bytes:
+                method = "marker"
+                break
+
+        # intervention mapping
+        if detect_intervention and evt.kind in _INTERVENTION_KIND_MAP:
+            method = f"intervention:{_INTERVENTION_KIND_MAP[evt.kind]}"
+            break
+
+        # Otherwise keep waiting — non-target events don't stop us.
+
+    # Final screen capture (same shape as poll path).
+    lines = pane_info.pane.cmd("capture-pane", "-p", "-J").stdout
+    screen = "\n".join(lines) if lines else ""
+    return screen, method
+
+
 def wrap_command(
     command: str,
     subtask_id: str,
@@ -124,4 +251,3 @@ def wrap_command(
         # Always capture exit code alongside marker
         wrapped = f'{command}; echo "EXIT:$? {marker}"'
     return wrapped, marker
-
