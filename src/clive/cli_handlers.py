@@ -20,6 +20,10 @@ from toolsets import (
     check_commands,
 )
 from config import find_config_schema, is_configured, run_setup
+from scheduler import (
+    list_schedules, remove_schedule, pause_schedule, resume_schedule,
+    run_now, get_history,
+)
 
 
 def handle_list_toolsets(args) -> None:
@@ -164,7 +168,6 @@ def handle_evolve(args) -> None:
 
 
 def handle_list_schedules(args) -> None:
-    from scheduler import list_schedules
     schedules = list_schedules()
     if schedules:
         print("\nScheduled tasks:\n")
@@ -189,22 +192,18 @@ def _sched_action(arg: str, fn, past_verb: str) -> None:
 
 
 def handle_remove_schedule(args) -> None:
-    from scheduler import remove_schedule
     _sched_action(args.remove_schedule, remove_schedule, "Removed schedule")
 
 
 def handle_pause_schedule(args) -> None:
-    from scheduler import pause_schedule
     _sched_action(args.pause_schedule, pause_schedule, "Paused schedule")
 
 
 def handle_resume_schedule(args) -> None:
-    from scheduler import resume_schedule
     _sched_action(args.resume_schedule, resume_schedule, "Resumed schedule")
 
 
 def handle_run_now(args) -> None:
-    from scheduler import run_now
     print(f"Running {args.run_now} now...")
     try:
         result = run_now(args.run_now)
@@ -223,7 +222,6 @@ def handle_run_now(args) -> None:
 
 
 def handle_history(args) -> None:
-    from scheduler import get_history
     history = get_history(args.history)
     if history:
         print(f"\nRun history for {args.history}:\n")
