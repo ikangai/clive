@@ -11,7 +11,7 @@ import threading
 import time
 
 from command_extract import extract_command, extract_done
-from completion import wait_for_ready, wrap_command
+from completion import wait_for_ready, wrap_command, await_ready_events, MAX_WAIT
 from context_compress import compress_context, make_llm_compressor
 from llm import get_client, chat, chat_stream
 from observation import ScreenClassifier, format_event_for_llm
@@ -80,11 +80,36 @@ def _send_agent_command(cmd: str, subtask: Subtask, pane_info: PaneInfo, session
     Returns (screen, detection_method) so callers can react to
     "intervention:<type>" states (y/N prompts, password prompts, fatal
     errors) instead of waiting for the 2s idle timeout to trip.
+
+    When pane_info.stream is set (CLIVE_STREAMING_OBS=1), consume
+    ByteEvents from a subscription on the pane's asyncio loop instead of
+    polling capture-pane. Falls back to the synchronous poll path when no
+    stream is attached, or when the event-driven wait raises.
     """
     if pane_info.app_type in _SHELL_LIKE_APP_TYPES:
         cmd = _wrap_for_sandbox(cmd, session_dir, sandboxed=pane_info.sandboxed)
     wrapped, marker = wrap_command(cmd, subtask.id)
     pane_info.pane.send_keys(wrapped, enter=True)
+
+    if pane_info.stream is not None and pane_info.pane_loop is not None:
+        q = pane_info.stream.subscribe()
+        # Run the consumer on the pane's loop (where the queue is owned).
+        coro = await_ready_events(
+            pane_info, q, marker=marker, detect_intervention=True,
+        )
+        try:
+            screen, method = pane_info.pane_loop.submit(coro).result(
+                timeout=MAX_WAIT + 1.0,
+            )
+        except Exception as exc:
+            log.warning(
+                "event-driven wait failed for pane %s (%s); falling back to poll",
+                pane_info.name, exc,
+            )
+            screen, method = wait_for_ready(pane_info, marker=marker, detect_intervention=True)
+        return screen, method
+
+    # No stream: original poll path.
     screen, method = wait_for_ready(pane_info, marker=marker, detect_intervention=True)
     return screen, method
 
