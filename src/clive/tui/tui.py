@@ -43,31 +43,12 @@ from textual.widgets import (
 )
 
 import commands
-from dashboard import render_lines
-from executor import execute_plan
-from session_store import dispatch_session_slash
-from llm import PROVIDERS as LLM_PROVIDERS, chat, get_client
-from models import SubtaskStatus
-from planner import create_plan
-from prompts import build_summarizer_prompt, build_triage_prompt
-from session import (
-    SOCKET_NAME, check_health, generate_session_id, setup_session,
-)
-from toolsets import (
-    PROFILES,
-    CATEGORIES,
-    DEFAULT_TOOLSET,
-    resolve_toolset,
-    check_commands,
-    build_tools_summary,
-)
+from llm import PROVIDERS as LLM_PROVIDERS
+from session import SOCKET_NAME, generate_session_id
+from toolsets import PROFILES, CATEGORIES, DEFAULT_TOOLSET, resolve_toolset, check_commands
 from tui_theme import LOGO, CLIVE_THEME, CSS
-from tui_helpers import build_clive_context, show_tools
 from tui_task_runner import run_task_inner
-from tui_actions import (
-    install_missing, do_install, execute_selfmod, run_selfmod,
-    undo_selfmod, run_evolve,
-)
+from tui_actions import do_install, execute_selfmod
 
 
 # Register all built-in and session slash commands via the dedicated
