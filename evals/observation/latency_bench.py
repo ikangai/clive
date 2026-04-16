@@ -78,7 +78,7 @@ def run_scenario_baseline(scenario: Scenario) -> RunResult:
         within the timeout; True otherwise.
       * Session is always killed in ``finally``.
     """
-    run_id = uuid.uuid4().hex[:8]
+    run_id = uuid.uuid4().hex
     session = f"bench-{run_id}"
     oracle = _oracle_fifo_path(run_id)
 
@@ -97,9 +97,15 @@ def run_scenario_baseline(scenario: Scenario) -> RunResult:
             check=True,
         )
 
-        # Give the shell a moment to settle its initial prompt before we
-        # start the clock — otherwise cmd_end / prompt scanners see the
-        # pre-command prompt and "detect" before the command even runs.
+        # Wait for the shell to render its first prompt before send-keys
+        # fires. Without this, pipe-pane (step above) and send-keys (step
+        # below) race: send-keys can reach the pane before the shell has
+        # written its prompt, so the initial snapshot taken inside
+        # _poll_for_baseline ends up containing the command echo rather
+        # than the prompt, and subsequent prompt renderings aren't
+        # counted as new. (Distinct from the initial-count defense in
+        # _poll_for_baseline, which handles prompts that *were* on
+        # screen pre-command.)
         time.sleep(0.1)
 
         t0 = time.monotonic()
