@@ -26,11 +26,22 @@ def tmp_session_dir():
         yield d
 
 
-def test_no_stream_when_flag_unset(monkeypatch, fake_pane_info, tmp_session_dir):
-    monkeypatch.delenv("CLIVE_STREAMING_OBS", raising=False)
+def test_no_stream_when_flag_set_to_zero(monkeypatch, fake_pane_info, tmp_session_dir):
+    monkeypatch.setenv("CLIVE_STREAMING_OBS", "0")
     _maybe_attach_stream(fake_pane_info, tmp_session_dir)
     assert fake_pane_info.stream is None
     assert fake_pane_info.pane_loop is None
+
+
+def test_stream_attached_by_default_when_flag_unset(monkeypatch, fake_pane_info, tmp_session_dir):
+    """Phase 1 ships default-on: unset env = streaming attached."""
+    monkeypatch.delenv("CLIVE_STREAMING_OBS", raising=False)
+    _maybe_attach_stream(fake_pane_info, tmp_session_dir)
+    try:
+        assert fake_pane_info.stream is not None
+        assert fake_pane_info.pane_loop is not None
+    finally:
+        detach_stream(fake_pane_info)
 
 
 def test_stream_attached_when_flag_set(monkeypatch, fake_pane_info, tmp_session_dir):

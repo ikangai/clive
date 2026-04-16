@@ -185,7 +185,9 @@ def _maybe_attach_stream(pane_info: PaneInfo, session_dir: str | None) -> None:
     the polling observation path continues to work unchanged.
     """
     import os
-    if os.environ.get("CLIVE_STREAMING_OBS") != "1":
+    # Phase 1 ships default-on. Set CLIVE_STREAMING_OBS=0 to disable and
+    # fall back to the polling observation path.
+    if os.environ.get("CLIVE_STREAMING_OBS") == "0":
         return
 
     base = session_dir or "/tmp/clive"

@@ -116,6 +116,7 @@ Named instances (`--name foo`) are long-running, addressable processes; registry
 - **Shared working dir** is `/tmp/clive/` (per-session subdirs). Use this as inter-subtask file channel.
 - **Telemetry vs result**: `output.py` routes telemetry to stderr and results to stdout — preserve this so `-q` works as a shell primitive.
 - Tests run against the package via `sys.path` injection in `tests/conftest.py`. Don't convert imports to dotted form without updating that shim and `clive.py`.
+- **Streaming observation:** Phase 1 is default-on as of 2026-04-16. `CLIVE_STREAMING_OBS=0` opts out. FIFO + byte-classifier pipeline; see `docs/plans/2026-04-16-streaming-observation-design.md`.
 
 ## Reference docs in-repo
 
