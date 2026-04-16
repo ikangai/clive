@@ -140,23 +140,12 @@ if __name__ == "__main__":
     if args.status: _ch.handle_status(args)
     if args.serve: _ch.handle_serve(args)
 
+    from output import set_quiet
     output_format = "default"
-    if args.oneline:
-        output_format = "oneline"
-        from output import set_quiet
-        set_quiet(True)
-    elif args.bool:
-        output_format = "bool"
-        from output import set_quiet
-        set_quiet(True)
-    elif args.json:
-        output_format = "json"
-        from output import set_quiet
-        set_quiet(True)
-
-    if args.quiet:
-        from output import set_quiet
-        set_quiet(True)
+    if args.oneline: output_format = "oneline"; set_quiet(True)
+    elif args.bool: output_format = "bool"; set_quiet(True)
+    elif args.json: output_format = "json"; set_quiet(True)
+    if args.quiet: set_quiet(True)
 
     if args.remote:
         from remote import build_remote_command, check_remote_clive
