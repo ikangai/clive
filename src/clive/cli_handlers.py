@@ -182,31 +182,25 @@ def handle_list_schedules(args) -> None:
     raise SystemExit(0)
 
 
+def _sched_action(arg: str, fn, past_verb: str) -> None:
+    msg = f"{past_verb}: {arg}" if fn(arg) else f"Schedule not found: {arg}"
+    print(msg)
+    raise SystemExit(0)
+
+
 def handle_remove_schedule(args) -> None:
     from scheduler import remove_schedule
-    if remove_schedule(args.remove_schedule):
-        print(f"Removed schedule: {args.remove_schedule}")
-    else:
-        print(f"Schedule not found: {args.remove_schedule}")
-    raise SystemExit(0)
+    _sched_action(args.remove_schedule, remove_schedule, "Removed schedule")
 
 
 def handle_pause_schedule(args) -> None:
     from scheduler import pause_schedule
-    if pause_schedule(args.pause_schedule):
-        print(f"Paused schedule: {args.pause_schedule}")
-    else:
-        print(f"Schedule not found: {args.pause_schedule}")
-    raise SystemExit(0)
+    _sched_action(args.pause_schedule, pause_schedule, "Paused schedule")
 
 
 def handle_resume_schedule(args) -> None:
     from scheduler import resume_schedule
-    if resume_schedule(args.resume_schedule):
-        print(f"Resumed schedule: {args.resume_schedule}")
-    else:
-        print(f"Schedule not found: {args.resume_schedule}")
-    raise SystemExit(0)
+    _sched_action(args.resume_schedule, resume_schedule, "Resumed schedule")
 
 
 def handle_run_now(args) -> None:
