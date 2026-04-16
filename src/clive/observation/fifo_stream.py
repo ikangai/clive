@@ -12,6 +12,17 @@ only. (See Task 1.4 for the pane-lifecycle wiring.)
 The reader opens the FIFO O_NONBLOCK so close() doesn't deadlock
 waiting for a writer. Each chunk read feeds the ByteClassifier;
 resulting events fan out to all subscribers.
+
+Open-order contract (important for Task 1.4):
+  1. Caller creates the FIFO (mkfifo).
+  2. Caller constructs PaneStream(fifo_path) -- this opens the read
+     side in O_NONBLOCK mode.
+  3. Caller runs `tmux pipe-pane -o 'cat > <path>'` -- opens the
+     write side.
+
+Rationale: POSIX guarantees O_RDONLY|O_NONBLOCK open succeeds even
+with no writer. Opening in the reverse order with a non-blocking
+writer would fail with ENXIO.
 """
 import asyncio
 import logging
@@ -68,6 +79,8 @@ class PaneStream:
                         try:
                             q.put_nowait(ev)
                         except asyncio.QueueFull:
+                            # Drop-newest: a stalled subscriber should not backpressure the
+                            # producer or evict other subscribers' in-flight events.
                             log.warning(
                                 "subscriber queue full, dropping %s event",
                                 ev.kind,
@@ -86,5 +99,7 @@ class PaneStream:
             self._reader_task.cancel()
             try:
                 await self._reader_task
-            except (asyncio.CancelledError, Exception):
+            except asyncio.CancelledError:
                 pass
+            except Exception as e:
+                log.warning("reader task raised on close: %r", e)
