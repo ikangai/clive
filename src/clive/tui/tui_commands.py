@@ -21,8 +21,8 @@ from dashboard import render_lines
 from llm import PROVIDERS as LLM_PROVIDERS
 from session_store import dispatch_session_slash
 from toolsets import PROFILES, CATEGORIES
-from tui_actions import install_missing, run_selfmod, undo_selfmod, run_evolve
-from tui_helpers import show_tools
+from .tui_actions import install_missing, run_selfmod, undo_selfmod, run_evolve
+from .tui_helpers import show_tools
 
 
 # ── Core command handlers ──────────────────────────────────────────────────

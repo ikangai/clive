@@ -19,7 +19,7 @@ from prompts import build_summarizer_prompt, build_triage_prompt
 from session import check_health, generate_session_id, setup_session
 from toolsets import build_tools_summary
 
-from tui_helpers import build_clive_context
+from .tui_helpers import build_clive_context
 
 
 def tui_triage(app, task: str, task_info: dict, out: RichLog) -> dict:

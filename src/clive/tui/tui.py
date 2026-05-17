@@ -46,16 +46,16 @@ import commands
 from llm import PROVIDERS as LLM_PROVIDERS
 from session import SOCKET_NAME, generate_session_id
 from toolsets import PROFILES, CATEGORIES, DEFAULT_TOOLSET, resolve_toolset, check_commands
-from tui_theme import LOGO, CLIVE_THEME, CSS
-from tui_task_runner import run_task_inner
-from tui_actions import do_install, execute_selfmod
+from .tui_theme import LOGO, CLIVE_THEME, CSS
+from .tui_task_runner import run_task_inner
+from .tui_actions import do_install, execute_selfmod
 
 
 # Register all built-in and session slash commands via the dedicated
 # tui_commands module, then discover file-based plugins. tui.py itself
 # no longer holds handler definitions — every command lives in the
 # registry and is declared in one place.
-import tui_commands
+from . import tui_commands
 tui_commands.register_all()
 
 _PLUGIN_DIR = os.path.expanduser("~/.clive/commands")
