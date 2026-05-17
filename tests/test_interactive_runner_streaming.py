@@ -101,3 +101,68 @@ def test_stream_path_passes_marker_and_intervention_flags():
     assert inspect.iscoroutine(submitted)
     # Close it to avoid RuntimeWarning
     submitted.close()
+
+
+def test_stream_path_unsubscribes_in_finally():
+    """The per-turn subscribe() is paired with an unsubscribe() in finally,
+    so dead queues don't accumulate in stream.subscribers across turns —
+    Bug B (PaneStream subscriber leak)."""
+    pane = MagicMock()
+    stream = MagicMock()
+    q = MagicMock(name="queue")
+    stream.subscribe.return_value = q
+    pane_loop = MagicMock()
+    fut = MagicMock()
+    fut.result.return_value = ("screen", "marker")
+    pane_loop.submit.return_value = fut
+
+    info = PaneInfo(
+        pane=pane, app_type="shell", description="", name="shell",
+        stream=stream, pane_loop=pane_loop,
+    )
+
+    _send_agent_command("echo hi", _minimal_subtask(), info, "/tmp/clive/test")
+
+    stream.subscribe.assert_called_once()
+    stream.unsubscribe.assert_called_once_with(q)
+
+    # Close the submitted coroutine to silence RuntimeWarning.
+    import inspect
+    submitted = pane_loop.submit.call_args.args[0]
+    if inspect.iscoroutine(submitted):
+        submitted.close()
+
+
+def test_stream_path_unsubscribes_even_when_event_wait_raises():
+    """If pane_loop.submit().result() raises, we still drop the subscription
+    before falling back to the poll path — otherwise the queue would leak
+    on every failed event-driven wait."""
+    pane = MagicMock()
+    stream = MagicMock()
+    q = MagicMock(name="queue")
+    stream.subscribe.return_value = q
+    pane_loop = MagicMock()
+    fut = MagicMock()
+    fut.result.side_effect = TimeoutError("simulated event wait failure")
+    pane_loop.submit.return_value = fut
+
+    info = PaneInfo(
+        pane=pane, app_type="shell", description="", name="shell",
+        stream=stream, pane_loop=pane_loop,
+    )
+
+    with patch("interactive_runner.wait_for_ready") as wfr:
+        wfr.return_value = ("fallback-screen", "fallback-marker")
+        screen, method = _send_agent_command(
+            "echo hi", _minimal_subtask(), info, "/tmp/clive/test",
+        )
+
+    # Poll fallback ran AND we unsubscribed before returning.
+    wfr.assert_called_once()
+    stream.unsubscribe.assert_called_once_with(q)
+    assert screen == "fallback-screen"
+
+    import inspect
+    submitted = pane_loop.submit.call_args.args[0]
+    if inspect.iscoroutine(submitted):
+        submitted.close()

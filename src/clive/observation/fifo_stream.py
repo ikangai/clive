@@ -58,6 +58,14 @@ class PaneStream:
         self.subscribers.append(q)
         return q
 
+    def unsubscribe(self, q: asyncio.Queue) -> None:
+        # Idempotent: re-calling on an already-removed queue is a no-op so
+        # callers can put this in a finally block without guarding.
+        try:
+            self.subscribers.remove(q)
+        except ValueError:
+            pass
+
     async def _read_loop(self):
         fd = os.open(self.fifo_path, os.O_RDONLY | os.O_NONBLOCK)
         try:

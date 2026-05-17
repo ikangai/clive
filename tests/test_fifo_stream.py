@@ -130,3 +130,49 @@ async def test_queue_full_drops_newest(fifo_path):
     # Fast queue received multiple events (the classifier emits >1)
     assert fast.qsize() >= 1
     await stream.close()
+
+
+@pytest.mark.asyncio
+async def test_unsubscribe_removes_queue_from_fanout(fifo_path):
+    """unsubscribe() drops the queue from the subscribers list so the reader
+    no longer fans events into it (and dead queues do not accumulate across
+    turns / subtasks). Without this API the subscribers list grows
+    unboundedly for any caller that subscribes per-iteration."""
+    os.mkfifo(fifo_path)
+    stream = PaneStream.from_fifo_path(fifo_path)
+    q1 = stream.subscribe()
+    q2 = stream.subscribe()
+    assert len(stream.subscribers) == 2
+
+    stream.unsubscribe(q1)
+    assert len(stream.subscribers) == 1
+    assert q2 in stream.subscribers
+    assert q1 not in stream.subscribers
+
+    # Subsequent events only land in q2.
+    import subprocess
+    await asyncio.sleep(0.02)
+    subprocess.run(
+        ["bash", "-c", f'printf "\\x1b[31mERR\\x1b[0m" > {fifo_path}'],
+        check=True,
+    )
+    e = await asyncio.wait_for(q2.get(), timeout=2.0)
+    assert e.kind == "color_alert"
+    assert q1.empty()  # unsubscribed queue stays empty
+
+    await stream.close()
+
+
+@pytest.mark.asyncio
+async def test_unsubscribe_is_idempotent(fifo_path):
+    """Re-calling unsubscribe on an already-removed queue is a no-op, so
+    callers can put it in a finally block without guarding."""
+    os.mkfifo(fifo_path)
+    stream = PaneStream.from_fifo_path(fifo_path)
+    q = stream.subscribe()
+    stream.unsubscribe(q)
+    stream.unsubscribe(q)  # second call must not raise
+    # And unsubscribing a queue that was never registered is also safe.
+    stream.unsubscribe(asyncio.Queue())
+    assert stream.subscribers == []
+    await stream.close()

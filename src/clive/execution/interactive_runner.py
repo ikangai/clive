@@ -95,20 +95,23 @@ def _send_agent_command(cmd: str, subtask: Subtask, pane_info: PaneInfo, session
 
     if pane_info.stream is not None and pane_info.pane_loop is not None:
         q = pane_info.stream.subscribe()
-        # Run the consumer on the pane's loop (where the queue is owned).
-        coro = await_ready_events(
-            pane_info, q, marker=marker, detect_intervention=True,
-        )
         try:
-            screen, method = pane_info.pane_loop.submit(coro).result(
-                timeout=MAX_WAIT + 1.0,
+            # Run the consumer on the pane's loop (where the queue is owned).
+            coro = await_ready_events(
+                pane_info, q, marker=marker, detect_intervention=True,
             )
-        except Exception as exc:
-            log.warning(
-                "event-driven wait failed for pane %s (%s); falling back to poll",
-                pane_info.name, exc,
-            )
-            screen, method = wait_for_ready(pane_info, marker=marker, detect_intervention=True)
+            try:
+                screen, method = pane_info.pane_loop.submit(coro).result(
+                    timeout=MAX_WAIT + 1.0,
+                )
+            except Exception as exc:
+                log.warning(
+                    "event-driven wait failed for pane %s (%s); falling back to poll",
+                    pane_info.name, exc,
+                )
+                screen, method = wait_for_ready(pane_info, marker=marker, detect_intervention=True)
+        finally:
+            pane_info.stream.unsubscribe(q)
         return screen, method
 
     # No stream: original poll path.
@@ -174,14 +177,19 @@ def run_subtask_interactive(
 
         async def _spec_watch():
             # Subscribe INSIDE the coroutine so the queue is created on
-            # the pane loop thread (where it will be consumed).
+            # the pane loop thread (where it will be consumed). Unsubscribe
+            # on cancellation (the outer finally cancels this future), so
+            # the dead queue does not accumulate in stream.subscribers.
             q = pane_info.stream.subscribe()
-            while True:
-                evt = await q.get()
-                if evt.kind in SPEC_TRIGGERS:
-                    # Shallow snapshot: messages is append-only within
-                    # this loop, so existing dicts are stable.
-                    scheduler.fire(evt, messages_snapshot=list(messages))
+            try:
+                while True:
+                    evt = await q.get()
+                    if evt.kind in SPEC_TRIGGERS:
+                        # Shallow snapshot: messages is append-only within
+                        # this loop, so existing dicts are stable.
+                        scheduler.fire(evt, messages_snapshot=list(messages))
+            finally:
+                pane_info.stream.unsubscribe(q)
 
         spec_watch_future = pane_info.pane_loop.submit(_spec_watch())
 
