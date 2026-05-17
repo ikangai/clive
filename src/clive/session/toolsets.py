@@ -19,7 +19,6 @@ Public API:
     resolve_toolset(spec)    → {panes, commands, endpoints, categories}
     check_commands(cmds)     → (available, missing)
     build_tools_summary(…)   → str for LLM planner
-    get_toolset(name)        → list[dict]  (legacy, panes only)
     list_toolsets()          → dict         (legacy)
     DEFAULT_TOOLSET
 """
