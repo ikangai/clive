@@ -15,7 +15,7 @@ from protocol import encode
 
 _quiet = False
 _conversational = False
-_lock = threading.Lock()
+_lock = threading.RLock()  # RLock (not Lock) so signal handlers can re-enter from the main thread mid-`with _lock:` block — see Bug H9, 2026-05-20 debug session.
 _active = None  # Current pulsating _Pulse instance or None
 
 # Blue pulse cycle (similar to Claude Code)
