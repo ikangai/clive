@@ -10,6 +10,7 @@ MagicMock pane_loop whose .submit() returns pre-configured Futures.
 """
 import collections
 import logging
+import threading
 import time
 from dataclasses import dataclass
 from typing import Any
@@ -68,6 +69,11 @@ class SpeculationScheduler:
         self.accepted_version: int = 0
         self._last_fire_ts: float = 0.0
         self._cancel_times: collections.deque = collections.deque(maxlen=32)
+        # fire() runs on the pane_loop thread; try_consume() runs on the
+        # runner thread. Without this lock, _cancel_older_than's
+        # `self.in_flight = remaining` reassignment could silently drop a
+        # concurrent fire() append. See Bug H4, 2026-05-20 debug session.
+        self._lock = threading.Lock()
         # Instrumentation counters (Phase 2 real-use observation).
         self.fires_total: int = 0
         self.fires_rate_limited: int = 0
@@ -82,37 +88,38 @@ class SpeculationScheduler:
     def fire(self, trigger: ByteEvent, messages_snapshot: list[dict]) -> bool:
         """Submit a speculative chat call. Returns True if fired, False if
         rate-limited or breaker-tripped."""
-        if self._breaker_tripped():
-            self.fires_breaker_tripped += 1
-            return False
+        with self._lock:
+            if self._breaker_tripped():
+                self.fires_breaker_tripped += 1
+                return False
 
-        now = time.monotonic()
-        if now - self._last_fire_ts < self.MIN_FIRE_INTERVAL:
-            self.fires_rate_limited += 1
-            return False
-        self._last_fire_ts = now
+            now = time.monotonic()
+            if now - self._last_fire_ts < self.MIN_FIRE_INTERVAL:
+                self.fires_rate_limited += 1
+                return False
+            self._last_fire_ts = now
 
-        # Maintain MAX_IN_FLIGHT by cancelling the oldest. We cancel
-        # oldest (not newest) because the newest call is most likely to
-        # reflect current state.
-        while len(self.in_flight) >= self.MAX_IN_FLIGHT:
-            oldest = min(self.in_flight, key=lambda c: c.version)
-            oldest.future.cancel()
-            self.in_flight.remove(oldest)
-            self._record_cancel()
+            # Maintain MAX_IN_FLIGHT by cancelling the oldest. We cancel
+            # oldest (not newest) because the newest call is most likely to
+            # reflect current state.
+            while len(self.in_flight) >= self.MAX_IN_FLIGHT:
+                oldest = min(self.in_flight, key=lambda c: c.version)
+                oldest.future.cancel()
+                self.in_flight.remove(oldest)
+                self._record_cancel()
 
-        self.latest_version += 1
-        v = self.latest_version
-        future = self._submit_call(v, list(messages_snapshot))
-        self.in_flight.append(SpecCall(
-            version=v,
-            trigger=trigger,
-            future=future,
-            messages_snapshot=list(messages_snapshot),
-            started_at=now,
-        ))
-        self.fires_total += 1
-        return True
+            self.latest_version += 1
+            v = self.latest_version
+            future = self._submit_call(v, list(messages_snapshot))
+            self.in_flight.append(SpecCall(
+                version=v,
+                trigger=trigger,
+                future=future,
+                messages_snapshot=list(messages_snapshot),
+                started_at=now,
+            ))
+            self.fires_total += 1
+            return True
 
     def try_consume(self, current_messages: list[dict]) -> tuple[str | None, int, int]:
         """Return (reply, prompt_tokens, completion_tokens) of the newest
@@ -122,28 +129,29 @@ class SpeculationScheduler:
         Side effects on success: advances accepted_version, cancels older
         in-flight calls.
         """
-        # Newest first
-        for call in sorted(self.in_flight, key=lambda c: -c.version):
-            if call.version <= self.accepted_version:
-                continue
-            if not call.future.done():
-                continue
-            if not self._snapshot_matches(call.messages_snapshot, current_messages):
-                self.in_flight.remove(call)
-                self.discards_snapshot_mismatch += 1
-                continue
-            try:
-                reply, pt, ct = call.future.result()
-            except Exception as exc:
-                log.warning("speculative call v=%d raised: %r", call.version, exc)
-                self.in_flight.remove(call)
-                self.discards_exception += 1
-                continue
-            self.accepted_version = call.version
-            self._cancel_older_than(call.version)
-            self.accepts_total += 1
-            return reply, pt, ct
-        return None, 0, 0
+        with self._lock:
+            # Newest first
+            for call in sorted(self.in_flight, key=lambda c: -c.version):
+                if call.version <= self.accepted_version:
+                    continue
+                if not call.future.done():
+                    continue
+                if not self._snapshot_matches(call.messages_snapshot, current_messages):
+                    self.in_flight.remove(call)
+                    self.discards_snapshot_mismatch += 1
+                    continue
+                try:
+                    reply, pt, ct = call.future.result()
+                except Exception as exc:
+                    log.warning("speculative call v=%d raised: %r", call.version, exc)
+                    self.in_flight.remove(call)
+                    self.discards_exception += 1
+                    continue
+                self.accepted_version = call.version
+                self._cancel_older_than(call.version)
+                self.accepts_total += 1
+                return reply, pt, ct
+            return None, 0, 0
 
     # --- Internal ------------------------------------------------------
 
