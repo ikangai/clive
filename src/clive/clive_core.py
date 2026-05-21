@@ -7,6 +7,7 @@ The argparse + CLI dispatch layer stays in clive.py and imports from here.
 """
 
 import json
+import logging
 import os
 import re as _re
 import shutil
@@ -20,8 +21,10 @@ import libtmux
 from output import progress, step, detail, activity, result
 from session import (
     setup_session, check_health, generate_session_id, add_pane,
-    SESSION_NAME, SOCKET_NAME,
+    detach_stream, SESSION_NAME, SOCKET_NAME,
 )
+
+log = logging.getLogger(__name__)
 from toolsets import (
     resolve_toolset, check_commands, build_tools_summary,
     DEFAULT_TOOLSET, CATEGORIES, PANES, COMMANDS, ENDPOINTS,
@@ -227,6 +230,17 @@ def run(task: str, toolset_spec: str = DEFAULT_TOOLSET, output_format: str = "de
         else:
             progress("\nShutting down...")
         if owns_session:
+            # Detach pane streams (PaneStream/PaneLoop) before killing the tmux
+            # session so FIFO pipes and asyncio loop threads are released
+            # symmetrically. Without this the daemon threads only die at process
+            # exit, fine for one-shot CLI but leaks for long-running instances.
+            # See Bug H3, 2026-05-20 debug session.
+            for pane_info in (_state.get("panes") or {}).values():
+                try:
+                    detach_stream(pane_info)
+                except Exception as e:
+                    log.debug("detach_stream failed for pane %s: %s",
+                              getattr(pane_info, "name", "?"), e)
             try:
                 server = libtmux.Server(socket_name=SOCKET_NAME)
                 for s in server.sessions.filter(session_name=_state["session_name"]):
@@ -273,6 +287,7 @@ def _setup_session(toolset_spec, session_dir, _state):
 
     session, panes, actual_session_name = setup_session(resolved["panes"], session_dir=session_dir)
     _state["session_name"] = actual_session_name
+    _state["panes"] = panes  # exposed to _cleanup so detach_stream runs symmetrically on shutdown
 
     tool_status = check_health(panes)
     available_cmds, missing_cmds = check_commands(resolved["commands"])

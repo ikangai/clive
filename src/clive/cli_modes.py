@@ -10,7 +10,7 @@ from collections import deque
 import libtmux
 
 from llm import PROVIDER_NAME, MODEL
-from session import generate_session_id, SESSION_NAME, SOCKET_NAME, setup_session, check_health
+from session import generate_session_id, SESSION_NAME, SOCKET_NAME, setup_session, check_health, detach_stream
 from output import step, detail, progress
 from toolsets import CATEGORIES, resolve_toolset, check_commands, build_tools_summary
 from models import Plan, Subtask
@@ -62,6 +62,12 @@ def run_repl(args, instance_name=None, output_format="default", register_fn=None
                     session_dir=session_dir)
 
     def _cleanup():
+        # Detach pane streams before killing tmux — see Bug H3, 2026-05-20 debug session.
+        for pane_info in (session_ctx.get("panes") or {}).values():
+            try:
+                detach_stream(pane_info)
+            except Exception:
+                pass
         try:
             server = libtmux.Server(socket_name=SOCKET_NAME)
             for s in server.sessions.filter(session_name=repl_state["session_name"]):
