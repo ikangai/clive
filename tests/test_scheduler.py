@@ -149,6 +149,28 @@ def test_invalid_cron():
     assert validate_cron("") is False
 
 
+# ─── Marker prefix-collision regression (Bug H5, 2026-05-20) ──────────────────
+
+def test_marker_endswith_avoids_prefix_collision():
+    """Re-installing schedule `test` must NOT remove the line for `test_long`.
+
+    Before the fix, `_install_cron` and `_uninstall_cron` filtered crontab
+    lines with `marker in line` (substring), so any longer-named sibling
+    sharing the same prefix would be silently wiped.
+    """
+    from scheduler import _line_owns_schedule
+    test_line = "* * * * * /usr/local/bin/clive-schedules/test.sh # clive-schedule:test"
+    long_line = "0 * * * * /usr/local/bin/clive-schedules/test_long.sh # clive-schedule:test_long"
+    other_line = "5 * * * * /usr/local/bin/clive-schedules/other.sh # clive-schedule:other"
+
+    assert _line_owns_schedule(test_line, "test")
+    assert not _line_owns_schedule(long_line, "test")          # the bug
+    assert _line_owns_schedule(long_line, "test_long")
+    assert not _line_owns_schedule(test_line, "test_long")
+    assert not _line_owns_schedule(other_line, "test")
+    assert not _line_owns_schedule(other_line, "test_long")
+
+
 def test_add_rejects_invalid_cron(tmp_path, monkeypatch):
     _setup(tmp_path, monkeypatch)
     with pytest.raises(ValueError, match="Invalid cron"):

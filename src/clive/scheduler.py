@@ -347,6 +347,12 @@ def _auto_name(task: str) -> str:
 
 # ─── Crontab Management ──────────────────────────────────────────────────────
 
+def _line_owns_schedule(line: str, name: str) -> bool:
+    # Whole-token match — `marker in line` would wipe `# clive-schedule:test_long`
+    # when removing schedule `test`. See Bug H5, 2026-05-20 debug session.
+    return line.rstrip().endswith(f"# clive-schedule:{name}")
+
+
 def _install_cron(entry: dict):
     """Install cron entry pointing to the wrapper script."""
     wrapper_path = os.path.join(SCHEDULE_DIR, f"{entry['name']}.sh")
@@ -359,7 +365,7 @@ def _install_cron(entry: dict):
     except Exception:
         current = ""
 
-    lines = [l for l in current.splitlines() if marker not in l]
+    lines = [l for l in current.splitlines() if not _line_owns_schedule(l, entry["name"])]
     lines.append(f"{cron_line} {marker}")
 
     proc = subprocess.run(["crontab", "-"], input="\n".join(lines) + "\n",
@@ -375,8 +381,7 @@ def _uninstall_cron(name: str):
     except Exception:
         return
 
-    marker = f"# clive-schedule:{name}"
-    lines = [l for l in current.splitlines() if marker not in l]
+    lines = [l for l in current.splitlines() if not _line_owns_schedule(l, name)]
 
     subprocess.run(["crontab", "-"], input="\n".join(lines) + "\n",
                    capture_output=True, text=True)
