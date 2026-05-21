@@ -53,6 +53,7 @@ _log = logging.getLogger(__name__)
 
 _HANDSHAKE_PREFIX = b"NONCE "
 _HANDSHAKE_MAX_LEN = 256  # refuse pathologically long handshake lines
+_MAX_FRAME_LINE = 1 << 16  # 64 KiB — cap post-handshake line length so a misbehaving peer can't OOM the server with newline-free bytes. See Bug H7, 2026-05-20 debug session.
 
 
 class _Conn:
@@ -311,6 +312,12 @@ class LobbyServer:
         while True:
             nl = conn.in_buf.find(b"\n")
             if nl < 0:
+                if len(conn.in_buf) > _MAX_FRAME_LINE:
+                    _log.warning(
+                        "lobby: frame line exceeded %d bytes on fd=%d, closing",
+                        _MAX_FRAME_LINE, conn.fd,
+                    )
+                    self._close(conn)
                 break
             line, conn.in_buf = conn.in_buf[:nl], conn.in_buf[nl + 1:]
             if not line:

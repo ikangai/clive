@@ -575,3 +575,43 @@ def test_missing_nonce_line_closes_connection(server, tmp_socket):
     s.close()
     assert data == b"", f"server did not close, received: {data!r}"
     assert elapsed < 0.9, f"close took too long: {elapsed:.3f}s"
+
+
+def test_oversized_frame_line_closes_connection(server, tmp_socket):
+    """Bug H7 (2026-05-20): a connected peer that sends bytes without a
+    newline must not be able to grow conn.in_buf unboundedly. After the
+    fix, _drain_frames caps at _MAX_FRAME_LINE and closes the connection
+    on overflow."""
+    from lobby_server import _MAX_FRAME_LINE
+
+    s = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+    for _ in range(50):
+        try:
+            s.connect(tmp_socket)
+            break
+        except (FileNotFoundError, ConnectionRefusedError):
+            time.sleep(0.02)
+    # Complete the handshake so we are past _HANDSHAKE_MAX_LEN guard.
+    s.sendall(b"NONCE \n")
+    # Now flood bytes without a newline. Send slightly more than the cap
+    # in 4 KiB chunks; the server's _drain_frames must close us.
+    chunk = b"A" * 4096
+    sent = 0
+    s.settimeout(2.0)
+    try:
+        while sent < _MAX_FRAME_LINE + 8192:
+            s.sendall(chunk)
+            sent += len(chunk)
+    except (BrokenPipeError, ConnectionResetError, socket.timeout):
+        pass  # server closed mid-write — exactly the expected behavior
+
+    # Recv must observe close (or timeout, but close should come quickly).
+    s.settimeout(1.0)
+    try:
+        data = s.recv(4096)
+    except socket.timeout:
+        data = b"__TIMEOUT__"
+    s.close()
+    assert data == b"", (
+        f"server did not close oversized peer; received: {data!r}"
+    )
