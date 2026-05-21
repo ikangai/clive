@@ -50,25 +50,142 @@ def _emit(on_event, *args):
 
 # ─── Command Safety ─────────────────────────────────────────────────────────
 
+# Raw-text patterns: things that don't survive shlex tokenization or that
+# we want to catch even when embedded in a larger expression.
 BLOCKED_COMMANDS = [
-    re.compile(r'rm\s+(-\w*\s+)*-r[f ]\s+/\s*$'),
-    re.compile(r'rm\s+(-\w*\s+)*-rf\s+(~|\$HOME|/home)\b'),
-    re.compile(r'\b(shutdown|reboot|halt|poweroff)\b'),
-    re.compile(r'\bmkfs\b'),
-    re.compile(r'\bdd\s+.*of=/dev/'),
-    re.compile(r':\(\)\s*\{\s*:\s*\|\s*:\s*&\s*\}\s*;\s*:'),  # fork bomb
-    re.compile(r'>\s*/dev/sd[a-z]'),
-    re.compile(r'chmod\s+(-\w+\s+)*777\s+/\s*$'),
-    re.compile(r'\bwhile\s+true\s*;\s*do\s*:?\s*;?\s*done'),
-    re.compile(r'\beval\s+"?\$\(.*base64'),
+    re.compile(r':\(\)\s*\{\s*:\s*\|\s*:\s*&\s*\}\s*;\s*:'),  # fork bomb canonical form
+    re.compile(r'>\s*/dev/sd[a-z]'),                          # redirect to raw disk
+    re.compile(r'\beval\s+"?\$\(.*base64'),                   # eval base64 stub
+    # `while true; do ...; done` and the `while :; do ...; done` variant
+    # (`:` is the bash null command — equally infinite). See Bug H10.
+    re.compile(r'\bwhile\s+(?:true|:)\s*;\s*do\b'),
 ]
+
+# argv[0] names that are dangerous regardless of args. Match the actual
+# command word (first token, optionally preceded by `sudo`), not the
+# substring — `echo shutdown` and `grep shutdown /var/log/...` are benign.
+# See Bug H10 false-positive analysis.
+_DANGEROUS_COMMANDS = frozenset({
+    "shutdown", "reboot", "halt", "poweroff",
+})
 
 
 def _check_command_safety(command: str) -> str | None:
     """Check command against blocklist. Returns violation or None."""
+    # 1) Raw-text patterns (fork bomb, while-true, dd-to-disk redirects, etc).
     for pattern in BLOCKED_COMMANDS:
         if pattern.search(command):
             return f"Blocked dangerous command: {command[:80]}"
+
+    # 2) Structured per-command checks. Run against each segment of a shell
+    #    sequence (`a && b`, `a || b`, `a; b`, `a | b`) so `cd / && rm -rf .`
+    #    is inspected as `rm -rf .` after the `&&`. shlex tokenization handles
+    #    quoting and trailing `# comment` correctly.
+    for segment in _split_shell_segments(command):
+        violation = _check_segment(segment)
+        if violation:
+            return violation
+    return None
+
+
+_SHELL_SEPARATORS = re.compile(r'\s*(?:&&|\|\||;|\|(?!\|))\s*')
+
+
+def _split_shell_segments(command: str) -> list[str]:
+    """Split on `&&`, `||`, `;`, `|` outside of quotes. Best-effort: shlex
+    tokenizes first to respect quoting, then we reassemble around separator
+    tokens. Falls back to a single segment if tokenization fails."""
+    try:
+        tokens = shlex.split(command, comments=True, posix=True)
+    except ValueError:
+        return [command]
+    segments: list[list[str]] = [[]]
+    for tok in tokens:
+        if tok in ("&&", "||", ";", "|"):
+            segments.append([])
+        else:
+            segments[-1].append(tok)
+    # Reassemble each segment back into a string for re-tokenization in
+    # _check_segment (so quoting decisions remain consistent).
+    return [shlex.join(s) for s in segments if s]
+
+
+def _check_segment(segment: str) -> str | None:
+    try:
+        tokens = shlex.split(segment, comments=True)
+    except ValueError:
+        return None
+
+    if not tokens:
+        return None
+
+    # Strip leading sudo / env-var assignments so we inspect the real command.
+    while tokens and (tokens[0] == "sudo" or "=" in tokens[0] and not tokens[0].startswith("-")):
+        if tokens[0] == "sudo":
+            tokens = tokens[1:]
+        elif "=" in tokens[0] and tokens[0].split("=", 1)[0].replace("_", "").isalnum():
+            tokens = tokens[1:]   # env-var prefix like FOO=bar cmd
+        else:
+            break
+
+    if not tokens:
+        return None
+
+    cmd, args = tokens[0], tokens[1:]
+
+    # rm with -r/-R: any flag combo containing r or R, any arg pointing at
+    # / or a home dir. Catches `rm -fr /`, `rm -rfv /`, `rm -rf / && cmd`,
+    # `rm -r --no-preserve-root /` — all variants the old regex missed.
+    if cmd == "rm":
+        flag_chars: set[str] = set()
+        positional: list[str] = []
+        for arg in args:
+            if arg == "--":
+                continue
+            if arg.startswith("--"):
+                continue
+            if arg.startswith("-") and len(arg) > 1:
+                flag_chars.update(arg[1:])
+            else:
+                positional.append(arg)
+        if flag_chars & {"r", "R"}:
+            for p in positional:
+                base = p.rstrip("/")
+                if p == "/" or base in ("", "~", "$HOME", "/home", "/Users"):
+                    return f"Blocked dangerous command: rm -r {p}"
+                if p.startswith(("/home/", "/Users/")) and p.count("/") <= 2:
+                    return f"Blocked dangerous command: rm -r {p}"
+
+    # System-shutdown commands as the actual command word.
+    if cmd in _DANGEROUS_COMMANDS:
+        return f"Blocked dangerous command: {cmd}"
+
+    # mkfs.* anywhere as the command word.
+    if cmd == "mkfs" or cmd.startswith("mkfs."):
+        return f"Blocked dangerous command: {cmd}"
+
+    # dd writing to a /dev block device (sda, sdb, nvme0n1, etc).
+    # /dev/null and /dev/tty* are common-and-harmless, so allow those.
+    if cmd == "dd":
+        for a in args:
+            if a.startswith("of=/dev/"):
+                target = a[len("of="):]
+                if target.startswith(("/dev/null", "/dev/tty", "/dev/std")):
+                    continue
+                return f"Blocked dangerous command: dd {a}"
+
+    # chmod 777 / (accept 777 or 0777 etc as mode arg).
+    if cmd == "chmod":
+        mode_arg = next(
+            (a for a in args if not a.startswith("-") and a != "--"), None,
+        )
+        if mode_arg and mode_arg.lstrip("0") == "777":
+            mode_idx = args.index(mode_arg)
+            after = [a for a in args[mode_idx + 1:] if not a.startswith("-")]
+            for a in after:
+                if a == "/" or a.rstrip("/") in ("", "~", "$HOME"):
+                    return f"Blocked dangerous command: chmod 777 {a}"
+
     return None
 
 

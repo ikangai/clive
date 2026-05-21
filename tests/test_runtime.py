@@ -91,6 +91,54 @@ class TestCheckCommandSafety:
         assert result is not None
 
 
+class TestCheckCommandSafetyH10Regressions:
+    """Bug H10 (2026-05-20): bypasses the old regex-only blocklist missed,
+    and false positives that the new structured check now allows through."""
+
+    # ─── Bypasses that must now be caught ─────────────────────────────────
+
+    @pytest.mark.parametrize("cmd", [
+        "rm -fr /",                    # flag order swapped
+        "rm -rfv /",                   # extra flag char
+        "rm -rf / # comment",          # trailing comment
+        "rm -rf / && echo done",       # shell sequence
+        "sudo rm -rf /",               # sudo prefix
+        "rm -rf /home/alice",          # specific home subdir
+        "rm -rf /Users/alice",         # macOS equivalent
+        "chmod 0777 /",                # octal mode with leading 0
+        "chmod 777 / && ls",           # trailing sequence
+        "while :; do echo x; done",    # `:` as null command
+        "ls /tmp && rm -rf /",         # rm in second segment
+        "cat file | rm -rf /",         # rm via pipe
+        "dd if=/dev/zero of=/dev/sda", # disk wipe
+        "mkfs.ext4 /dev/sda1",         # mkfs.* variant
+    ])
+    def test_bypass_now_blocked(self, cmd):
+        import runtime
+        result = runtime._check_command_safety(cmd)
+        assert result is not None, f"expected to block: {cmd!r}"
+        assert "Blocked" in result
+
+    # ─── False positives that must now be allowed ─────────────────────────
+
+    @pytest.mark.parametrize("cmd", [
+        "echo 'shutdown sequence initiated'",
+        "grep shutdown /var/log/syslog",
+        "ls /sbin/shutdown",
+        "echo 'I will reboot now'",
+        "rm -rf /tmp/foo",             # subdir under /tmp is fine
+        "rm -rf ./old",                # relative path
+        "chmod 755 /etc/passwd",       # 777-only is blocked, 755 fine
+        "echo halt",                   # halt as argument, not command
+        "dd if=/dev/zero of=/tmp/foo", # /tmp target is fine
+        "dd if=/dev/urandom of=/dev/null count=10",  # /dev/null exclusion
+    ])
+    def test_benign_not_falsely_blocked(self, cmd):
+        import runtime
+        assert runtime._check_command_safety(cmd) is None, \
+            f"false positive on: {cmd!r}"
+
+
 class TestWrapForSandbox:
     def test_no_sandbox(self):
         import runtime
