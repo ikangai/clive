@@ -128,6 +128,11 @@ RULES:
     or use [].
 13. CHAINS ARE THE COMMON CASE. "Fetch X and translate it" = two subtasks: a "script" subtask that fetches and saves to a file, then an "llm" subtask that depends on it and translates. "Download, summarize, email" = three subtasks: script → llm → script. Data flows through files in the session directory; each subtask's "produces" is the next one's "expects".
 
+The worker can discover tools mid-task by running, from any shell pane:
+  clive-tools list                   # category index
+  clive-tools list <category>        # tools in one category
+  clive-tools info <name>            # reference card for a tool
+
 Respond with a JSON object and nothing else.
 
 Example 1 — fetch-then-transform chain ("get the youtube transcript and translate it to german"):

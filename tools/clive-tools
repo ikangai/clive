@@ -1,0 +1,50 @@
+#!/usr/bin/env python3
+"""In-pane tool discovery — agents call `tools` / `tool_info` mid-task.
+
+Usage:
+    clive-tools list                  # category index (Tier 0)
+    clive-tools list <category>       # names in one category (Tier 1)
+    clive-tools info <tool>           # reference card (Tier 2)
+"""
+import sys
+from pathlib import Path
+
+# Pin to repo root so this script works whether invoked from /tmp/clive
+# or from the repo. Mirrors clive.py's sys.path injection.
+ROOT = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(ROOT / "src" / "clive"))
+
+from toolsets import (
+    CATEGORIES, build_tier0_summary, build_tier1_names, build_tier2_card,
+)
+
+
+def main(argv):
+    if not argv or argv[0] == "list":
+        rest = argv[1:] if argv and argv[0] == "list" else argv
+        if not rest:
+            print(build_tier0_summary(list(CATEGORIES.keys())))
+            return 0
+        category = rest[0]
+        if category not in CATEGORIES:
+            print(f"Unknown category: {category}", file=sys.stderr)
+            print(f"Try one of: {', '.join(CATEGORIES)}", file=sys.stderr)
+            return 2
+        print(build_tier1_names([category]))
+        return 0
+    if argv[0] == "info":
+        if len(argv) < 2:
+            print("Usage: clive-tools info <tool>", file=sys.stderr)
+            return 2
+        card = build_tier2_card(argv[1])
+        if card is None:
+            print(f"Unknown tool: {argv[1]}", file=sys.stderr)
+            return 1
+        print(card)
+        return 0
+    print(__doc__, file=sys.stderr)
+    return 2
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv[1:]))
