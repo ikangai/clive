@@ -762,6 +762,30 @@ def build_tools_summary(
     return "\n\n".join(sections)
 
 
+def build_tier0_summary(active_categories: list[str]) -> str:
+    """Tier 0: category index with tool counts. ~100 tokens.
+
+    The planner sees what *kinds* of tools exist, not every individual tool.
+    Combined with Tier 1 (`build_tier1_names`) for categories the planner picks.
+    """
+    parts = []
+    for cat in active_categories:
+        cat_def = CATEGORIES.get(cat)
+        if not cat_def:
+            continue
+        count = (len(cat_def.get("commands", []))
+                 + len(cat_def.get("panes", []))
+                 + len(cat_def.get("endpoints", [])))
+        parts.append(f"{cat}({count})")
+    if not parts:
+        return ""
+    listing = ", ".join(parts)
+    return (
+        f"Tool categories available: {listing}\n"
+        "Use `tool_info <name>` for details on a specific tool."
+    )
+
+
 def list_toolsets() -> dict[str, list[str]]:
     """Return dict mapping profile names to their pane tool names."""
     result = {}
