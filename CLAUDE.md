@@ -75,6 +75,14 @@ Plain text. LLM emits ```bash fenced blocks; `observation/command_extract.py` pa
 
 `session/toolsets.py` — profiles (`minimal`, `standard`, `full`, `remote`, ...) composed of categories via `+` syntax (e.g. `-t standard+media+ai`). `resolve_toolset()` returns panes, commands, endpoints. Toolsets are **dynamic**: categories expand at runtime via `_expand_toolset()`. `commands.py:check_commands()` verifies installed CLIs at startup.
 
+**Four-tier progressive disclosure (gh#39, opt-in via `CLIVE_PROGRESSIVE_TOOLS=1`):**
+- Tier 0 = `build_tier0_summary(categories)` — category index with counts (~100 tokens)
+- Tier 1 = `build_tier1_names(categories)` — tool names per category (~50 tokens/cat)
+- Tier 2 = `build_tier2_card(name)` — compact per-tool reference card (≤200 chars)
+- Tier 3 = `drivers/*.md` (unchanged)
+
+Under the flag, `build_tools_summary` emits Tier 0 + Tier 1 instead of the legacy flat dump (~86% token reduction on `full`). Planner emits `subtask.tools=[...]`; interactive/toolcall runners inject matching Tier-2 cards via `build_worker_tool_context`. In-pane discovery: `tools/clive-tools list|info`. Auto-categorization helper: `classify_tool_to_category(name, description)` (used by gh#41 auto-explore to drop newly-explored tools into an existing category). The flag is default-off until validated by gh#40 evals; legacy path is untouched.
+
 ### Router (3-tier intent classification)
 
 `src/clive/router.py` routes user input through: (1) direct match → (2) cheap classifier → (3) full planner. Most tasks resolve at tier 1 or 2.
