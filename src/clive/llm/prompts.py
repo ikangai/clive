@@ -173,7 +173,7 @@ def build_worker_tool_context(subtask) -> str:
     (typically just below the driver header).
     """
     from toolsets import build_tier2_card
-    tools = getattr(subtask, "tools", None) or []
+    tools = list(dict.fromkeys(getattr(subtask, "tools", None) or []))
     cards = []
     for t in tools:
         card = build_tier2_card(t)
@@ -181,7 +181,7 @@ def build_worker_tool_context(subtask) -> str:
             cards.append(card)
     if not cards:
         return ""
-    return "Tools you may need:\n" + "\n".join(cards)
+    return "Tools you may need:\n" + "\n\n".join(cards)
 
 
 def build_classifier_prompt(
