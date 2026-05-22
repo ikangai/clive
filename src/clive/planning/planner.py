@@ -63,12 +63,21 @@ def create_plan(
         # If planner assigned a skill, inject [skill:name] into description
         if s.get("skill") and f"[skill:" not in desc:
             desc = f"{desc} [skill:{s['skill']}]"
+        # Defensive: normalize "tools" to a list of strings. Planners may emit
+        # null, a string, or omit the field entirely — coerce all to [] rather
+        # than letting (e.g.) list("yt-dlp") explode into single characters.
+        raw_tools = s.get("tools")
+        if isinstance(raw_tools, list):
+            tools = [str(t) for t in raw_tools]
+        else:
+            tools = []
         plan.subtasks.append(Subtask(
             id=str(s["id"]),
             description=desc,
             pane=s["pane"],
             depends_on=[str(d) for d in s.get("depends_on", [])],
             mode=s.get("mode", "interactive"),
+            tools=tools,
         ))
 
     errors = plan.validate(valid_panes=set(panes.keys()))
