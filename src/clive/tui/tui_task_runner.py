@@ -138,7 +138,8 @@ def run_task_inner(app, task: str, task_info: dict, out: RichLog) -> None:
         return
 
     tools_summary = build_tools_summary(
-        tool_status, app._available_cmds, app._resolved["endpoints"]
+        tool_status, app._available_cmds, app._resolved["endpoints"],
+        categories=app._resolved["categories"],
     )
     if app._cancelled.is_set():
         return

@@ -23,6 +23,7 @@ Public API:
     DEFAULT_TOOLSET
 """
 
+import os
 import subprocess
 
 # ── Pane definitions ─────────────────────────────────────────────────────────
@@ -700,6 +701,7 @@ def build_tools_summary(
     pane_status: dict[str, dict],
     available_commands: list[dict],
     endpoints: list[dict],
+    categories: list[str] | None = None,
 ) -> str:
     """Build the enriched tool description for the LLM planner.
 
@@ -707,7 +709,17 @@ def build_tools_summary(
     - Which panes exist for task routing
     - Which commands are available in any shell pane
     - Which APIs can be called via curl
+
+    Progressive path (gh#39): when ``CLIVE_PROGRESSIVE_TOOLS=1`` and
+    ``categories`` is supplied, returns the compact Tier-0 (category index)
+    + Tier-1 (names per active category) summary instead of the flat dump.
     """
+    # Progressive path: tier 0 (category index) + tier 1 (names per active cat).
+    if os.environ.get("CLIVE_PROGRESSIVE_TOOLS") == "1" and categories:
+        cats_list = list(categories)
+        parts = [build_tier0_summary(cats_list), build_tier1_names(cats_list)]
+        return "\n\n".join(p for p in parts if p)
+
     sections = []
 
     # Panes — conversation channels the LLM can target subtasks to

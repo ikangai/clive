@@ -154,6 +154,7 @@ def run_dry_run(args):
     available_cmds, _ = check_commands(resolved["commands"])
     tools_summary = build_tools_summary(
         check_health(panes), available_cmds, resolved["endpoints"],
+        categories=resolved["categories"],
     )
     if _is_direct(args.task, len(panes)):
         first_pane = list(panes.keys())[0]
