@@ -870,3 +870,47 @@ def find_category(tool_name: str) -> str | None:
 def list_categories() -> dict[str, dict]:
     """Return the category registry for display."""
     return dict(CATEGORIES)
+
+
+# Category keyword hints for `classify_tool_to_category`.
+# Conservative — only obvious words. Returns None on miss rather than guess.
+_CATEGORY_KEYWORDS = {
+    "data":   ["json", "csv", "tsv", "xml", "yaml", "parse", "query",
+               "filter", "transform", "sql", "database"],
+    "web":    ["http", "curl", "url", "web", "html", "browser",
+               "scrape", "rest", "api client"],
+    "docs":   ["pdf", "markdown", "document", "convert", "doc ", "latex"],
+    "media":  ["video", "audio", "youtube", "podcast", "transcribe",
+               "ffmpeg", "stream"],
+    "images": ["image", "png", "jpeg", "jpg", "photo", "exif", "gif"],
+    "comms":  ["email", "calendar", "contact", "notification", "chat",
+               "message"],
+    "dev":    ["git", "github", "pull request", "issue", "commit",
+               "diff", "code"],
+    "search": ["search engine", "google", "duckduckgo", "bing"],
+    "ai":     ["llm", "openai", "anthropic", "claude", "gpt", "summariz",
+               "language model"],
+    "voice":  ["microphone", "speech", "speak", "audio record",
+               "text-to-speech", "tts"],
+    "sync":   ["s3", "rclone", "cloud storage", "dropbox", "sync"],
+    "core":   ["filesystem", "directory", " cd ", "shell", "navigate"],
+}
+
+
+def classify_tool_to_category(name: str, description: str) -> str | None:
+    """Best-effort classify an unknown tool into an existing category.
+
+    Used by gh#41 Phase 1 auto-explore to surface a newly generated
+    driver into a toolset entry. Returns None when no keyword matches.
+    Conservative on purpose: a wrong category bucket is worse than no
+    bucket (auto-explore can fall back to core).
+    """
+    haystack = f"{name} {description}".lower()
+    matches: dict[str, int] = {}
+    for cat, keywords in _CATEGORY_KEYWORDS.items():
+        score = sum(1 for kw in keywords if kw in haystack)
+        if score:
+            matches[cat] = score
+    if not matches:
+        return None
+    return max(matches, key=matches.get)
