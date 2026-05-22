@@ -17,3 +17,9 @@ def test_classify_returns_none_for_unclassifiable():
     result = classify_tool_to_category("frobnicator",
                                        "asdf qwer zxcv abcd efgh")
     assert result is None
+
+
+def test_classify_ties_resolve_deterministically():
+    """When two categories score equal, dict insertion order wins (data before web)."""
+    # 'json' (data) + 'http' (web), both score 1 — data must win.
+    assert classify_tool_to_category("xy", "json over http") == "data"

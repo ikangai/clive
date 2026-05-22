@@ -872,6 +872,7 @@ def list_categories() -> dict[str, dict]:
     return dict(CATEGORIES)
 
 
+# Iteration order = tie-break priority on equal scores. Don't reshuffle silently.
 # Category keyword hints for `classify_tool_to_category`.
 # Conservative — only obvious words. Returns None on miss rather than guess.
 _CATEGORY_KEYWORDS = {
@@ -885,7 +886,7 @@ _CATEGORY_KEYWORDS = {
     "images": ["image", "png", "jpeg", "jpg", "photo", "exif", "gif"],
     "comms":  ["email", "calendar", "contact", "notification", "chat",
                "message"],
-    "dev":    ["git", "github", "pull request", "issue", "commit",
+    "dev":    [" git ", "github", "pull request", "issue", "commit",
                "diff", "code"],
     "search": ["search engine", "google", "duckduckgo", "bing"],
     "ai":     ["llm", "openai", "anthropic", "claude", "gpt", "summariz",
