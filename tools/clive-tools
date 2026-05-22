@@ -1,10 +1,12 @@
 #!/usr/bin/env python3
-"""In-pane tool discovery — agents call `tools` / `tool_info` mid-task.
+"""In-pane tool discovery for clive workers.
 
 Usage:
     clive-tools list                  # category index (Tier 0)
     clive-tools list <category>       # names in one category (Tier 1)
     clive-tools info <tool>           # reference card (Tier 2)
+
+Exit codes: 0 success; 1 tool not found; 2 usage error.
 """
 import sys
 from pathlib import Path
@@ -20,11 +22,18 @@ from toolsets import (
 
 
 def main(argv):
-    if not argv or argv[0] == "list":
-        rest = argv[1:] if argv and argv[0] == "list" else argv
+    if not argv:
+        print(build_tier0_summary(list(CATEGORIES.keys())))
+        return 0
+    cmd = argv[0]
+    if cmd == "list":
+        rest = argv[1:]
         if not rest:
             print(build_tier0_summary(list(CATEGORIES.keys())))
             return 0
+        if len(rest) > 1:
+            print("Usage: clive-tools list [<category>]", file=sys.stderr)
+            return 2
         category = rest[0]
         if category not in CATEGORIES:
             print(f"Unknown category: {category}", file=sys.stderr)
@@ -32,8 +41,11 @@ def main(argv):
             return 2
         print(build_tier1_names([category]))
         return 0
-    if argv[0] == "info":
+    if cmd == "info":
         if len(argv) < 2:
+            print("Usage: clive-tools info <tool>", file=sys.stderr)
+            return 2
+        if len(argv) > 2:
             print("Usage: clive-tools info <tool>", file=sys.stderr)
             return 2
         card = build_tier2_card(argv[1])

@@ -128,10 +128,7 @@ RULES:
     or use [].
 13. CHAINS ARE THE COMMON CASE. "Fetch X and translate it" = two subtasks: a "script" subtask that fetches and saves to a file, then an "llm" subtask that depends on it and translates. "Download, summarize, email" = three subtasks: script → llm → script. Data flows through files in the session directory; each subtask's "produces" is the next one's "expects".
 
-The worker can discover tools mid-task by running, from any shell pane:
-  clive-tools list                   # category index
-  clive-tools list <category>        # tools in one category
-  clive-tools info <name>            # reference card for a tool
+Workers can discover tools mid-task by running `clive-tools list`, `clive-tools list <category>`, or `clive-tools info <name>` inside their own subtask shell. You (the planner) do NOT need to create a discovery subtask — just declare the tools you already know about on each subtask's "tools" field.
 
 Respond with a JSON object and nothing else.
 
