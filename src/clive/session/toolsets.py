@@ -786,6 +786,22 @@ def build_tier0_summary(active_categories: list[str]) -> str:
     )
 
 
+def build_tier1_names(categories: list[str]) -> str:
+    """Tier 1: tool names per category, no descriptions. ~50 tokens/category."""
+    lines = []
+    for cat in categories:
+        cat_def = CATEGORIES.get(cat)
+        if not cat_def:
+            continue
+        names = []
+        names.extend(cat_def.get("panes", []))
+        names.extend(cat_def.get("commands", []))
+        names.extend(cat_def.get("endpoints", []))
+        if names:
+            lines.append(f"{cat}: {', '.join(names)}")
+    return "\n".join(lines)
+
+
 def list_toolsets() -> dict[str, list[str]]:
     """Return dict mapping profile names to their pane tool names."""
     result = {}
