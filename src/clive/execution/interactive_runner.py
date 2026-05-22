@@ -316,6 +316,11 @@ def run_subtask_interactive(
                 # that raw `EXIT:<n>` markers (injected by wrap_command) are
                 # still visible — the renderer strips frames, not shell output.
                 exit_code = _parse_exit_code(prev_screen)
+                # Emit a "probe" event with the structured (cmd, exit_code,
+                # screen) tuple — consumed by discovery.explorer's on_event to
+                # record ProbeOutcomes. Existing callers (dag_scheduler) ignore
+                # unknown event kinds, so this is additive.
+                _emit(on_event, "probe", subtask.id, cmd, exit_code, prev_screen)
                 # Keep prev_screen in the same form as the decoded screen we
                 # will compare against on the next turn, so compute_screen_diff
                 # does not report "all frames disappeared" as noise.
