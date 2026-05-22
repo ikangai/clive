@@ -24,6 +24,8 @@ from scheduler import (
     list_schedules, remove_schedule, pause_schedule, resume_schedule,
     run_now, get_history,
 )
+from discovery.explorer import explore_tool
+from discovery.generator import generate_driver, write_generated_driver
 
 
 def handle_list_toolsets(args) -> None:
@@ -297,6 +299,41 @@ def handle_status(args) -> None:
     else:
         print("No server running (health file not found)")
     raise SystemExit(0)
+
+
+def handle_explore(args) -> int:
+    """`--explore <tool>` — run the exploration pipeline + write driver (gh#41).
+
+    Returns an integer exit code (does NOT raise SystemExit) so the test
+    suite can monkeypatch the inner functions and assert return codes
+    directly without catching SystemExit.
+    """
+    tool = args.explore
+    print(f"Exploring {tool}...")
+    try:
+        result = explore_tool(tool)
+    except Exception as e:
+        print(f"Exploration failed: {e}")
+        return 1
+    if not result.summary:
+        print(
+            f"Warning: exploration completed without DONE: marker "
+            f"({len(result.probes)} probes captured)."
+        )
+    try:
+        driver_text = generate_driver(tool, result)
+    except ValueError as e:
+        print(f"Driver synthesis failed: {e}")
+        return 1
+    try:
+        path = write_generated_driver(tool, driver_text, overwrite=args.explore_overwrite)
+    except FileExistsError as e:
+        print(str(e))
+        print("Re-run with --explore-overwrite to replace.")
+        return 2
+    print(f"Wrote driver: {path}")
+    print(f"Summary: {result.summary or '(no summary)'}")
+    return 0
 
 
 def handle_serve(args) -> None:

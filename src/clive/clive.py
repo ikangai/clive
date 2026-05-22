@@ -92,6 +92,11 @@ if __name__ == "__main__":
     if args.safe_mode:
         os.environ["CLIVE_EXPERIMENTAL_SELFMOD"] = "0"
         print("Safe mode: self-modification disabled.")
+    # handle_explore returns int (not SystemExit) so tests can assert
+    # exit codes directly. Dispatched here, before the planner path, so
+    # `--explore rg` doesn't try to plan "rg" as a task.
+    if args.explore:
+        sys.exit(_ch.handle_explore(args))
     for _flag in ("list_toolsets", "list_tools", "setup", "tui", "undo",
                   "selfmod", "list_skills", "evolve", "list_schedules",
                   "remove_schedule", "pause_schedule", "resume_schedule",

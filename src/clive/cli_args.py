@@ -70,4 +70,13 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--list-sessions", action="store_true", help="List persistent chat sessions (most recent first) and exit")
     parser.add_argument("--new-session", action="store_true", help="Create a new persistent chat session and print its id")
     parser.add_argument("--resume-session", metavar="SID", help="Resume a persistent chat session by id (binds subsequent tasks to it)")
+    parser.add_argument(
+        "--explore", metavar="TOOL",
+        help="Explore an unknown CLI tool: run --help/-h/man/tldr + safe probes, "
+             "then synthesize a driver to drivers/<TOOL>.md (gh#41).",
+    )
+    parser.add_argument(
+        "--explore-overwrite", action="store_true",
+        help="With --explore, overwrite an existing driver instead of refusing.",
+    )
     return parser
