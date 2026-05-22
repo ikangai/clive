@@ -165,6 +165,25 @@ Example 2 — parallel research + transform ("analyze errors using the docs"):
 """
 
 
+def build_worker_tool_context(subtask) -> str:
+    """Compose Tier-2 reference cards for the subtask's declared tools.
+
+    Returns empty string when no tools are declared or none resolve.
+    The caller decides where to splice this into the turn prompt
+    (typically just below the driver header).
+    """
+    from toolsets import build_tier2_card
+    tools = getattr(subtask, "tools", None) or []
+    cards = []
+    for t in tools:
+        card = build_tier2_card(t)
+        if card:
+            cards.append(card)
+    if not cards:
+        return ""
+    return "Tools you may need:\n" + "\n".join(cards)
+
+
 def build_classifier_prompt(
     available_panes: list[str],
     installed_commands: list[str],

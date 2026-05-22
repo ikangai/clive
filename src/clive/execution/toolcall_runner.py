@@ -20,7 +20,7 @@ from interactive_runner import _parse_exit_code, _SHELL_LIKE_APP_TYPES
 from llm import get_client, chat_with_tools
 from models import Subtask, SubtaskStatus, SubtaskResult, PaneInfo
 from observation import ScreenClassifier, format_event_for_llm
-from prompts import build_interactive_prompt
+from prompts import build_interactive_prompt, build_worker_tool_context
 from runtime import _emit, _check_command_safety, _pane_locks, _cancel_event, _wrap_for_sandbox, context_budget
 from session import capture_pane
 from tool_defs import PANE_TOOLS, parse_tool_calls
@@ -119,6 +119,10 @@ def run_subtask_toolcall(
         dependency_context=dep_context,
         session_dir=session_dir,
     )
+    # Tier-2 tool cards: inject reference for tools declared by the planner.
+    tool_ctx = build_worker_tool_context(subtask)
+    if tool_ctx:
+        system_prompt += "\n\n" + tool_ctx
 
     # Capture initial screen
     try:

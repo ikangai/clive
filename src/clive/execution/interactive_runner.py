@@ -18,7 +18,7 @@ from llm import get_client, chat, chat_stream
 from observation import ScreenClassifier, format_event_for_llm
 from streaming_extract import EarlyDoneDetector
 from models import Subtask, SubtaskStatus, SubtaskResult, PaneInfo
-from prompts import build_interactive_prompt
+from prompts import build_interactive_prompt, build_worker_tool_context
 from remote import render_agent_screen
 from runtime import _emit, _check_command_safety, _pane_locks, _cancel_event, _wrap_for_sandbox
 from screen_diff import compute_screen_diff
@@ -156,6 +156,10 @@ def run_subtask_interactive(
         dependency_context=dep_context,
         session_dir=session_dir,
     )
+    # Tier-2 tool cards: inject reference for tools declared by the planner.
+    tool_ctx = build_worker_tool_context(subtask)
+    if tool_ctx:
+        system_prompt += "\n\n" + tool_ctx
     messages = [
         {"role": "system", "content": system_prompt},
         {"role": "user", "content": f"Begin. Goal: {subtask.description}"},
