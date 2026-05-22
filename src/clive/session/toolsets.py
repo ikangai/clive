@@ -173,6 +173,11 @@ COMMANDS = {
         "check": "command -v jq",
         "install": "brew install jq",
         "category": "data",
+        "card": (
+            "[jq] JSON processor\n"
+            "  jq 'FILTER' [file]   .key | .[] | select(c) | map(f) | length\n"
+            "  curl -s api | jq -r '.data[].name'"
+        ),
     },
     "rg": {
         "description": "ripgrep — fast recursive text search across files",
@@ -180,6 +185,11 @@ COMMANDS = {
         "check": "command -v rg",
         "install": "brew install ripgrep",
         "category": "data",
+        "card": (
+            "[rg] ripgrep — fast recursive search\n"
+            "  rg 'PATTERN' [path]   -i ignore-case  -l names-only  -n line#  -A/-B ctx\n"
+            "  rg -tpy 'def foo' src/"
+        ),
     },
     "mlr": {
         "description": "miller — CSV/JSON/TSV processing, spreadsheet-like ops in shell",
@@ -187,6 +197,11 @@ COMMANDS = {
         "check": "command -v mlr",
         "install": "brew install miller",
         "category": "data",
+        "card": (
+            "[mlr] miller — CSV/JSON/TSV ops\n"
+            "  mlr --csv VERB then VERB file   filter cut sort-by stats1 cat\n"
+            "  mlr --csv filter '$age>30' then sort-by name data.csv"
+        ),
     },
     "sqlite3": {
         "description": "SQLite — full SQL database engine, single-file databases",
@@ -194,6 +209,11 @@ COMMANDS = {
         "check": "command -v sqlite3",
         "install": "built-in on macOS",
         "category": "data",
+        "card": (
+            "[sqlite3] SQL on single-file DBs\n"
+            "  sqlite3 FILE 'SQL'    .tables  .schema TBL  .mode csv  .import\n"
+            "  sqlite3 data.db 'SELECT * FROM users WHERE active=1'"
+        ),
     },
 
     # ── Docs ──
@@ -203,6 +223,11 @@ COMMANDS = {
         "check": "command -v pandoc",
         "install": "brew install pandoc",
         "category": "docs",
+        "card": (
+            "[pandoc] universal doc converter\n"
+            "  pandoc IN -o OUT   -f/-t fmt (md html pdf docx tex)  --toc  -s standalone\n"
+            "  pandoc report.md -o report.pdf"
+        ),
     },
     "pdftotext": {
         "description": "Extract text content from PDF files",
@@ -210,6 +235,11 @@ COMMANDS = {
         "check": "command -v pdftotext",
         "install": "brew install poppler",
         "category": "docs",
+        "card": (
+            "[pdftotext] extract text from PDF\n"
+            "  pdftotext IN.pdf [OUT|-]   -layout keep cols  -f/-l first/last page\n"
+            "  pdftotext doc.pdf - | head -50"
+        ),
     },
 
     # ── Images ──
@@ -219,6 +249,11 @@ COMMANDS = {
         "check": "command -v convert",
         "install": "brew install imagemagick",
         "category": "images",
+        "card": (
+            "[convert] ImageMagick image ops\n"
+            "  convert IN OUT   -resize WxH  -quality N  -crop  -rotate  -composite\n"
+            "  convert in.png -resize 800x600 out.jpg"
+        ),
     },
     "exiftool": {
         "description": "Read and write image/video metadata (EXIF, IPTC, XMP)",
@@ -226,6 +261,11 @@ COMMANDS = {
         "check": "command -v exiftool",
         "install": "brew install exiftool",
         "category": "images",
+        "card": (
+            "[exiftool] image/video metadata\n"
+            "  exiftool [-TAG] FILE   -GPSPosition -DateTimeOriginal -all=  -overwrite_original\n"
+            "  exiftool -DateTimeOriginal photo.jpg"
+        ),
     },
 
     # ── Media ──
@@ -235,6 +275,11 @@ COMMANDS = {
         "check": "command -v yt-dlp",
         "install": "brew install yt-dlp",
         "category": "media",
+        "card": (
+            "[yt-dlp] download video/audio (1000+ sites)\n"
+            "  yt-dlp URL   -x audio-only  --audio-format mp3  -f best  --write-sub  -o TMPL\n"
+            "  yt-dlp -x --audio-format mp3 URL"
+        ),
     },
     "whisper": {
         "description": "OpenAI Whisper — local speech-to-text transcription",
@@ -242,6 +287,11 @@ COMMANDS = {
         "check": "command -v whisper",
         "install": "pip install openai-whisper",
         "category": "media",
+        "card": (
+            "[whisper] local speech-to-text\n"
+            "  whisper AUDIO   --model tiny|base|small|medium  --output_format txt|srt|json\n"
+            "  whisper audio.mp3 --model small --output_format txt"
+        ),
     },
     "ffmpeg": {
         "description": "Audio/video converter, processor, and stream handler",
@@ -249,6 +299,11 @@ COMMANDS = {
         "check": "command -v ffmpeg",
         "install": "brew install ffmpeg",
         "category": "media",
+        "card": (
+            "[ffmpeg] audio/video convert/process\n"
+            "  ffmpeg -i IN [opts] OUT   -vn no-video  -ss/-to trim  -c:a/-c:v codec  -vf filter\n"
+            "  ffmpeg -i in.mp4 -vn -acodec mp3 out.mp3"
+        ),
     },
 
     # ── Comms ──
@@ -258,6 +313,11 @@ COMMANDS = {
         "check": "command -v icalBuddy",
         "install": "brew install ical-buddy",
         "category": "comms",
+        "card": (
+            "[icalBuddy] macOS calendar query\n"
+            "  icalBuddy [-f] EVENTS   eventsToday  eventsToday+N  eventsFrom:DATE to:DATE\n"
+            "  icalBuddy -f eventsToday+7"
+        ),
     },
     "khard": {
         "description": "CLI contacts manager — CardDAV compatible address book",
@@ -265,6 +325,11 @@ COMMANDS = {
         "check": "command -v khard",
         "install": "pip install khard",
         "category": "comms",
+        "card": (
+            "[khard] CLI contacts (CardDAV)\n"
+            "  khard CMD   list  show NAME  add  edit  email NAME  phone NAME\n"
+            "  khard show 'John Doe'"
+        ),
     },
     "terminal-notifier": {
         "description": "macOS native desktop notifications from CLI",
@@ -272,6 +337,11 @@ COMMANDS = {
         "check": "command -v terminal-notifier",
         "install": "brew install terminal-notifier",
         "category": "comms",
+        "card": (
+            "[terminal-notifier] macOS desktop notification\n"
+            "  terminal-notifier -message MSG [-title T] [-subtitle S] [-sound NAME] [-open URL]\n"
+            "  terminal-notifier -message 'Done' -title 'clive'"
+        ),
     },
 
     # ── Productivity ──
@@ -281,6 +351,11 @@ COMMANDS = {
         "check": "command -v task",
         "install": "brew install task",
         "category": "productivity",
+        "card": (
+            "[task] Taskwarrior task mgmt\n"
+            "  task CMD   list  add DESC project:P due:D  ID done  ID modify  next\n"
+            "  task add 'Review PR' project:work due:tomorrow"
+        ),
     },
     "watson": {
         "description": "Time tracker — log hours per project from the terminal",
@@ -288,6 +363,11 @@ COMMANDS = {
         "check": "command -v watson",
         "install": "brew install watson",
         "category": "productivity",
+        "card": (
+            "[watson] CLI time tracker\n"
+            "  watson CMD   start PROJ  stop  status  log  report  cancel\n"
+            "  watson start myproject"
+        ),
     },
     "nb": {
         "description": "CLI notebook — notes, bookmarks, todos, wiki in plain text",
@@ -295,6 +375,11 @@ COMMANDS = {
         "check": "command -v nb",
         "install": "brew install nb",
         "category": "productivity",
+        "card": (
+            "[nb] CLI notes/bookmarks/todos\n"
+            "  nb CMD   add TEXT  list  search Q  edit ID  bookmark URL  todo do ID\n"
+            "  nb add 'Meeting notes...'"
+        ),
     },
 
     # ── Finance ──
@@ -304,6 +389,11 @@ COMMANDS = {
         "check": "command -v hledger",
         "install": "brew install hledger",
         "category": "finance",
+        "card": (
+            "[hledger] plain text accounting\n"
+            "  hledger [-f FILE] CMD   balance  register  incomestatement  print  accounts\n"
+            "  hledger -f journal.txt balance"
+        ),
     },
 
     # ── Social ──
@@ -313,6 +403,11 @@ COMMANDS = {
         "check": "command -v toot",
         "install": "pip install toot",
         "category": "social",
+        "card": (
+            "[toot] Mastodon/fediverse CLI\n"
+            "  toot CMD   post TEXT  timeline  search Q  follow USER  whois USER\n"
+            "  toot post 'Hello fediverse!'"
+        ),
     },
 
     # ── Translation ──
@@ -322,6 +417,11 @@ COMMANDS = {
         "check": "command -v trans",
         "install": "brew install translate-shell",
         "category": "translation",
+        "card": (
+            "[trans] translate-shell\n"
+            "  trans [SRC:DST] TEXT   :en auto→en  en:de  -b brief  -d dict mode\n"
+            "  trans en:de 'hello world'"
+        ),
     },
 
     # ── Search ──
@@ -331,6 +431,11 @@ COMMANDS = {
         "check": "command -v ddgr",
         "install": "brew install ddgr",
         "category": "search",
+        "card": (
+            "[ddgr] DuckDuckGo terminal search\n"
+            "  ddgr [opts] QUERY   --np no-prompt  -n N results  -j json  -r REGION\n"
+            "  ddgr --np 'python asyncio tutorial'"
+        ),
     },
 
     # ── Web ──
@@ -340,6 +445,11 @@ COMMANDS = {
         "check": "command -v monolith",
         "install": "brew install monolith",
         "category": "web",
+        "card": (
+            "[monolith] save self-contained HTML\n"
+            "  monolith URL -o FILE   -j no-js  -i no-img  -a no-audio  -F frames\n"
+            "  monolith https://ex.com/a -o saved.html"
+        ),
     },
 
     # ── Dev ──
@@ -349,6 +459,11 @@ COMMANDS = {
         "check": "command -v gh",
         "install": "brew install gh",
         "category": "dev",
+        "card": (
+            "[gh] GitHub CLI\n"
+            "  gh OBJ CMD   pr list|view|create|merge  issue list|create  run view  repo clone  api PATH\n"
+            "  gh pr create --title T --body B"
+        ),
     },
 
     # ── Voice ──
@@ -358,6 +473,11 @@ COMMANDS = {
         "check": "command -v sox",
         "install": "brew install sox",
         "category": "voice",
+        "card": (
+            "[sox] record/process audio\n"
+            "  sox [-d|IN] OUT [effects]   -d default input  trim S DUR  rate  vol  norm\n"
+            "  sox -d rec.wav trim 0 30"
+        ),
     },
     "say": {
         "description": "macOS text-to-speech — speak text aloud",
@@ -365,6 +485,11 @@ COMMANDS = {
         "check": "command -v say",
         "install": "built-in on macOS",
         "category": "voice",
+        "card": (
+            "[say] macOS text-to-speech\n"
+            "  say 'TEXT'   -v VOICE  -r RATE  -o FILE.aiff   echo X | say\n"
+            "  say 'Task complete'"
+        ),
     },
 
     # ── AI ──
@@ -374,6 +499,11 @@ COMMANDS = {
         "check": "test -x tools/claude.sh",
         "install": "included in clive (set ANTHROPIC_API_KEY)",
         "category": "ai",
+        "card": (
+            "[claude] LLM sub-task helper\n"
+            "  cat IN | bash tools/claude.sh 'INSTRUCTION'\n"
+            "  cat notes.txt | bash tools/claude.sh 'write a summary'"
+        ),
     },
 
     # ── Sync ──
@@ -383,6 +513,11 @@ COMMANDS = {
         "check": "command -v rclone",
         "install": "brew install rclone",
         "category": "sync",
+        "card": (
+            "[rclone] cloud storage sync\n"
+            "  rclone CMD SRC DST   copy sync ls lsd mkdir delete  -n dry-run  -P progress\n"
+            "  rclone sync /local remote:bucket/path"
+        ),
     },
 }
 
