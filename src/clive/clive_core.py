@@ -312,7 +312,7 @@ def _setup_session(toolset_spec, session_dir, _state):
 
     tools_summary = build_tools_summary(
         tool_status, available_cmds, resolved["endpoints"],
-        categories=resolved["categories"],
+        categories=sorted(resolved["categories"]),
     )
 
     return {
@@ -381,7 +381,7 @@ def _expand_toolset(category: str, session_ctx: dict) -> bool:
     session_ctx["categories"].add(category)
     session_ctx["tools_summary"] = build_tools_summary(
         session_ctx["tool_status"], session_ctx["available_cmds"], session_ctx["endpoints"],
-        categories=list(session_ctx["categories"]),
+        categories=sorted(session_ctx["categories"]),
     )
 
     detail(f"Added {category}: {', '.join(cat_def.get('panes', []) + cat_def.get('commands', []))}")
