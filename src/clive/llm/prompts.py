@@ -121,7 +121,11 @@ RULES:
     - "llm": LLM-native transformation. The model directly performs the task on content from input files — no shell, no pane. Use for: translate, summarize, rewrite, paraphrase, extract structured info, classify, answer questions from provided content, explain. The runner automatically reads files from the session working directory (plus any absolute paths the description references) and writes the generated text to "llm_<id>.txt" in the session dir. CRITICAL: any subtask whose work is transformation of text (translation, summarization, rewriting, content extraction) MUST be "llm". Never route these to "script" — shell utilities cannot translate or summarize.
     Each pane above declares [prefer: mode] — follow it. The principle: if the next step does NOT depend on seeing the previous result, use "script". Use "streaming" only when the process may prompt for passwords or confirmations. Use "llm" whenever the work itself is generative/transformative.
 11. Each subtask can optionally declare "produces" (filename it will write to the session dir) and "expects" (files it needs from dependencies). This helps downstream subtasks know exactly what data is available.
-12. CHAINS ARE THE COMMON CASE. "Fetch X and translate it" = two subtasks: a "script" subtask that fetches and saves to a file, then an "llm" subtask that depends on it and translates. "Download, summarize, email" = three subtasks: script → llm → script. Data flows through files in the session directory; each subtask's "produces" is the next one's "expects".
+12. Each subtask MAY declare "tools": ["tool1", "tool2"] — the specific
+    CLI tools that subtask will use. The worker prompt will load reference
+    cards for these. Be specific: pick from the COMMANDS list, not
+    pane names or generic words like "shell".
+13. CHAINS ARE THE COMMON CASE. "Fetch X and translate it" = two subtasks: a "script" subtask that fetches and saves to a file, then an "llm" subtask that depends on it and translates. "Download, summarize, email" = three subtasks: script → llm → script. Data flows through files in the session directory; each subtask's "produces" is the next one's "expects".
 
 Respond with a JSON object and nothing else.
 
@@ -133,6 +137,7 @@ Example 1 — fetch-then-transform chain ("get the youtube transcript and transl
       "description": "Fetch the transcript of the given YouTube URL and save it to transcript.txt",
       "pane": "shell",
       "mode": "script",
+      "tools": ["yt-dlp"],
       "produces": "transcript.txt",
       "depends_on": []
     }},
@@ -151,7 +156,7 @@ Example 1 — fetch-then-transform chain ("get the youtube transcript and transl
 Example 2 — parallel research + transform ("analyze errors using the docs"):
 {{
   "subtasks": [
-    {{"id": "1", "description": "Analyze syslog for errors and patterns", "pane": "shell", "mode": "script", "skill": "analyze-logs", "produces": "errors.txt", "depends_on": []}},
+    {{"id": "1", "description": "Analyze syslog for errors and patterns", "pane": "shell", "mode": "script", "skill": "analyze-logs", "tools": ["grep", "awk"], "produces": "errors.txt", "depends_on": []}},
     {{"id": "2", "description": "Browse the documentation site and find the configuration reference", "pane": "browser", "mode": "interactive", "produces": "config_ref.txt", "depends_on": []}},
     {{"id": "3", "description": "Summarize the errors in the context of the configuration reference", "pane": "shell", "mode": "llm", "expects": ["errors.txt", "config_ref.txt"], "depends_on": ["1", "2"]}}
   ]

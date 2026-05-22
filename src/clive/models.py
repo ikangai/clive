@@ -39,6 +39,7 @@ class Subtask:
     status: SubtaskStatus = SubtaskStatus.PENDING
     max_turns: int = 15
     mode: str = "interactive"
+    tools: list[str] = field(default_factory=list)
     _retried: bool = field(default=False, repr=False)
 
     def __post_init__(self):
