@@ -1,5 +1,27 @@
 # Changelog
 
+## Unreleased
+
+### Added — Self-learning tool discovery (gh#41), manual entry point
+
+`clive --explore <tool>` runs `--help`/`-h`/`man`/`tldr` + a few safe probes against an unknown CLI in a fresh exploration pane, then asks the LLM to synthesize a `drivers/<tool>.md` from the exploration log following the existing driver template (frontmatter + ENVIRONMENT/PRIMARY TOOLS/PATTERNS/PITFALLS/RESPONSE FORMAT/COMPLETION). Generated drivers carry an auto-gen header inside the body (after the frontmatter close, so YAML parsing at byte 0 is unaffected) and refuse to overwrite hand-written drivers unless `--explore-overwrite` is passed. Design doc: [`docs/plans/2026-05-22-self-learning-tool-discovery.md`](docs/plans/2026-05-22-self-learning-tool-discovery.md).
+
+- **`src/clive/discovery/`** — new subpackage with three modules: `models` (`ExplorationResult` / `ProbeOutcome` dataclasses), `prompts` (exploration goal + generation prompt + safety lists), `explorer` (`explore_tool` adapter over `run_subtask_interactive`), `generator` (`generate_driver` + `write_generated_driver`).
+- **`src/clive/drivers/explore.md`** — auto-discovered driver for the exploration pane. Probe order, what to avoid bare, when to DONE:.
+- **Exploration safety layer** — `_check_exploration_safety` layers credential-prompt and TUI guards on top of `_check_command_safety`: tools in `CREDENTIAL_TOOLS` (aws, gh, gcloud, kubectl, psql, mysql, ssh, …) and `INTERACTIVE_TOOLS` (vim, less, top, lazygit, k9s, …) are refused without an explicit `--help`/`-h`/`--version` flag, preventing the explorer from trapping on a credential prompt or TUI.
+- **New `probe` event from `run_subtask_interactive`** — emits `(subtask_id, cmd, exit_code, screen)` after each command. Existing consumers (dag_scheduler) ignore unknown event kinds, so this is additive; the explorer's `on_event` callback records `ProbeOutcome`s from these events.
+
+### Deferred (separate kanban cards)
+
+- `refine_driver(name)` audit-log-driven driver refinement (Phase 3 in gh#41) — depends on gh#40's Layer 5 eval orchestrator. Function design is in the plan; not shipped.
+- `CLIVE_AUTO_EXPLORE=1` auto-trigger from `_expand_toolset` (Phase 1 integration) — depends on gh#39's category auto-classification so the new driver actually surfaces in a toolset entry. Not shipped.
+
+### Tests
+
+Total: 990 → 1039 (+49). New: 4 models + 6 prompts + 11 explorer + 7 generator + 12 writer + 9 CLI handler.
+
+---
+
 ## 0.7.2 — Bug fixes (2026-05-21)
 
 Six issues surfaced by a `/autoresearch:debug` sweep across the entire `src/clive/` tree (146 .py files) and closed in the same session. Suite went 964 → 990 with regression tests. Two further findings — selfmod gate regex bypasses and dead modules under `src/clive/server/` — are documented in the session writeup but deferred (the gate needs an ast-based rewrite, not a regex patch; the dead modules need user sign-off before deletion). Full session writeup: [`debug/260520-2042-autonomous-codebase-sweep/`](debug/260520-2042-autonomous-codebase-sweep/).

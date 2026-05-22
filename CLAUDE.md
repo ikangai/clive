@@ -91,7 +91,8 @@ Flat imports work because `conftest.py` and `clive.py` put `src/clive/` on `sys.
 - `networking/` — `clive@host` addressing, framed protocol, instance registry, dashboard, SSH/SCP
 - `tui/` — Textual TUI + slash commands
 - `selfmod/` — experimental self-modification (governed by `.clive/constitution.md`, guarded by `gate.py` regex)
-- `drivers/` — per-app-type prompt cards
+- `discovery/` — self-learning tool discovery (gh#41). `explore_tool(name)` adapts `run_subtask_interactive` to run bounded probes (`--help`/`-h`/`man`/`tldr`) against an unknown CLI in a fresh exploration pane; `generate_driver(name, result)` synthesizes a `drivers/<name>.md` from the exploration log with anchored section validation; `write_generated_driver(name, text)` writes with overwrite + path-traversal guards. Manual entry: `clive --explore <tool>`. Exploration safety (`_check_exploration_safety`) layers credential-tool + TUI guards on top of `_check_command_safety`. Auto-gen header is injected INSIDE the body (after the frontmatter close) so `_parse_driver_frontmatter` still parses metadata at byte 0.
+- `drivers/` — per-app-type prompt cards (auto-discovered; `explore.md` is the exploration driver used by `discovery/`)
 - `tools/` — helper shell scripts (`claude.sh`, `youtube.sh`, `podcast.sh`, ...)
 
 Key dataclasses live in `src/clive/models.py` (`Subtask`, `Plan`, `SubtaskResult`, `PaneInfo`).
