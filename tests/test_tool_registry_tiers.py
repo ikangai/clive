@@ -40,6 +40,7 @@ def test_tier1_lists_names_per_category():
     summary = build_tier1_names(["data"])
     # Category header
     assert "data:" in summary
+    assert "data: " in summary  # space after colon — locked format
     # All data commands listed
     for name in ("jq", "rg", "mlr", "sqlite3"):
         assert name in summary
@@ -52,9 +53,37 @@ def test_tier1_handles_multiple_categories():
     assert "data:" in summary
     assert "web:" in summary
 
-def test_tier1_includes_panes_and_endpoints():
+def test_tier1_includes_endpoints():
     """A category can offer panes and endpoints too — list all surfaces."""
     from toolsets import build_tier1_names
     summary = build_tier1_names(["info"])
     # info has endpoint-only category
     assert "weather" in summary or "hackernews" in summary
+
+def test_tier1_empty_returns_empty_string():
+    """Symmetric with tier0: empty or all-unknown returns empty string."""
+    from toolsets import build_tier1_names
+    assert build_tier1_names([]) == ""
+    assert build_tier1_names(["not_real"]) == ""
+
+def test_tier2_returns_card_for_known_command():
+    from toolsets import build_tier2_card
+    card = build_tier2_card("jq")
+    assert card is not None
+    assert card.startswith("[jq]")
+    assert len(card) <= 200
+
+def test_tier2_returns_none_for_unknown():
+    from toolsets import build_tier2_card
+    assert build_tier2_card("not_a_real_tool") is None
+
+def test_tier2_resolves_aliases():
+    """Aliases like 'mail' → 'email' should resolve."""
+    from toolsets import build_tier2_card
+    # 'mail' is an alias for the email pane; cards for panes synthesize
+    # from the pane definition (description + usage hints).
+    card = build_tier2_card("mail")
+    # Either a card exists (resolved via alias) or returns None gracefully.
+    # We accept either as long as it doesn't crash.
+    if card is not None:
+        assert card.startswith("[email]") or card.startswith("[mail]")

@@ -787,7 +787,10 @@ def build_tier0_summary(active_categories: list[str]) -> str:
 
 
 def build_tier1_names(categories: list[str]) -> str:
-    """Tier 1: tool names per category, no descriptions. ~50 tokens/category."""
+    """Tier 1: tool names per category, no descriptions. ~50 tokens/category.
+
+    Duplicate categories produce duplicate lines; callers should dedupe.
+    """
     lines = []
     for cat in categories:
         cat_def = CATEGORIES.get(cat)
@@ -800,6 +803,21 @@ def build_tier1_names(categories: list[str]) -> str:
         if names:
             lines.append(f"{cat}: {', '.join(names)}")
     return "\n".join(lines)
+
+
+def build_tier2_card(name: str) -> str | None:
+    """Tier 2: compact reference card for a single tool. ~150 tokens.
+
+    Returns None if the tool isn't known. Resolves COMMAND aliases via
+    `normalize_tool_name`. Panes synthesize a card from their definition.
+    """
+    canonical = normalize_tool_name(name)
+    if canonical in COMMANDS:
+        return COMMANDS[canonical].get("card")
+    if canonical in PANES:
+        pane = PANES[canonical]
+        return f"[{canonical}] {pane.get('description', '').strip()}"
+    return None
 
 
 def list_toolsets() -> dict[str, list[str]]:
