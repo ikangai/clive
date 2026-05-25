@@ -334,12 +334,27 @@ def handle_explore(args) -> int:
     except ValueError as e:
         print(f"Driver synthesis failed: {e}")
         return 1
+    except Exception as e:
+        # chat() can raise provider-specific errors (rate limit, auth,
+        # network) that previously leaked as tracebacks (gh#41 debug Bug 7).
+        print(f"Driver synthesis errored: {e}")
+        return 1
     try:
         path = write_generated_driver(tool, driver_text, overwrite=args.explore_overwrite)
     except FileExistsError as e:
         print(str(e))
         print("Re-run with --explore-overwrite to replace.")
         return 2
+    except ValueError as e:
+        # _check_tool_name violations (defence in depth — handle_explore
+        # already validated, but write_generated_driver re-checks).
+        print(f"Invalid tool name: {e}")
+        return 1
+    except OSError as e:
+        # PermissionError (read-only drivers/), OSError(ENOSPC) (disk full),
+        # IsADirectoryError, etc. — all subclasses of OSError.
+        print(f"Write failed: {e}")
+        return 1
     print(f"Wrote driver: {path}")
     print(f"Summary: {result.summary or '(no summary)'}")
     return 0

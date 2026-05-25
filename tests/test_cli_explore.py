@@ -117,6 +117,67 @@ def test_handle_explore_returns_nonzero_on_explore_failure(monkeypatch, capsys):
     assert "tmux unavailable" in out
 
 
+# ─── Broader handle_explore exception handling (gh#41 debug Bug 7) ──────────
+# generate_driver/write_generated_driver can raise more than ValueError/
+# FileExistsError — chat() can throw provider-specific errors, open() can
+# throw PermissionError/OSError on disk-full or read-only drivers/. Those
+# previously propagated as full Python tracebacks.
+
+def test_handle_explore_returns_nonzero_on_generate_runtime_error(monkeypatch, capsys):
+    """RateLimitError, network error, etc. from chat() must not leak as a traceback."""
+    import cli_handlers
+    monkeypatch.setattr(
+        cli_handlers, "explore_tool",
+        lambda name, **kw: ExplorationResult(tool_name=name, summary="s"),
+    )
+    monkeypatch.setattr(
+        cli_handlers, "generate_driver",
+        MagicMock(side_effect=RuntimeError("rate limit exceeded")),
+    )
+    args = MagicMock(explore="rg", explore_overwrite=False)
+    rc = cli_handlers.handle_explore(args)
+    assert rc != 0
+    out = capsys.readouterr().out
+    assert "rate limit" in out
+
+
+def test_handle_explore_returns_nonzero_on_write_permission_error(monkeypatch, capsys):
+    """PermissionError (read-only drivers/) must surface as a clean exit code."""
+    import cli_handlers
+    monkeypatch.setattr(
+        cli_handlers, "explore_tool",
+        lambda name, **kw: ExplorationResult(tool_name=name, summary="s"),
+    )
+    monkeypatch.setattr(cli_handlers, "generate_driver", lambda name, r: "---\n---\n")
+    monkeypatch.setattr(
+        cli_handlers, "write_generated_driver",
+        MagicMock(side_effect=PermissionError("Permission denied")),
+    )
+    args = MagicMock(explore="rg", explore_overwrite=False)
+    rc = cli_handlers.handle_explore(args)
+    assert rc != 0
+    out = capsys.readouterr().out
+    assert "Permission" in out or "Write failed" in out
+
+
+def test_handle_explore_returns_nonzero_on_write_disk_full(monkeypatch, capsys):
+    """OSError(ENOSPC) must surface as a clean exit code."""
+    import errno
+    import cli_handlers
+    monkeypatch.setattr(
+        cli_handlers, "explore_tool",
+        lambda name, **kw: ExplorationResult(tool_name=name, summary="s"),
+    )
+    monkeypatch.setattr(cli_handlers, "generate_driver", lambda name, r: "---\n---\n")
+    monkeypatch.setattr(
+        cli_handlers, "write_generated_driver",
+        MagicMock(side_effect=OSError(errno.ENOSPC, "No space left on device")),
+    )
+    args = MagicMock(explore="rg", explore_overwrite=False)
+    rc = cli_handlers.handle_explore(args)
+    assert rc != 0
+
+
 # ─── Early tool-name validation (gh#41 debug Bug 2) ─────────────────────────
 # handle_explore must reject invalid/reserved names BEFORE running the
 # exploration pipeline — otherwise an attacker-controlled name spends LLM

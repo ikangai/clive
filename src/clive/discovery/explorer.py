@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import logging
 import os
+import shutil
 import uuid
 from typing import Optional
 
@@ -123,7 +124,11 @@ def explore_tool(
             result.summary = runner_result.summary
     finally:
         if own_pane:
-            _close_exploration_pane(pane)
+            # Kill session AND remove session_dir — exploration panes are
+            # one-shot, never reused. detach_stream alone leaked tmux
+            # sessions and /tmp dirs on every successful run (gh#41 debug
+            # Bug 9). Always passes session_dir so the dir cleanup runs.
+            _close_exploration_pane(pane, session_dir=sd)
 
     return result
 
@@ -150,8 +155,24 @@ def _open_exploration_pane(session_dir: str) -> PaneInfo:
     return add_pane(sess, pane_def, session_dir)
 
 
-def _close_exploration_pane(pane_info: PaneInfo) -> None:
+def _close_exploration_pane(
+    pane_info: PaneInfo, session_dir: Optional[str] = None,
+) -> None:
+    """Tear down an exploration pane and its scratch dir.
+
+    Exploration panes are one-shot — never reused across explorations — so
+    teardown does more than ``detach_stream``: it also kills the tmux session
+    we own and removes the per-tool ``/tmp/clive/explore-<tool>-<hex>/``
+    directory. All three steps are best-effort; failures are logged but
+    don't propagate (gh#41 debug Bug 9).
+    """
     try:
         detach_stream(pane_info)
     except Exception:
         log.debug("detach_stream failed during exploration teardown", exc_info=True)
+    try:
+        pane_info.pane.session.kill_session()
+    except Exception:
+        log.debug("kill_session failed during exploration teardown", exc_info=True)
+    if session_dir:
+        shutil.rmtree(session_dir, ignore_errors=True)
