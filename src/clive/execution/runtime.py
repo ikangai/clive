@@ -59,6 +59,14 @@ BLOCKED_COMMANDS = [
     # `while true; do ...; done` and the `while :; do ...; done` variant
     # (`:` is the bash null command — equally infinite). See Bug H10.
     re.compile(r'\bwhile\s+(?:true|:)\s*;\s*do\b'),
+    # Download-and-execute pipelines — the executable arm of the discovery
+    # prompt-injection chain (gh#41 debug Bug 1). The pipe-to-shell shape
+    # is the canonical sign; ``jq``, ``head``, ``less`` etc. don't trigger.
+    re.compile(r'\b(?:curl|wget|fetch)\b[^|]*\|\s*(?:bash|sh|zsh|dash|ksh)\b'),
+    # eval / source / exec of a network fetch — same threat without the pipe.
+    re.compile(r'\b(?:eval|source|\.|exec)\s+["\']?\$\(\s*(?:curl|wget|fetch)\b'),
+    # base64 (or xxd) decode piped into a shell — obfuscated curl|bash.
+    re.compile(r'\b(?:base64|xxd|openssl\s+(?:base64|enc))\b[^|]*\|\s*(?:bash|sh|zsh|dash|ksh)\b'),
 ]
 
 # argv[0] names that are dangerous regardless of args. Match the actual
@@ -110,6 +118,37 @@ def _split_shell_segments(command: str) -> list[str]:
     return [shlex.join(s) for s in segments if s]
 
 
+# POSIX identifier — env-var names start with letter/underscore, then
+# alnum+underscore. Used by ``_strip_sudo_and_env`` to recognise a real
+# ``VAR=value`` prefix vs an unrelated token that happens to contain ``=``.
+# Previously the stripper used ``name.replace('_','').isalnum()``, which
+# returned False for all-underscore names (``_``, ``__``) — those are valid
+# POSIX identifiers, so the stripper failed to remove them and the bypassed
+# ``_=x <banned-cmd>`` slipped past the safety check (gh#41 debug Bug 13).
+_VALID_ENV_VAR_NAME = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
+
+
+def _strip_sudo_and_env(tokens: list[str]) -> list[str]:
+    """Strip leading ``sudo`` and POSIX ``VAR=value`` env-var assignments.
+
+    Returns the tail starting at the real command word so the safety
+    blocklist evaluates the right token. Shared with
+    ``discovery.explorer._check_exploration_safety``.
+    """
+    while tokens:
+        head = tokens[0]
+        if head == "sudo":
+            tokens = tokens[1:]
+            continue
+        if "=" in head and len(tokens) > 1:
+            name = head.split("=", 1)[0]
+            if _VALID_ENV_VAR_NAME.match(name):
+                tokens = tokens[1:]
+                continue
+        break
+    return tokens
+
+
 def _check_segment(segment: str) -> str | None:
     try:
         tokens = shlex.split(segment, comments=True)
@@ -119,14 +158,7 @@ def _check_segment(segment: str) -> str | None:
     if not tokens:
         return None
 
-    # Strip leading sudo / env-var assignments so we inspect the real command.
-    while tokens and (tokens[0] == "sudo" or "=" in tokens[0] and not tokens[0].startswith("-")):
-        if tokens[0] == "sudo":
-            tokens = tokens[1:]
-        elif "=" in tokens[0] and tokens[0].split("=", 1)[0].replace("_", "").isalnum():
-            tokens = tokens[1:]   # env-var prefix like FOO=bar cmd
-        else:
-            break
+    tokens = _strip_sudo_and_env(tokens)
 
     if not tokens:
         return None
