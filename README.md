@@ -756,10 +756,13 @@ src/clive/            — main source package
   selfmod/            — self-modification system (experimental)
   server/             — production server components
   sandbox/            — sandboxing (bwrap/sandbox-exec)
+  discovery/          — self-learning tool discovery (gh#41): explore_tool +
+                        generate_driver + write_generated_driver, invoked via
+                        `clive --explore <tool>` to synthesize drivers/<tool>.md
   drivers/            — auto-discovered driver prompts (per app_type)
   tools/              — helper scripts (youtube.sh, podcast.sh, etc.)
 
-tests/                — 1039 unit tests
+tests/                — 1161 unit tests
 evals/                — eval framework (harness, layer1-4, baselines)
 docs/                 — documentation, specs, plans
 .clive/               — governance and audit data
