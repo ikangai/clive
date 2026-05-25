@@ -309,6 +309,15 @@ def handle_explore(args) -> int:
     directly without catching SystemExit.
     """
     tool = args.explore
+    # Early name validation — fail fast before opening a pane or calling the
+    # LLM. _check_tool_name raises ValueError on unsafe or reserved names
+    # (gh#41 debug Bug 2/5/6).
+    from discovery.generator import _check_tool_name
+    try:
+        _check_tool_name(tool)
+    except ValueError as e:
+        print(f"Invalid tool name: {e}")
+        return 1
     print(f"Exploring {tool}...")
     try:
         result = explore_tool(tool)

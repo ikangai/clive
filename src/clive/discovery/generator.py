@@ -99,7 +99,43 @@ def _inject_header(text: str) -> str:
 # ─── Writer (task 5 piece — kept here so caller has one import target) ───
 
 
-_SAFE_NAME = re.compile(r"\A[A-Za-z0-9_][A-Za-z0-9_.\-]*\Z")
+# Tool-name regex (gh#41 debug Bug 2/6) — tightened to lowercase only and
+# no dots, closing two earlier holes:
+#   - uppercase names like ``RG`` collided with ``rg.md`` on case-insensitive
+#     filesystems (macOS APFS default)
+#   - dotted names like ``foo.md`` produced confusing filenames such as
+#     ``drivers/foo.md.md`` and could match Windows-reserved patterns
+_SAFE_NAME = re.compile(r"\A[a-z][a-z0-9_\-]*\Z")
+
+# Reserved names — first-class hand-written drivers shipped in
+# ``src/clive/drivers/``. Discovery must NOT overwrite these even with
+# ``overwrite=True`` (gh#41 debug Bug 5). Most notably, ``explore`` is the
+# meta-driver that drives exploration itself — overwriting it would brick
+# all future ``--explore`` invocations.
+RESERVED_NAMES = frozenset({
+    "explore",
+    "shell", "browser", "data", "docs",
+    "default", "email", "email_cli", "agent",
+    "media", "room",
+})
+
+
+def _check_tool_name(tool_name: str) -> None:
+    """Raise ``ValueError`` if ``tool_name`` is unsafe or reserved.
+
+    Centralised so the same guard fires at every pipeline entry point:
+    ``handle_explore``, ``explore_tool``, and ``write_generated_driver``.
+    Fail-fast at the top of the pipeline prevents an attacker-controlled
+    name from spending LLM tokens and opening a tmux pane before the
+    terminal write-time check finally rejects it.
+    """
+    if not _SAFE_NAME.match(tool_name):
+        raise ValueError(f"unsafe tool name for driver path: {tool_name!r}")
+    if tool_name in RESERVED_NAMES:
+        raise ValueError(
+            f"{tool_name!r} is a reserved driver name; refusing to overwrite "
+            f"the core driver. Pick a different name."
+        )
 
 
 def write_generated_driver(
@@ -111,18 +147,38 @@ def write_generated_driver(
     """Write a generated driver to ``drivers_dir/<tool>.md``.
 
     Refuses to overwrite an existing driver unless ``overwrite=True`` so
-    hand-written drivers can't be clobbered. Validates ``tool_name``
-    against an alphanumeric-plus-dot-dash pattern to prevent path traversal.
+    hand-written drivers can't be clobbered. Validates ``tool_name`` via
+    ``_check_tool_name`` (regex + reserved-names guard).
     """
-    if not _SAFE_NAME.match(tool_name):
-        raise ValueError(f"unsafe tool name for driver path: {tool_name!r}")
+    _check_tool_name(tool_name)
     base = drivers_dir if drivers_dir is not None else _DRIVERS_DIR
     os.makedirs(base, exist_ok=True)
     path = os.path.join(base, f"{tool_name}.md")
-    if os.path.exists(path) and not overwrite:
-        raise FileExistsError(
-            f"driver already exists at {path}; pass overwrite=True to replace"
-        )
-    with open(path, "w") as f:
-        f.write(driver_text)
+    # Atomic write — fixes the TOCTOU race between os.path.exists() and
+    # open(path, "w"). Non-overwrite uses O_EXCL ("x" mode) so only one
+    # racer succeeds. Overwrite writes to a sibling tmp and renames; the
+    # rename is atomic on POSIX, so concurrent readers never see an empty
+    # or partially-written file (gh#41 debug Bug 3).
+    if overwrite:
+        tmp = f"{path}.tmp-{os.getpid()}"
+        try:
+            with open(tmp, "w") as f:
+                f.write(driver_text)
+            os.replace(tmp, path)
+        except Exception:
+            # Clean up the orphan tmp on failure.
+            try:
+                os.unlink(tmp)
+            except OSError:
+                pass
+            raise
+    else:
+        try:
+            # "x" mode == O_CREAT | O_EXCL | O_WRONLY — atomic exists+create.
+            with open(path, "x") as f:
+                f.write(driver_text)
+        except FileExistsError:
+            raise FileExistsError(
+                f"driver already exists at {path}; pass overwrite=True to replace"
+            )
     return path

@@ -26,9 +26,10 @@ import libtmux
 
 from execution.interactive_runner import run_subtask_interactive
 from models import PaneInfo, Subtask
-from runtime import _check_command_safety
+from runtime import _check_command_safety, _strip_sudo_and_env
 from session import SOCKET_NAME, add_pane, detach_stream
 
+from .generator import _check_tool_name
 from .models import ExplorationResult, ProbeOutcome
 from .prompts import (
     CREDENTIAL_TOOLS,
@@ -54,17 +55,7 @@ def _check_exploration_safety(command: str, tool_name: str) -> str | None:
     cmd_trimmed = command.strip()
     if not cmd_trimmed:
         return None
-    tokens = cmd_trimmed.split()
-    # Strip leading sudo / env-var assignments so we inspect the real command.
-    while tokens:
-        head = tokens[0]
-        if head == "sudo":
-            tokens = tokens[1:]
-            continue
-        if "=" in head and head.split("=", 1)[0].replace("_", "").isalnum() and len(tokens) > 1:
-            tokens = tokens[1:]
-            continue
-        break
+    tokens = _strip_sudo_and_env(cmd_trimmed.split())
     if not tokens:
         return None
     head = tokens[0]
@@ -94,7 +85,12 @@ def explore_tool(
 
     Reuses ``run_subtask_interactive`` for the loop. Probes are captured via
     the ``probe`` event the runner emits per turn. Returns an ``ExplorationResult``.
+
+    Raises ``ValueError`` if ``tool_name`` is unsafe or reserved — checked at
+    the top of the function so no LLM tokens are spent and no tmux pane is
+    opened for a bad name (gh#41 debug Bug 2).
     """
+    _check_tool_name(tool_name)
     sd = os.path.join(session_dir_root, f"explore-{tool_name}-{uuid.uuid4().hex[:6]}")
     os.makedirs(sd, exist_ok=True)
 
