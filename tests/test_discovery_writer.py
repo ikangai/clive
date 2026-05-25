@@ -65,12 +65,151 @@ def test_refuses_reserved_driver_names(tmp_path, reserved):
                                overwrite=True)  # even with overwrite=True
 
 
-def test_uses_default_drivers_dir_when_none(tmp_path, monkeypatch):
-    # Confirm write_generated_driver routes through the canonical
-    # _DRIVERS_DIR (re-exported from prompts.py), not a re-derived path.
+def test_uses_default_unreviewed_dir_when_none(tmp_path, monkeypatch):
+    # gh#41 quarantine (scenario #50): the default destination is the
+    # quarantined ``drivers/.unreviewed/`` subdir, NOT the canonical
+    # ``drivers/``. Auto-gen drivers don't land in the active driver set
+    # until promoted via clive --promote-driver.
     monkeypatch.setattr("discovery.generator._DRIVERS_DIR", str(tmp_path))
+    monkeypatch.setattr(
+        "discovery.generator._UNREVIEWED_DRIVERS_DIR",
+        str(tmp_path / ".unreviewed"),
+    )
     path = write_generated_driver("rg2", "---\nx\n---\n")
-    assert path == str(tmp_path / "rg2.md")
+    assert path == str(tmp_path / ".unreviewed" / "rg2.md")
+    assert (tmp_path / ".unreviewed" / "rg2.md").exists()
+    # And critically NOT in the reviewed location:
+    assert not (tmp_path / "rg2.md").exists()
+
+
+# ─── Driver quarantine (gh#41 scenario #50) ─────────────────────────────────
+# Auto-gen drivers must land in drivers/.unreviewed/ by default so that
+# load_driver (which only checks drivers/<app_type>.md) cannot pick them up
+# until a human reviews + promotes them. This blunts every remaining
+# prompt-injection vector that survives the regex-level content filters.
+
+def test_promote_driver_moves_from_unreviewed_to_reviewed(tmp_path):
+    from discovery.generator import promote_driver
+
+    unreviewed = tmp_path / ".unreviewed"
+    unreviewed.mkdir()
+    driver_text = (
+        "---\npreferred_mode: script\n---\n"
+        "# rg Driver\n\nENVIRONMENT: rg\nPRIMARY TOOLS:\n- rg\n"
+        "PATTERNS:\n- x\nPITFALLS:\n- y\nRESPONSE FORMAT:\n- bash\n"
+        "COMPLETION: DONE: x\n"
+    )
+    (unreviewed / "rg.md").write_text(driver_text)
+
+    new_path = promote_driver(
+        "rg",
+        drivers_dir=str(tmp_path),
+        unreviewed_dir=str(unreviewed),
+    )
+
+    assert new_path == str(tmp_path / "rg.md")
+    assert (tmp_path / "rg.md").read_text() == driver_text
+    # Source no longer exists — atomic move
+    assert not (unreviewed / "rg.md").exists()
+
+
+def test_promote_driver_refuses_when_reviewed_already_exists(tmp_path):
+    from discovery.generator import promote_driver
+
+    (tmp_path / "rg.md").write_text("# hand-written\n")
+    unreviewed = tmp_path / ".unreviewed"
+    unreviewed.mkdir()
+    (unreviewed / "rg.md").write_text("---\nfresh\n---\n")
+
+    with pytest.raises(FileExistsError):
+        promote_driver(
+            "rg",
+            drivers_dir=str(tmp_path),
+            unreviewed_dir=str(unreviewed),
+        )
+    # Original untouched
+    assert (tmp_path / "rg.md").read_text() == "# hand-written\n"
+    # Unreviewed copy preserved
+    assert (unreviewed / "rg.md").exists()
+
+
+def test_promote_driver_force_replaces_reviewed(tmp_path):
+    from discovery.generator import promote_driver
+
+    (tmp_path / "rg.md").write_text("# hand-written\n")
+    unreviewed = tmp_path / ".unreviewed"
+    unreviewed.mkdir()
+    valid = (
+        "---\npreferred_mode: script\n---\n"
+        "# rg Driver\n\nENVIRONMENT: rg\nPRIMARY TOOLS:\n- rg\n"
+        "PATTERNS:\n- x\nPITFALLS:\n- y\nRESPONSE FORMAT:\n- bash\n"
+        "COMPLETION: DONE: x\n"
+    )
+    (unreviewed / "rg.md").write_text(valid)
+
+    promote_driver(
+        "rg",
+        drivers_dir=str(tmp_path),
+        unreviewed_dir=str(unreviewed),
+        force=True,
+    )
+    assert (tmp_path / "rg.md").read_text() == valid
+
+
+def test_promote_driver_refuses_missing_unreviewed_source(tmp_path):
+    from discovery.generator import promote_driver
+
+    unreviewed = tmp_path / ".unreviewed"
+    unreviewed.mkdir()
+    with pytest.raises(FileNotFoundError):
+        promote_driver(
+            "nonexistent",
+            drivers_dir=str(tmp_path),
+            unreviewed_dir=str(unreviewed),
+        )
+
+
+def test_promote_driver_validates_unsafe_name(tmp_path):
+    from discovery.generator import promote_driver
+
+    with pytest.raises(ValueError, match="unsafe tool name|reserved"):
+        promote_driver(
+            "../../etc/passwd",
+            drivers_dir=str(tmp_path),
+            unreviewed_dir=str(tmp_path),
+        )
+
+
+def test_promote_driver_refuses_reserved_name(tmp_path):
+    from discovery.generator import promote_driver
+
+    with pytest.raises(ValueError, match="reserved"):
+        promote_driver(
+            "explore",
+            drivers_dir=str(tmp_path),
+            unreviewed_dir=str(tmp_path),
+        )
+
+
+def test_promote_driver_validates_content_before_moving(tmp_path):
+    """If the unreviewed driver is structurally broken, promote refuses
+    so a corrupt driver can't slip into the canonical location."""
+    from discovery.generator import promote_driver
+
+    unreviewed = tmp_path / ".unreviewed"
+    unreviewed.mkdir()
+    # Missing PITFALLS, missing frontmatter — broken.
+    (unreviewed / "rg.md").write_text("# rg\nno sections here\n")
+
+    with pytest.raises(ValueError, match="missing|frontmatter"):
+        promote_driver(
+            "rg",
+            drivers_dir=str(tmp_path),
+            unreviewed_dir=str(unreviewed),
+        )
+    # Source preserved; nothing landed in reviewed
+    assert (unreviewed / "rg.md").exists()
+    assert not (tmp_path / "rg.md").exists()
 
 
 # ─── TOCTOU race regression (gh#41 debug Bug 3) ─────────────────────────────

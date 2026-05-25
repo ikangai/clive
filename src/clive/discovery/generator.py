@@ -2,11 +2,19 @@
 
 `generate_driver` asks the LLM to synthesize a `drivers/<name>.md` from the
 exploration log. The output is validated against required section markers
-(ENVIRONMENT, PRIMARY TOOLS, PATTERNS, RESPONSE FORMAT, COMPLETION) anchored
-to line start — substring matches in prose do not satisfy the check. The
-auto-gen header is injected INSIDE the body, after the closing `---` of the
-frontmatter, so `_parse_driver_frontmatter` in `llm/prompts.py` still finds
-the YAML block at byte 0.
+(ENVIRONMENT, PRIMARY TOOLS, PATTERNS, PITFALLS, RESPONSE FORMAT, COMPLETION)
+anchored to line start — substring matches in prose do not satisfy the
+check. The auto-gen header is injected INSIDE the body, after the closing
+`---` of the frontmatter, so `_parse_driver_frontmatter` in `llm/prompts.py`
+still finds the YAML block at byte 0.
+
+`write_generated_driver` writes by default to ``drivers/.unreviewed/<name>.md``
+— the quarantine subdir. ``load_driver`` does not pick up unreviewed drivers,
+so a fresh auto-gen driver cannot reach a worker pane until ``promote_driver``
+(or the equivalent ``clive --promote-driver <name>`` CLI) moves it to the
+canonical ``drivers/<name>.md``. This is the structural mitigation for
+scenario #50 — the highest-leverage remaining defense against prompt-
+injection-flavoured driver content surviving the regex-level filters.
 """
 from __future__ import annotations
 
@@ -21,6 +29,12 @@ from prompts import _DRIVERS_DIR
 
 from .models import ExplorationResult
 from .prompts import build_generation_prompt
+
+# Quarantine subdir for auto-gen drivers (gh#41 scenario #50). load_driver
+# only looks at drivers/<name>.md, so drivers landed here are NOT loadable
+# by panes until promoted. The escape hatch CLIVE_TRUST_UNREVIEWED=1 (in
+# llm.prompts.load_driver) lets evals opt in without manual promotion.
+_UNREVIEWED_DRIVERS_DIR = os.path.join(_DRIVERS_DIR, ".unreviewed")
 
 log = logging.getLogger(__name__)
 
@@ -201,12 +215,19 @@ def write_generated_driver(
 ) -> str:
     """Write a generated driver to ``drivers_dir/<tool>.md``.
 
+    When ``drivers_dir`` is None (production default), writes to the
+    quarantine subdir ``_UNREVIEWED_DRIVERS_DIR`` — gh#41 scenario #50.
+    The driver does not become loadable by panes until ``promote_driver``
+    moves it to the canonical location. Test fixtures that pass
+    ``drivers_dir=str(tmp_path)`` write directly to that path, bypassing
+    the quarantine indirection (the temp dir IS the test's drivers/).
+
     Refuses to overwrite an existing driver unless ``overwrite=True`` so
     hand-written drivers can't be clobbered. Validates ``tool_name`` via
     ``_check_tool_name`` (regex + reserved-names guard).
     """
     _check_tool_name(tool_name)
-    base = drivers_dir if drivers_dir is not None else _DRIVERS_DIR
+    base = drivers_dir if drivers_dir is not None else _UNREVIEWED_DRIVERS_DIR
     os.makedirs(base, exist_ok=True)
     path = os.path.join(base, f"{tool_name}.md")
     # Atomic write — fixes the TOCTOU race between os.path.exists() and
@@ -237,3 +258,53 @@ def write_generated_driver(
                 f"driver already exists at {path}; pass overwrite=True to replace"
             )
     return path
+
+
+def promote_driver(
+    tool_name: str,
+    drivers_dir: Optional[str] = None,
+    unreviewed_dir: Optional[str] = None,
+    force: bool = False,
+) -> str:
+    """Promote an auto-gen driver from quarantine to the active driver set.
+
+    Moves ``<unreviewed_dir>/<name>.md`` to ``<drivers_dir>/<name>.md``
+    atomically (POSIX ``os.replace``). Refuses to overwrite an existing
+    reviewed driver unless ``force=True``. Re-validates the driver content
+    via ``_validate_driver_text`` before moving — a structurally broken
+    driver can't slip into the canonical location even if it passed
+    validation at generation time but got corrupted on disk afterward
+    (gh#41 scenario #50).
+
+    Raises:
+      - ``ValueError`` if ``tool_name`` is unsafe or reserved
+      - ``FileNotFoundError`` if no unreviewed driver exists for that name
+      - ``FileExistsError`` if a reviewed driver of that name exists and
+        ``force=False``
+      - ``ValueError`` if the unreviewed content fails validation
+    """
+    _check_tool_name(tool_name)
+    base = drivers_dir if drivers_dir is not None else _DRIVERS_DIR
+    src_base = unreviewed_dir if unreviewed_dir is not None else _UNREVIEWED_DRIVERS_DIR
+
+    src = os.path.join(src_base, f"{tool_name}.md")
+    dst = os.path.join(base, f"{tool_name}.md")
+
+    if not os.path.exists(src):
+        raise FileNotFoundError(
+            f"no unreviewed driver to promote at {src}"
+        )
+    if os.path.exists(dst) and not force:
+        raise FileExistsError(
+            f"reviewed driver already exists at {dst}; pass force=True to replace"
+        )
+
+    # Validate content before moving — a corrupt unreviewed file should
+    # NOT be promoted, even if force=True.
+    with open(src, "r") as f:
+        content = f.read()
+    _validate_driver_text(tool_name, content)
+
+    os.makedirs(base, exist_ok=True)
+    os.replace(src, dst)
+    return dst

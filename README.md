@@ -762,7 +762,7 @@ src/clive/            — main source package
   drivers/            — auto-discovered driver prompts (per app_type)
   tools/              — helper scripts (youtube.sh, podcast.sh, etc.)
 
-tests/                — 1161 unit tests
+tests/                — 1178 unit tests
 evals/                — eval framework (harness, layer1-4, baselines)
 docs/                 — documentation, specs, plans
 .clive/               — governance and audit data

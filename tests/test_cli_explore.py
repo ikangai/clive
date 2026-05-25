@@ -178,6 +178,101 @@ def test_handle_explore_returns_nonzero_on_write_disk_full(monkeypatch, capsys):
     assert rc != 0
 
 
+# ─── --promote-driver CLI (gh#41 scenario #50 — driver quarantine) ──────────
+# Auto-gen drivers land in drivers/.unreviewed/ and require an explicit
+# `clive --promote-driver <name>` step to become loadable.
+
+def test_parser_accepts_promote_driver_flag():
+    parser = build_parser()
+    args = parser.parse_args(["--promote-driver", "rg"])
+    assert args.promote_driver == "rg"
+    assert args.promote_force is False
+
+
+def test_parser_accepts_promote_force_flag():
+    parser = build_parser()
+    args = parser.parse_args(["--promote-driver", "rg", "--promote-force"])
+    assert args.promote_force is True
+
+
+def test_handle_promote_driver_succeeds(monkeypatch, capsys):
+    import cli_handlers
+
+    monkeypatch.setattr(
+        cli_handlers, "promote_driver",
+        lambda name, force=False: f"/p/{name}.md",
+    )
+    args = MagicMock(promote_driver="rg", promote_force=False)
+    rc = cli_handlers.handle_promote_driver(args)
+    assert rc == 0
+    out = capsys.readouterr().out
+    assert "/p/rg.md" in out
+
+
+def test_handle_promote_driver_nonzero_on_already_exists(monkeypatch, capsys):
+    import cli_handlers
+
+    monkeypatch.setattr(
+        cli_handlers, "promote_driver",
+        MagicMock(side_effect=FileExistsError("drivers/rg.md already exists")),
+    )
+    args = MagicMock(promote_driver="rg", promote_force=False)
+    rc = cli_handlers.handle_promote_driver(args)
+    assert rc != 0
+    out = capsys.readouterr().out
+    assert "already exists" in out
+    assert "--promote-force" in out
+
+
+def test_handle_promote_driver_nonzero_on_missing_unreviewed(monkeypatch, capsys):
+    import cli_handlers
+
+    monkeypatch.setattr(
+        cli_handlers, "promote_driver",
+        MagicMock(side_effect=FileNotFoundError("no unreviewed driver for rg")),
+    )
+    args = MagicMock(promote_driver="rg", promote_force=False)
+    rc = cli_handlers.handle_promote_driver(args)
+    assert rc != 0
+
+
+def test_handle_promote_driver_nonzero_on_invalid_name(monkeypatch, capsys):
+    import cli_handlers
+
+    monkeypatch.setattr(
+        cli_handlers, "promote_driver",
+        MagicMock(side_effect=ValueError("unsafe tool name")),
+    )
+    args = MagicMock(promote_driver="../../etc/passwd", promote_force=False)
+    rc = cli_handlers.handle_promote_driver(args)
+    assert rc != 0
+    out = capsys.readouterr().out
+    assert "unsafe" in out.lower() or "invalid" in out.lower()
+
+
+def test_handle_explore_prints_promote_hint(monkeypatch, capsys):
+    """After a successful --explore, the CLI tells the user the next step
+    is `clive --promote-driver <tool>` since the driver landed in quarantine."""
+    import cli_handlers
+
+    monkeypatch.setattr(
+        cli_handlers, "explore_tool",
+        lambda name, **kw: ExplorationResult(tool_name=name, summary="ok"),
+    )
+    monkeypatch.setattr(cli_handlers, "generate_driver", lambda name, r: "---\nx\n---\n")
+    # write_generated_driver now returns a path under .unreviewed/
+    monkeypatch.setattr(
+        cli_handlers, "write_generated_driver",
+        lambda name, text, overwrite=False: f"/p/.unreviewed/{name}.md",
+    )
+    args = MagicMock(explore="rg", explore_overwrite=False)
+    rc = cli_handlers.handle_explore(args)
+    assert rc == 0
+    out = capsys.readouterr().out
+    # Mentions promotion so the user knows the driver isn't yet active.
+    assert "--promote-driver" in out or "promote" in out.lower()
+
+
 # ─── Early tool-name validation (gh#41 debug Bug 2) ─────────────────────────
 # handle_explore must reject invalid/reserved names BEFORE running the
 # exploration pipeline — otherwise an attacker-controlled name spends LLM

@@ -25,7 +25,7 @@ from scheduler import (
     run_now, get_history,
 )
 from discovery.explorer import explore_tool
-from discovery.generator import generate_driver, write_generated_driver
+from discovery.generator import generate_driver, promote_driver, write_generated_driver
 
 
 def handle_list_toolsets(args) -> None:
@@ -357,6 +357,37 @@ def handle_explore(args) -> int:
         return 1
     print(f"Wrote driver: {path}")
     print(f"Summary: {result.summary or '(no summary)'}")
+    # The driver landed in quarantine (gh#41 scenario #50). It will not
+    # be loaded by any pane until promoted. Tell the user the next step.
+    print(
+        f"Driver is quarantined and not yet active. "
+        f"Review {path}, then run: clive --promote-driver {tool}"
+    )
+    return 0
+
+
+def handle_promote_driver(args) -> int:
+    """`--promote-driver <tool>` — move auto-gen driver from quarantine
+    to the active driver set (gh#41 scenario #50)."""
+    tool = args.promote_driver
+    try:
+        path = promote_driver(tool, force=args.promote_force)
+    except ValueError as e:
+        print(f"Invalid tool name: {e}")
+        return 1
+    except FileNotFoundError as e:
+        print(f"Cannot promote {tool!r}: {e}")
+        print(f"Run `clive --explore {tool}` first to generate an unreviewed driver.")
+        return 1
+    except FileExistsError as e:
+        print(f"{e}")
+        print("Re-run with --promote-force to replace.")
+        return 2
+    except OSError as e:
+        print(f"Promote failed: {e}")
+        return 1
+    print(f"Promoted driver: {path}")
+    print("The driver is now active and will be loaded by panes.")
     return 0
 
 

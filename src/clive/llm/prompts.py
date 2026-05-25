@@ -56,6 +56,17 @@ def load_driver(app_type: str, drivers_dir: str | None = None) -> str:
 
     base = drivers_dir or _DRIVERS_DIR
     path = os.path.join(base, f"{app_type}.md")
+    # Reviewed driver wins unconditionally (including over the unreviewed
+    # copy when CLIVE_TRUST_UNREVIEWED=1 is set). This preserves the
+    # invariant that hand-written drivers are authoritative.
+    if not os.path.exists(path) and os.environ.get("CLIVE_TRUST_UNREVIEWED") == "1":
+        # Escape hatch (gh#41 scenario #50): evals and CI can opt into
+        # loading unreviewed auto-gen drivers without manually promoting.
+        # Off by default — load_driver returns DEFAULT_DRIVER for any tool
+        # whose only driver lives in drivers/.unreviewed/.
+        unreviewed_path = os.path.join(base, ".unreviewed", f"{app_type}.md")
+        if os.path.exists(unreviewed_path):
+            path = unreviewed_path
     if os.path.exists(path):
         with open(path, "r") as f:
             raw = f.read().strip()

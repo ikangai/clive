@@ -2,6 +2,18 @@
 
 ## Unreleased
 
+### Added — Driver quarantine + `--promote-driver` (gh#41 scenario #50)
+
+The highest-leverage structural mitigation from the discovery audit: auto-gen drivers no longer become loadable by panes the moment `--explore` finishes. They land in `drivers/.unreviewed/<name>.md`, a quarantine subdir that `load_driver` does not search by default. A human review + explicit `clive --promote-driver <name>` step is required to move the driver into the active set at `drivers/<name>.md`. This blunts every remaining prompt-injection vector that survives the regex-level content filters from the previous fix pass — even a structurally-valid auto-gen driver with a smuggled payload cannot reach a worker pane until promoted.
+
+- **`drivers/.unreviewed/`** — new quarantine subdir. `write_generated_driver` writes here by default (production); tests that pass `drivers_dir=str(tmp_path)` still write directly to the test path. Atomic-write semantics (`open("x")` for new, write-tmp + `os.replace` for overwrite) carry over.
+- **`promote_driver(name, force=False)`** in `discovery/generator.py` — re-validates the driver content via `_validate_driver_text` (so a corrupt unreviewed file cannot slip into the active set even with `--promote-force`), then atomic `os.replace` from `.unreviewed/` to canonical. Refuses to clobber an existing reviewed driver unless `force=True`. Validates `tool_name` (defense in depth — refuses reserved names like `explore`/`shell` even at the promote step).
+- **`clive --promote-driver <tool>`** CLI flag (plus `--promote-force`). `handle_promote_driver` returns clean exit codes for the expected error paths (invalid name, missing source, conflict, OS error).
+- **`CLIVE_TRUST_UNREVIEWED=1` escape hatch in `load_driver`** — opt-in env var that lets evals and CI load drivers from `.unreviewed/` without manually promoting them. Reviewed drivers still take precedence when both exist. Off by default.
+- **`--explore` UX nudge** — after a successful exploration, the CLI prints the path the driver landed at AND `clive --promote-driver <tool>` as the next step, so the user knows the driver isn't yet active.
+
+7 new regression tests in `tests/test_discovery_writer.py` cover the promote function; 3 new tests in `tests/test_drivers.py` pin the loader's quarantine behaviour (default-deny, env-var opt-in, reviewed-wins); 6 new tests in `tests/test_cli_explore.py` cover the CLI flag and the post-explore hint.
+
 ### Added — Self-learning tool discovery (gh#41), manual entry point
 
 `clive --explore <tool>` runs `--help`/`-h`/`man`/`tldr` + a few safe probes against an unknown CLI in a fresh exploration pane, then asks the LLM to synthesize a `drivers/<tool>.md` from the exploration log following the existing driver template (frontmatter + ENVIRONMENT/PRIMARY TOOLS/PATTERNS/PITFALLS/RESPONSE FORMAT/COMPLETION). Generated drivers carry an auto-gen header inside the body (after the frontmatter close, so YAML parsing at byte 0 is unaffected) and refuse to overwrite hand-written drivers unless `--explore-overwrite` is passed. Design doc: [`docs/plans/2026-05-22-self-learning-tool-discovery.md`](docs/plans/2026-05-22-self-learning-tool-discovery.md).

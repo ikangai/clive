@@ -32,11 +32,24 @@ The discovery feature introduces a new threat shape: attacker-controlled `--help
 
 Full audit reproductions and per-bug discussion: [`debug/260523-0739-clive-discovery-bug-hunt/findings.md`](debug/260523-0739-clive-discovery-bug-hunt/findings.md).
 
+### Driver quarantine — `--promote-driver` (gh#41 scenario #50)
+
+The most consequential structural change in the discovery feature. Auto-gen drivers no longer become loadable the moment `--explore` finishes. They land in `drivers/.unreviewed/`, a quarantine subdir that `load_driver` does not search. A human review + explicit `clive --promote-driver <name>` step is required to move the driver to `drivers/<name>.md` where panes can load it.
+
+```bash
+clive --explore rg                # writes drivers/.unreviewed/rg.md
+# review the file by hand
+clive --promote-driver rg         # atomic move to drivers/rg.md, content re-validated
+```
+
+`--promote-driver` refuses to clobber existing reviewed drivers (including hand-written ones) unless `--promote-force` is also passed. It re-runs the structural validator before moving, so a corrupt unreviewed file cannot slip into the active set even under `--promote-force`. The reserved-names guard (no overwrites of `explore`, `shell`, `browser`, etc.) applies at the promote step too. For evals and CI that need to exercise auto-gen drivers without a manual promotion, set `CLIVE_TRUST_UNREVIEWED=1` — `load_driver` will then look in `.unreviewed/` as a fallback when no reviewed driver exists. Reviewed drivers always win over unreviewed copies.
+
+This is the highest-leverage remaining defense against prompt-injection-flavoured driver content. Even a structurally-valid auto-gen driver carrying a smuggled payload cannot reach a worker pane without a human seeing it first.
+
 ### Deferred mitigations (tracked, not yet shipped)
 
 These came out of the scenario session and remain open. They are not blockers for the feature shipping, but they are the highest-leverage structural improvements still on the board:
 
-- **Quarantine for unreviewed auto-gen drivers** — new drivers should land in `drivers/.unreviewed/` and require an explicit promote step. Largest remaining mitigation against prompt-injection-flavoured driver content.
 - **Driver provenance + version metadata in frontmatter** — `provenance: hand-written|auto-explore`, `explored_at:`, `target_version:`. Enables safe-refresh-vs-force-overwrite split for `--explore-overwrite` and programmatic stale-driver detection.
 - **Per-probe wall-clock timeout + `PAGER=cat` env in the exploration pane** — defangs `man → less` traps and PS1-spoof attacks via behavioural detection.
 - **Subcommand-tool exploration** — `clive --explore git` should probe `git status --help`, `git commit --help`, etc., not stop at the top-level `git --help`.

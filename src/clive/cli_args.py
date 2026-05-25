@@ -73,10 +73,22 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--explore", metavar="TOOL",
         help="Explore an unknown CLI tool: run --help/-h/man/tldr + safe probes, "
-             "then synthesize a driver to drivers/<TOOL>.md (gh#41).",
+             "then synthesize a driver to drivers/.unreviewed/<TOOL>.md (gh#41). "
+             "Run --promote-driver to make it active.",
     )
     parser.add_argument(
         "--explore-overwrite", action="store_true",
-        help="With --explore, overwrite an existing driver instead of refusing.",
+        help="With --explore, overwrite an existing unreviewed driver instead of refusing.",
+    )
+    parser.add_argument(
+        "--promote-driver", metavar="TOOL",
+        help="Promote drivers/.unreviewed/<TOOL>.md to drivers/<TOOL>.md "
+             "(gh#41 scenario #50 — required step after --explore for the "
+             "driver to become loadable by panes).",
+    )
+    parser.add_argument(
+        "--promote-force", action="store_true",
+        help="With --promote-driver, overwrite an existing reviewed driver "
+             "(including hand-written ones — use with care).",
     )
     return parser

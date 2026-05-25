@@ -97,6 +97,8 @@ if __name__ == "__main__":
     # `--explore rg` doesn't try to plan "rg" as a task.
     if args.explore:
         sys.exit(_ch.handle_explore(args))
+    if args.promote_driver:
+        sys.exit(_ch.handle_promote_driver(args))
     for _flag in ("list_toolsets", "list_tools", "setup", "tui", "undo",
                   "selfmod", "list_skills", "evolve", "list_schedules",
                   "remove_schedule", "pause_schedule", "resume_schedule",

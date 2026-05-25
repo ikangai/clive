@@ -25,3 +25,61 @@ def test_load_driver_from_real_drivers_dir():
     # Test fallback — no driver for 'nonexistent' should return default
     result = load_driver("nonexistent", drivers_dir=drivers_dir)
     assert len(result) > 10
+
+
+# ─── Driver quarantine — load_driver behavior (gh#41 scenario #50) ──────────
+# Auto-gen drivers land in drivers/.unreviewed/ and must NOT be loaded by
+# default — load_driver only looks at drivers/<app_type>.md. The escape
+# hatch CLIVE_TRUST_UNREVIEWED=1 lets evals and CI opt into loading
+# unreviewed drivers without manually promoting them.
+
+def test_load_driver_ignores_unreviewed_by_default(tmp_path, monkeypatch):
+    """An unreviewed driver in drivers/.unreviewed/foo.md does NOT load —
+    load_driver returns the DEFAULT_DRIVER fallback instead."""
+    import prompts as prompts_mod
+    # Bust the cache that previous tests may have populated for "foo".
+    prompts_mod._driver_cache.clear()
+    prompts_mod._driver_meta_cache.clear()
+
+    unreviewed = tmp_path / ".unreviewed"
+    unreviewed.mkdir()
+    (unreviewed / "foo.md").write_text(
+        "---\npreferred_mode: script\n---\n# foo driver (unreviewed)"
+    )
+    # No drivers/foo.md exists.
+    result = load_driver("foo", drivers_dir=str(tmp_path))
+    # Falls back to DEFAULT_DRIVER, NOT the .unreviewed copy.
+    assert "foo driver (unreviewed)" not in result
+
+
+def test_load_driver_unreviewed_loaded_when_env_var_set(tmp_path, monkeypatch):
+    """CLIVE_TRUST_UNREVIEWED=1 opens the escape hatch — useful for evals."""
+    import prompts as prompts_mod
+    prompts_mod._driver_cache.clear()
+    prompts_mod._driver_meta_cache.clear()
+
+    unreviewed = tmp_path / ".unreviewed"
+    unreviewed.mkdir()
+    (unreviewed / "bar.md").write_text(
+        "---\npreferred_mode: script\n---\n# bar driver (unreviewed body)"
+    )
+    monkeypatch.setenv("CLIVE_TRUST_UNREVIEWED", "1")
+    result = load_driver("bar", drivers_dir=str(tmp_path))
+    assert "bar driver (unreviewed body)" in result
+
+
+def test_load_driver_reviewed_takes_precedence_over_unreviewed(tmp_path, monkeypatch):
+    """If both drivers/<n>.md and drivers/.unreviewed/<n>.md exist,
+    the reviewed copy wins — even with CLIVE_TRUST_UNREVIEWED=1."""
+    import prompts as prompts_mod
+    prompts_mod._driver_cache.clear()
+    prompts_mod._driver_meta_cache.clear()
+
+    (tmp_path / "baz.md").write_text("---\nx\n---\n# baz REVIEWED")
+    unreviewed = tmp_path / ".unreviewed"
+    unreviewed.mkdir()
+    (unreviewed / "baz.md").write_text("---\nx\n---\n# baz UNREVIEWED")
+    monkeypatch.setenv("CLIVE_TRUST_UNREVIEWED", "1")
+    result = load_driver("baz", drivers_dir=str(tmp_path))
+    assert "REVIEWED" in result
+    assert "UNREVIEWED" not in result
