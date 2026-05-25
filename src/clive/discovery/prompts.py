@@ -67,10 +67,10 @@ COMPLETION: DONE: <one-line summary>
 ```
 
 Rules:
-1. The output MUST start with `---` (frontmatter) and MUST contain ENVIRONMENT, PRIMARY TOOLS, PATTERNS, RESPONSE FORMAT, and COMPLETION sections, each as a heading-like line at the start of a line (not mentioned inside prose).
+1. The output MUST start with `---` (frontmatter) and MUST contain ENVIRONMENT, PRIMARY TOOLS, PATTERNS, PITFALLS, RESPONSE FORMAT, and COMPLETION sections IN THAT ORDER. Each section name MUST appear as a heading-like line at the start of a line (not mentioned inside prose, not inside a fenced code block). Each section MUST appear exactly once.
 2. Choose `preferred_mode: script` for batch tools (jq, rg, grep, curl); `preferred_mode: interactive` for TUI tools.
 3. Be terse — reference-card-grade. No prose, no explanations.
-4. Base every claim on what the exploration showed. If something is unknown, omit it — do not invent.
+4. Base every claim on what the exploration showed. If something is unknown, omit the bullet — do not invent. Use "PITFALLS: - none observed" if no pitfalls surfaced.
 5. End with `COMPLETION: DONE: ...` — this is the literal signal the agent must emit.
 
 Exploration history follows.

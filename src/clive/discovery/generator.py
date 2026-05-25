@@ -34,6 +34,7 @@ _REQUIRED_SECTIONS = (
     "ENVIRONMENT",
     "PRIMARY TOOLS",
     "PATTERNS",
+    "PITFALLS",          # gh#41 debug Bug 4 — was previously omitted
     "RESPONSE FORMAT",
     "COMPLETION",
 )
@@ -41,6 +42,12 @@ _SECTION_REGEXES = {
     section: re.compile(rf"^(?:#+\s+)?{re.escape(section)}\b", re.MULTILINE)
     for section in _REQUIRED_SECTIONS
 }
+
+# Strip fenced code blocks before scanning for section markers (gh#41 debug
+# Bug 10). Otherwise a driver where the only ENVIRONMENT/PRIMARY TOOLS/etc.
+# lines live inside a ```...``` decoy would pass validation while carrying
+# no real content.
+_FENCED_BLOCK = re.compile(r"```.*?```", re.DOTALL)
 
 
 def generate_driver(
@@ -55,9 +62,23 @@ def generate_driver(
     body (after the frontmatter close) so frontmatter parsing at byte 0
     remains unaffected.
 
-    Raises ValueError if the LLM output is missing required sections or
-    lacks frontmatter entirely.
+    Raises ValueError if:
+      - the exploration produced no usable signal (no successful probes
+        AND no DONE summary) — refuses to hallucinate from nothing
+        (gh#41 debug Bug 11);
+      - the LLM output is missing required sections, has duplicates,
+        is out of canonical order, or lacks frontmatter
+        (gh#41 debug Bug 10).
     """
+    # Empty-exploration guard — refuse to call the LLM if there's nothing
+    # to base the synthesis on. The synthesizer prompt's "do not invent"
+    # rule conflicts with its "MUST contain these sections" rule when zero
+    # signal is present, and LLMs resolve by hallucinating.
+    if result.success_count == 0 and not result.summary:
+        raise ValueError(
+            f"refusing to synthesize driver for {tool_name!r}: empty "
+            f"exploration result (0 successful probes, no DONE summary)"
+        )
     client = client if client is not None else get_client()
     prompt = build_generation_prompt(result)
     messages = [
@@ -78,10 +99,44 @@ def _validate_driver_text(tool_name: str, text: str) -> None:
     if front_end < 0:
         raise ValueError(f"driver for {tool_name} has malformed frontmatter")
     body = text[front_end + 3:]
-    missing = [s for s, rx in _SECTION_REGEXES.items() if not rx.search(body)]
+    # Strip fenced code blocks so section markers inside ```...``` decoys
+    # don't count as real sections (gh#41 debug Bug 10).
+    body_no_fences = _FENCED_BLOCK.sub("", body)
+
+    # Each required section must appear exactly once at line start, in
+    # canonical order. Multiple occurrences create structural ambiguity
+    # that downstream parsers resolve inconsistently; out-of-order
+    # sections are a smell that suggests a non-template-conforming driver.
+    missing: list[str] = []
+    duplicates: list[str] = []
+    positions: list[tuple[int, str]] = []
+    for section, rx in _SECTION_REGEXES.items():
+        hits = rx.findall(body_no_fences)
+        if not hits:
+            missing.append(section)
+            continue
+        if len(hits) > 1:
+            duplicates.append(section)
+            continue
+        m = rx.search(body_no_fences)
+        if m is not None:
+            positions.append((m.start(), section))
+
     if missing:
         raise ValueError(
             f"driver for {tool_name} missing section(s): {', '.join(missing)}"
+        )
+    if duplicates:
+        raise ValueError(
+            f"driver for {tool_name} has duplicate section(s): "
+            f"{', '.join(duplicates)}"
+        )
+    expected = [s for _, s in sorted(positions)]
+    canonical = list(_REQUIRED_SECTIONS)
+    if expected != canonical:
+        raise ValueError(
+            f"driver for {tool_name} sections out of canonical order: "
+            f"got {expected}, expected {canonical}"
         )
 
 
