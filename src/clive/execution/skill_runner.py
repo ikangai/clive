@@ -19,14 +19,18 @@ Step format (in YAML within the skill file):
       on_fail: abort
 """
 import json
+import logging
 import os
 import re
 import time
 
 from models import PaneInfo, SubtaskResult, SubtaskStatus
 from completion import wrap_command, wait_for_ready
+from runtime import _check_command_safety
 from session import capture_pane
 from output import progress
+
+log = logging.getLogger(__name__)
 
 
 def parse_executable_steps(skill_content: str) -> list[dict]:
@@ -152,10 +156,30 @@ def run_executable_skill(
     outputs = []
     start_time = time.time()
 
+    safety_violation: str | None = None
     for i, step in enumerate(steps):
         step_idx = i + 1
         cmd = _interpolate_params(step["cmd"], params)
         progress(f"    [skill step {step_idx}/{total_steps}] {cmd[:60]}")
+
+        # Safety gate parity (Audit H3, 2026-05-27). Steps interpolate LLM-
+        # controlled params (e.g. `URL=$(rm -rf /)`) into the cmd template
+        # via plain str.replace. A safety violation aborts the whole skill
+        # regardless of step["on_fail"] — never let `on_fail: skip` bypass
+        # the gate.
+        violation = _check_command_safety(cmd)
+        if violation:
+            log.warning(f"[skill step {step_idx}] Blocked: {violation}")
+            progress(f"    [skill step {step_idx}] BLOCKED: {violation}")
+            outputs.append({
+                "step": step_idx,
+                "cmd": cmd[:80],
+                "exit_code": None,
+                "check": "safety_gate",
+                "passed": False,
+            })
+            safety_violation = violation
+            break
 
         wrapped, marker = wrap_command(cmd, f"{subtask_id}_step{i}")
         pane_info.pane.send_keys(wrapped, enter=True)
@@ -186,9 +210,12 @@ def run_executable_skill(
 
     elapsed = time.time() - start_time
     all_passed = completed_steps == total_steps
-    summary = f"Skill: {completed_steps}/{total_steps} steps completed"
-    if all_passed:
-        summary += f" in {elapsed:.1f}s"
+    if safety_violation:
+        summary = f"Blocked by safety gate: {safety_violation}"
+    else:
+        summary = f"Skill: {completed_steps}/{total_steps} steps completed"
+        if all_passed:
+            summary += f" in {elapsed:.1f}s"
 
     return SubtaskResult(
         subtask_id=subtask_id,

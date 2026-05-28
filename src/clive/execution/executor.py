@@ -130,6 +130,22 @@ def run_subtask_direct(
     import uuid as _uuid
 
     cmd = subtask.description.strip()
+
+    # Safety gate parity (Audit C1, 2026-05-27). The Tier-1 classifier can
+    # emit a `direct` subtask with an LLM-chosen cmd; without this check the
+    # gate that protects interactive/toolcall/planned modes is bypassed.
+    violation = _check_command_safety(cmd)
+    if violation:
+        log.warning(f"[{subtask.id}] Direct cmd blocked: {violation}")
+        return SubtaskResult(
+            subtask_id=subtask.id,
+            status=SubtaskStatus.FAILED,
+            summary=f"Blocked by safety gate: {violation}",
+            output_snippet="",
+            turns_used=0,
+            exit_code=None,
+        )
+
     cmd = _wrap_for_sandbox(cmd, session_dir, sandboxed=pane_info.sandboxed)
     nonce = _uuid.uuid4().hex[:4]
     marker = f"___DONE_{subtask.id}_{nonce}___"

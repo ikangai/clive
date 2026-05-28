@@ -14,7 +14,7 @@ from completion import wait_for_ready
 from llm import get_client, chat, SCRIPT_MODEL
 from models import Subtask, SubtaskStatus, SubtaskResult, PaneInfo
 from prompts import build_script_prompt
-from runtime import _pane_locks, _cancel_event, _emit, _wrap_for_sandbox, write_file, _extract_script
+from runtime import _pane_locks, _cancel_event, _emit, _wrap_for_sandbox, write_file, _extract_script, _check_command_safety
 from session import capture_pane
 
 log = logging.getLogger(__name__)
@@ -155,6 +155,18 @@ def run_subtask_script(
             except ValueError as e:
                 logging.debug(f"[{subtask.id}] Script extraction failed: {e}")
                 messages.append({"role": "user", "content": "Error: could not extract script. Respond with a bash script inside ```bash ``` markers."})
+                continue
+
+            # Safety gate parity (Audit H1, 2026-05-27). Script-mode previously
+            # wrote the generated script to disk and executed it without ever
+            # consulting the blocklist. A prompt-injected SCRIPT_MODEL emitting
+            # `rm -rf /` inside a ```bash fence reached the shell. The interactive
+            # path's "feed BLOCKED back to the LLM and try again" pattern fits
+            # script's repair loop naturally — max_turns bounds the retries.
+            violation = _check_command_safety(script)
+            if violation:
+                log.warning(f"[{subtask.id}] Script blocked: {violation}")
+                messages.append({"role": "user", "content": f"[BLOCKED] Script contains an unsafe pattern: {violation}. Generate a different approach that avoids it."})
                 continue
 
             script_path, script_executor = _resolve_script_language(
