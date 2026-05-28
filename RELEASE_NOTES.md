@@ -14,7 +14,7 @@ clive --explore rg
 
 and clive opens a fresh tmux exploration pane, probes the tool with `--help` / `-h` / `man` / `tldr` plus a couple of safe read-only examples, then asks the LLM to synthesize `drivers/rg.md` from the exploration log. Future panes targeting that tool pick up the new driver automatically. The exploration is bounded (≤8 probes) and gated by an exploration-specific safety layer that refuses to launch credential-prompt tools (`aws`, `gh`, `kubectl`, `ssh`, …) and TUI tools (`vim`, `less`, `lazygit`, `k9s`, …) without an explicit help flag. Existing drivers (hand-written or auto-generated) are not overwritten unless you pass `--explore-overwrite`.
 
-The full design is documented in [`docs/plans/2026-05-22-self-learning-tool-discovery.md`](docs/plans/2026-05-22-self-learning-tool-discovery.md). Two follow-on cards are explicitly deferred: audit-log-driven `refine_driver` (needs gh#40's eval orchestrator) and `CLIVE_AUTO_EXPLORE=1` auto-trigger from `_expand_toolset` (needs gh#39's category auto-classification).
+The full design is documented in [`docs/plans/2026-05-22-self-learning-tool-discovery.md`](docs/plans/2026-05-22-self-learning-tool-discovery.md). `CLIVE_AUTO_EXPLORE=1` ships in this release (see the auto-explore section below); audit-log-driven `refine_driver` remains deferred (needs gh#40's eval orchestrator).
 
 ### Hardened against an adversarial data plane
 
@@ -46,6 +46,37 @@ clive --promote-driver rg         # atomic move to drivers/rg.md, content re-val
 
 This is the highest-leverage remaining defense against prompt-injection-flavoured driver content. Even a structurally-valid auto-gen driver carrying a smuggled payload cannot reach a worker pane without a human seeing it first.
 
+### Security-audit hardening (2026-05-27 full-repo sweep)
+
+A six-reviewer security audit across the whole repo surfaced 2 CRITICAL and 22 HIGH findings; the load-bearing fixes are in. The chain of CRITICAL C1 — prompt-injected classifier emits a `direct`-mode subtask, the executor pastes the LLM-chosen command straight to the shell with no safety check — is closed by three independent changes:
+
+- **`_check_command_safety` now fires in every runner**, not just interactive/toolcall/planned. `executor.run_subtask_direct`, `script_runner.run_subtask_script`, and `skill_runner.run_executable_skill` historically imported the gate but never called it; they now refuse to dispatch a blocked command. Skill mode's safety violation aborts the whole skill regardless of `on_fail: skip`.
+- **`Subtask.id` is validated at construction** against `^[A-Za-z0-9_-]{1,40}$`. The id was f-string-interpolated into the shell wrapper string (`echo "EXIT:$? ___DONE_{id}_..."`) and the safety gate inspected the wrapped command, not the wrapper — so a planner-controlled id like `x"; rm -rf ~; echo "y` bypassed every runner uniformly. One-line fix in `models.py:Subtask.__post_init__` closes it.
+- **Every prompt template now isolates untrusted segments** with `<<UNTRUSTED-...-DO-NOT-FOLLOW>>` markers and a `TRUST BOUNDARY` rule in the surrounding system prompt. `session_files`, `recent_history`, `dependency_context`, subtask results, and compressed old turns were all interpolated between trusted preamble and trusted RULES tail with no delimiter — closes the structural break-out window across planner, classifier, summarizer, interactive, and the cheap-model context compressor.
+
+CRITICAL C2 — selfmod gate's `PROJECT_ROOT` divergence (4-parent in `gate.py` vs 2-parent in `workspace.py`/`constitution.py`) — is closed by unifying to the 2-parent (`src/clive/`) root and adding an explicit path-shape gate at the top of `check_proposal` that rejects absolute paths and `..` segments up front. The selfmod gate's pattern detection also moved from regex to `ast.walk` for Python content (Bug H6): `subprocess.run(build_cmd(host), shell=True)`, `from ctypes import POINTER`, `import urllib3`, `import websockets` all flowed past the regex set and are now caught structurally. Regex still applies to non-Python content for the obfuscated-base64 check.
+
+Three medium-severity findings — `ipc.py` socket without restrictive umask, `tool_schemas.py` dead with unrestricted file r/w schemas, `sandbox/profile.json` + `sandbox/quotas.py` dead policy files misleading operators — are co-closed by the dead-code removal pass below.
+
+### Removed — dead modules (Bug H8)
+
+Nine production files and six dedicated test files with zero live imports outside their own tests are deleted (1071 LOC removed):
+
+- `src/clive/server/{auth,reload,timeout,file_transfer}.py` — never wired into the worker process
+- `src/clive/networking/ipc.py` + the `src/clive/ipc.py` shim — SharedBrain was removed at "Pane Core Refocus" (2026-04-09); the module sat unused since
+- `src/clive/tool_schemas.py` — defined `WORKER_TOOLS` with unrestricted `read_file`/`write_file` schemas, never referenced
+- `src/clive/sandbox/profile.json` + `src/clive/sandbox/quotas.py` — looked like enforced policy but the live sandbox is `run.sh` alone; the JSON profile and quota module were never consulted at runtime
+
+`test_sandbox.py` keeps the 4 tests that exercise the live `run.sh` wrapper; only the profile-loading test was removed.
+
+### Added — `CLIVE_AUTO_EXPLORE=1` (auto-explore unknown tools at worker-context build time)
+
+Previously deferred from the gh#41 ship; now shipped in minimum-viable form. When the planner emits `subtask.tools=["ripgrep"]` but the registry has no Tier-2 card for `ripgrep`, and `CLIVE_AUTO_EXPLORE=1` is set, the worker context builder queues a background exploration via the existing `--explore` pipeline. The generated draft lands in `drivers/.unreviewed/` per the gh#41 quarantine — the current subtask runs without it; operator promotes for future sessions with `clive --promote-driver <name>`.
+
+Strict opt-in: only the literal value `1` enables (`"true"`, `"yes"`, `"on"` stay off — avoids accidental enablement by operators who think it's a normal boolean). Fire-and-forget daemon thread so prompt construction isn't blocked. Process-local dedup avoids re-exploring the same tool within a session. Exploration failures are logged and swallowed — best-effort side effect, never crashes the running subtask.
+
+The card's original "auto-trigger from `_expand_toolset` on missing pane app_type driver" design didn't map to current code (every PANES entry has a hand-written driver). The realistic trigger today is unknown tool names in `subtask.tools`. COMMANDS auto-registration (so newly-promoted drivers surface in `clive-tools list <category>` automatically) remains deferred — `classify_tool_to_category` exists from gh#39 but the promote-step integration is a separate card.
+
 ### Deferred mitigations (tracked, not yet shipped)
 
 These came out of the scenario session and remain open. They are not blockers for the feature shipping, but they are the highest-leverage structural improvements still on the board:
@@ -57,6 +88,8 @@ These came out of the scenario session and remain open. They are not blockers fo
 ### Tests
 
 990 → 1161 (+171) across the gh#41 effort. Of these, ~80 are regression tests pinning the security invariants above; the rest cover the feature surface itself.
+
+The 2026-05-27 audit + auto-explore work added 102 further tests across `test_models.py` (Subtask.id validation), `test_untrusted_wrap.py` (prompt-segment wrapping helper + every builder's wrap-presence), `test_runner_safety_parity.py` (gate parity across direct/script/skill), `test_selfmod_path_topology.py` (absolute-path / `..` rejection), `test_selfmod_gate_ast.py` (every Bug H6 bypass shape + parametrized regressions for the existing pattern set), and `test_auto_explore.py` (env-gate, thread queueing, dedup, wire-up). The dead-code removal pass dropped 41 tests with their targets. Net: **1240 tests** at the current HEAD, all green.
 
 ---
 
