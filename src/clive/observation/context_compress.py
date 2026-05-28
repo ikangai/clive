@@ -103,19 +103,26 @@ def make_llm_compressor(client, model: str | None = None):
         from llm import CLASSIFIER_MODEL
         model = CLASSIFIER_MODEL
 
+    # The cheap compressor model is more injection-prone than the main
+    # model, so both halves of the defense matter: wrap the user message
+    # (so the marker delimits attacker-influenceable old turns) AND teach
+    # the model the trust-boundary rule in the system prompt. Audit H19
+    # (2026-05-27).
+    from prompts import wrap_untrusted, UNTRUSTED_CONTENT_RULE
+
+    system_prompt = (
+        "Summarize this terminal session history in 2-3 concise sentences. "
+        "Focus on: what was attempted, what succeeded, what failed, "
+        "and the current state. Omit raw screen content.\n\n"
+        f"{UNTRUSTED_CONTENT_RULE}"
+    )
+
     def _compress(text: str) -> str:
         resp = client.chat.completions.create(
             model=model,
             messages=[
-                {
-                    "role": "system",
-                    "content": (
-                        "Summarize this terminal session history in 2-3 concise sentences. "
-                        "Focus on: what was attempted, what succeeded, what failed, "
-                        "and the current state. Omit raw screen content."
-                    ),
-                },
-                {"role": "user", "content": text},
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": wrap_untrusted("SESSION-HISTORY", text)},
             ],
             max_tokens=200,
         )

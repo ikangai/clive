@@ -16,7 +16,7 @@ from llm import chat, get_client
 from models import SubtaskStatus
 from output import detail, step
 from planner import create_plan
-from prompts import build_summarizer_prompt
+from prompts import build_summarizer_prompt, wrap_untrusted
 
 
 SESSION_LOG = os.path.expanduser("~/.clive_session_log.jsonl")
@@ -116,9 +116,17 @@ def summarize(task, results, output_format="default", session_dir=""):
         if previews:
             file_context = "\n\nKey output files:\n" + "\n".join(previews)
 
+    # Subtask summaries and file previews are attacker-influenceable (the
+    # summary may quote a webpage; previews may contain prompt-injection
+    # prose). Wrap them as untrusted data so the summarizer LLM (and any
+    # downstream consumer of the summary) treats them as content, not
+    # instructions. Audit H20 (2026-05-27).
+    untrusted_body = wrap_untrusted(
+        "SUBTASK-RESULTS", f"{result_text}{file_context}"
+    )
     messages = [
         {"role": "system", "content": build_summarizer_prompt(output_format)},
-        {"role": "user", "content": f"Original task: {task}\n\nSubtask results:\n{result_text}{file_context}"},
+        {"role": "user", "content": f"Original task: {task}\n\nSubtask results:\n{untrusted_body}"},
     ]
 
     content, _, _ = chat(client, messages)
