@@ -226,14 +226,34 @@ def build_worker_tool_context(subtask) -> str:
     Returns empty string when no tools are declared or none resolve.
     The caller decides where to splice this into the turn prompt
     (typically just below the driver header).
+
+    When ``CLIVE_AUTO_EXPLORE=1`` is set, tools with no Tier-2 card
+    trigger a background exploration via ``discovery.auto`` — the
+    generated draft lands in ``drivers/.unreviewed/`` for the operator
+    to review and promote. The current subtask does NOT get the new
+    driver (Phase 4.2 / gh#41 quarantine).
     """
     from toolsets import build_tier2_card
     tools = list(dict.fromkeys(getattr(subtask, "tools", None) or []))
     cards = []
+    unknown = []
     for t in tools:
         card = build_tier2_card(t)
         if card:
             cards.append(card)
+        else:
+            unknown.append(t)
+
+    # Auto-explore unknown tools (Phase 4.2). Side-effect only — does not
+    # affect this subtask's prompt. The import is local to avoid pulling
+    # the discovery surface into prompt construction when auto-explore is
+    # off (default).
+    if unknown:
+        from discovery.auto import auto_explore_unknown_tool, is_auto_explore_enabled
+        if is_auto_explore_enabled():
+            for t in unknown:
+                auto_explore_unknown_tool(t)
+
     if not cards:
         return ""
     return "Tools you may need:\n" + "\n\n".join(cards)
