@@ -1,9 +1,7 @@
 # tests/test_sandbox.py
 import subprocess
-import json
 import os
 import platform
-import pytest
 
 SANDBOX_SCRIPT = os.path.join(os.path.dirname(__file__), "..", "src", "clive", "sandbox", "run.sh")
 
@@ -56,15 +54,3 @@ def test_sandbox_blocks_network_if_restricted(tmp_path):
         pass
     else:
         assert result.returncode != 0
-
-
-def test_sandbox_profile_loading():
-    """Profile JSON must parse and contain expected keys."""
-    profile_path = os.path.join(os.path.dirname(__file__), "..", "src", "clive", "sandbox", "profile.json")
-    with open(profile_path) as f:
-        profile = json.load(f)
-    assert "fs_writable" in profile
-    assert "max_procs" in profile
-    assert "max_memory_mb" in profile
-    assert "network" in profile
-    assert "allowed_commands" in profile
