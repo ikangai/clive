@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import re
 from dataclasses import dataclass, field
 from enum import Enum
 from typing import TYPE_CHECKING, Optional
@@ -29,6 +30,12 @@ class SubtaskStatus(Enum):
 
 VALID_MODES = {"direct", "script", "interactive", "streaming", "planned", "llm"}
 
+# Subtask ids are interpolated into shell wrapper strings (e.g.
+# `echo "EXIT:$? ___DONE_{id}_{nonce}___"` typed via tmux send-keys).
+# Runners' safety gates inspect the LLM-emitted `cmd`, not the wrapper,
+# so an unvalidated id is a shell-injection sink. Audit H2 (2026-05-27).
+_SUBTASK_ID_RE = re.compile(r"^[A-Za-z0-9_-]{1,40}$")
+
 
 @dataclass
 class Subtask:
@@ -43,6 +50,10 @@ class Subtask:
     _retried: bool = field(default=False, repr=False)
 
     def __post_init__(self):
+        if not isinstance(self.id, str) or not _SUBTASK_ID_RE.fullmatch(self.id):
+            raise ValueError(
+                f"Invalid Subtask id {self.id!r}: must match {_SUBTASK_ID_RE.pattern}"
+            )
         if self.mode not in VALID_MODES:
             log.warning(f"Unknown mode '{self.mode}' for subtask {self.id}, defaulting to interactive")
             self.mode = "interactive"
