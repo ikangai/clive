@@ -30,6 +30,7 @@ from toolsets import (
     DEFAULT_TOOLSET, CATEGORIES, PANES, COMMANDS, ENDPOINTS,
 )
 from executor import execute_plan, cancel as cancel_executor, reset_cancel, is_cancelled
+from pane_state import PaneBorderColorizer, chain_on_event
 from router import route_task
 from models import SubtaskStatus, Plan, Subtask, ClassifierResult
 from llm import get_client, chat, CLASSIFIER_MODEL, PROVIDER_NAME, MODEL
@@ -474,9 +475,15 @@ def _run_inner(task, toolset_spec, output_format, max_tokens, session_dir, _clea
     if early_return is not None:
         return early_return
 
-    # Execution
+    # Execution. Compose the progress printer with a pane-border colorizer
+    # (gh#4) so an attached tmux session shows agent state per pane; opt out
+    # with CLIVE_PANE_COLORS=0. The colorizer is best-effort and never raises.
+    colorizer = (PaneBorderColorizer(panes)
+                 if os.environ.get("CLIVE_PANE_COLORS", "1") != "0" else None)
+    on_event = chain_on_event(_progress_event, colorizer)
+
     step("Executing")
-    results = execute_plan(plan, panes, tool_status, on_event=_progress_event,
+    results = execute_plan(plan, panes, tool_status, on_event=on_event,
                            session_dir=session_dir, max_tokens=max_tokens)
 
     if is_cancelled():
@@ -487,7 +494,7 @@ def _run_inner(task, toolset_spec, output_format, max_tokens, session_dir, _clea
     results = summarizer.attempt_recovery(
         task, results, execute_plan,
         panes=panes, tool_status=tool_status, tools_summary=tools_summary,
-        on_event=_progress_event, session_dir=session_dir, max_tokens=max_tokens,
+        on_event=on_event, session_dir=session_dir, max_tokens=max_tokens,
     )
 
     # Summarize, format, display
