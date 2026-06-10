@@ -14,3 +14,7 @@ autoresearch-results*.tsv
 *.prev*.tsv
 .autoresearch_verify.py
 security-audit-results.tsv
+
+# Local project kanban (kanban skill)
+.kanban/
+.dev-diary/
