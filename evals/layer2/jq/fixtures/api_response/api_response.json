@@ -1,0 +1,9 @@
+{
+  "status": "ok",
+  "users": [
+    {"name": "Alice", "age": 34, "role": "admin"},
+    {"name": "Bob", "age": 28, "role": "user"},
+    {"name": "Charlie", "age": 45, "role": "user"},
+    {"name": "Dana", "age": 31, "role": "admin"}
+  ]
+}

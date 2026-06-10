@@ -1,0 +1,62 @@
+[
+  {
+    "id": "l3_pipeline_find_count_001",
+    "layer": 3,
+    "tool": "pipeline",
+    "mode": "script",
+    "task": "Find the 3 Python files with the most lines under the current directory and write their filenames (basename only), one per line, most lines first, to /tmp/clive/result.txt.",
+    "initial_state": {
+      "filesystem": "fixtures/code_tree"
+    },
+    "success_criteria": {
+      "type": "deterministic",
+      "check": "head -1 /tmp/clive/result.txt | grep -q 'big.py' && grep -q 'mid.py' /tmp/clive/result.txt && grep -q 'small.py' /tmp/clive/result.txt && ! grep -q 'tiny.py' /tmp/clive/result.txt"
+    },
+    "discovery_criteria": {
+      "expected_tools": ["find|fd", "wc|awk", "sort|head"]
+    },
+    "min_turns": 1,
+    "max_turns": 3,
+    "timeout_seconds": 30
+  },
+  {
+    "id": "l3_pipeline_log_top_ips_002",
+    "layer": 3,
+    "tool": "pipeline",
+    "mode": "script",
+    "task": "From access.log, find the 2 IP addresses with the most requests and write them to /tmp/clive/result.txt, one per line, most requests first.",
+    "initial_state": {
+      "filesystem": "fixtures/weblogs"
+    },
+    "success_criteria": {
+      "type": "deterministic",
+      "check": "head -1 /tmp/clive/result.txt | grep -q '10.0.0.5' && grep -q '192.168.1.9' /tmp/clive/result.txt && ! grep -q '172.16.0.2' /tmp/clive/result.txt"
+    },
+    "discovery_criteria": {
+      "expected_tools": ["awk|cut|grep|rg", "sort", "uniq|awk"]
+    },
+    "min_turns": 1,
+    "max_turns": 3,
+    "timeout_seconds": 30
+  },
+  {
+    "id": "l3_pipeline_csv_join_003",
+    "layer": 3,
+    "tool": "pipeline",
+    "mode": "script",
+    "task": "orders.csv has columns order_id,customer_id,amount and customers.csv has columns customer_id,name. Write the name of the customer with the highest total order amount to /tmp/clive/result.txt.",
+    "initial_state": {
+      "filesystem": "fixtures/sales_join"
+    },
+    "success_criteria": {
+      "type": "deterministic",
+      "check": "test \"$(cat /tmp/clive/result.txt | tr -d '[:space:]')\" = \"Alice\""
+    },
+    "discovery_criteria": {
+      "expected_tools": ["join|awk|python3|paste|sort"]
+    },
+    "min_turns": 1,
+    "max_turns": 3,
+    "timeout_seconds": 30
+  }
+]

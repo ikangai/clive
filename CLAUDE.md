@@ -25,9 +25,10 @@ pytest tests/test_executor.py                   # single file
 pytest tests/test_executor.py::test_name        # single test
 pytest -k pattern                               # by name pattern
 
-# Evals (layered: L1 unit-ish → L4 end-to-end)
+# Evals (layered: L1 unit-ish → L4 end-to-end; L5 = tool discovery, gh#40)
 python evals/harness/run_eval.py --layer 2
 python evals/harness/run_eval.py --layer 2 --tool shell
+python evals/harness/run_eval.py --layer 5      # gh#39 progressive-disclosure discovery evals
 
 # Watch the agent work live
 tmux attach -t clive

@@ -794,7 +794,8 @@ def build_tier0_summary(active_categories: list[str]) -> str:
     listing = ", ".join(parts)
     return (
         f"Tool categories available: {listing}\n"
-        "Use `tool_info <name>` for details on a specific tool."
+        "Use `clive-tools list <category>` for tool names and "
+        "`clive-tools info <name>` for details on a specific tool."
     )
 
 

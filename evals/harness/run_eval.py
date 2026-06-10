@@ -13,13 +13,19 @@ import os
 import sys
 import time
 
-# Add src/clive to path for flat imports
+# Add repo root (for `from evals...`) and src/clive (flat imports) to path
 _project_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+sys.path.insert(0, _project_root)
 sys.path.insert(0, os.path.join(_project_root, "src", "clive"))
 
 from evals.harness.session_fixture import EvalFixture
 from evals.harness.verifier import verify_task
-from evals.harness.metrics import EvalResult, EvalReport
+from evals.harness.metrics import EvalResult, EvalReport, ToolEvalResult
+from evals.harness.discovery_eval import (
+    build_discovery_context,
+    check_discovery_criteria,
+    make_disabled_tool_shims,
+)
 from executor import run_subtask
 from models import Subtask, PaneInfo
 from llm import get_client
@@ -168,6 +174,12 @@ def run_single_task(
     tool = task_def.get("tool", "shell")
     layer = task_def.get("layer", 2)
     max_turns = task_def.get("max_turns", 8)
+    initial_state = task_def.get("initial_state", {})
+    # Layer 5: agent starts at a registry tier and must discover tools.
+    # Other layers may still carry discovery_criteria (e.g. L3 pipelines
+    # verify which tools were chained) without the context injection.
+    inject_discovery = layer == 5 or "registry_tier" in initial_state
+    check_discovery = inject_discovery or "discovery_criteria" in task_def
 
     # Resolve fixture directory (relative to the tasks.json source dir)
     source_dir = task_def.get("_source_dir", "")
@@ -185,7 +197,12 @@ def run_single_task(
 
     start_time = time.time()
 
-    with EvalFixture(fixture_dir=fixture_dir, pane_app_type=tool) as ef:
+    # Discovery tasks run in a plain shell pane; "discovery" is not a driver.
+    pane_app = "shell" if check_discovery else tool
+
+    prev_progressive = os.environ.get("CLIVE_PROGRESSIVE_TOOLS")
+
+    with EvalFixture(fixture_dir=fixture_dir, pane_app_type=pane_app) as ef:
         # Optionally override driver prompt
         if driver_override:
             os.environ["CLIVE_EVAL_DRIVER_OVERRIDE"] = driver_override
@@ -199,10 +216,37 @@ def run_single_task(
         ef.send_keys("mkdir -p /tmp/clive", enter=True)
         time.sleep(0.3)
 
-        # Create subtask for the worker
+        dep_context = ""
+        if inject_discovery:
+            os.environ["CLIVE_PROGRESSIVE_TOOLS"] = "1"
+            # Make clive-tools reachable in the pane; shim away disabled
+            # tools so fallback evals behave the same on every host.
+            path_parts = []
+            shim_dir = make_disabled_tool_shims(
+                os.path.join(ef.workdir, ".disabled_shims"),
+                initial_state.get("disabled_tools", []),
+            )
+            if shim_dir:
+                path_parts.append(shim_dir)
+            path_parts.append(os.path.join(_project_root, "tools"))
+            ef.send_keys(
+                'export PATH="' + ":".join(path_parts) + ':$PATH"', enter=True
+            )
+            time.sleep(0.2)
+
+        # Create subtask for the worker. Discovery context goes into the
+        # description (the trusted GOAL slot — in an eval the harness is
+        # the planner), NOT dep_context: build_interactive_prompt wraps
+        # dep_context in UNTRUSTED/DO-NOT-FOLLOW markers (Audit H19/H20),
+        # so instructions placed there are correctly ignored by the model.
+        description = task_def["task"]
+        if inject_discovery:
+            description += "\n\n" + build_discovery_context(
+                initial_state.get("registry_tier", 0)
+            )
         subtask = Subtask(
             id=task_id,
-            description=task_def["task"],
+            description=description,
             pane="eval",
             max_turns=max_turns,
             mode=task_def.get("mode", "interactive"),
@@ -212,34 +256,70 @@ def run_single_task(
             result = run_subtask(
                 subtask=subtask,
                 pane_info=ef.pane_info,
-                dep_context="",
+                dep_context=dep_context,
                 session_dir="/tmp/clive",
             )
 
             elapsed = time.time() - start_time
             screen = ef.capture()
 
-            # Verify
+            # Verify outcome
             passed, detail = verify_task(
                 task_def,
                 workdir=ef.workdir,
                 agent_output=screen,
             )
 
-            return EvalResult(
+            common = dict(
                 task_id=task_id,
                 layer=layer,
                 tool=tool,
-                passed=passed,
                 turns_used=result.turns_used,
                 min_turns=task_def.get("min_turns", 1),
                 prompt_tokens=result.prompt_tokens,
                 completion_tokens=result.completion_tokens,
                 elapsed_seconds=elapsed,
+            )
+
+            if check_discovery:
+                # Verify process: discovery navigation + tool choice.
+                # Script mode hides the pipeline inside the generated
+                # script file, so include those as evidence.
+                import glob
+                script_text = ""
+                for path in glob.glob(f"/tmp/clive/_script_{task_id}*"):
+                    try:
+                        with open(path) as sf:
+                            script_text += sf.read() + "\n"
+                    except OSError:
+                        pass
+                scrollback = ef.capture_scrollback()
+                if os.environ.get("CLIVE_EVAL_DUMP_SCROLLBACK") == "1":
+                    with open(f"/tmp/clive_eval_scrollback_{task_id}.txt", "w") as df:
+                        df.write(scrollback)
+                disc_ok, disc_fields, disc_detail = check_discovery_criteria(
+                    task_def.get("discovery_criteria", {}),
+                    scrollback,
+                    script_text=script_text,
+                )
+                passed = passed and disc_ok
+                return ToolEvalResult(
+                    passed=passed,
+                    detail=f"{detail}; {disc_detail}",
+                    false_completion=(
+                        result.status.value == "completed" and not passed
+                    ),
+                    **common,
+                    **disc_fields,
+                )
+
+            return EvalResult(
+                passed=passed,
                 detail=detail,
                 false_completion=(
                     result.status.value == "completed" and not passed
                 ),
+                **common,
             )
         except Exception as e:
             elapsed = time.time() - start_time
@@ -258,6 +338,11 @@ def run_single_task(
         finally:
             if "CLIVE_EVAL_DRIVER_OVERRIDE" in os.environ:
                 del os.environ["CLIVE_EVAL_DRIVER_OVERRIDE"]
+            if inject_discovery:
+                if prev_progressive is None:
+                    os.environ.pop("CLIVE_PROGRESSIVE_TOOLS", None)
+                else:
+                    os.environ["CLIVE_PROGRESSIVE_TOOLS"] = prev_progressive
 
 
 def run_comparison(args, tasks):
@@ -308,8 +393,13 @@ def run_comparison(args, tasks):
 
 def main():
     parser = argparse.ArgumentParser(description="clive eval runner")
-    parser.add_argument("--layer", type=int, help="Layer to eval (2, 3, 4, 1)")
+    parser.add_argument("--layer", type=int, help="Layer to eval (2, 3, 4, 1, 5)")
     parser.add_argument("--tool", help="Specific tool (e.g., shell, lynx)")
+    parser.add_argument("--task", help="Run only the task with this id")
+    parser.add_argument(
+        "--refine", metavar="TOOL",
+        help="After the run, refine TOOL's driver from failure signals "
+             "(gh#41 Phase 3 loop; writes to drivers/.unreviewed/)")
     parser.add_argument("--all", action="store_true", help="Run all evals")
     parser.add_argument("--driver", action="append", help="Driver prompt override(s)")
     parser.add_argument("--output", help="Save JSON report to file")
@@ -324,10 +414,13 @@ def main():
 
     if args.all:
         tasks = []
-        for layer in [2, 3, 4, 1]:
+        for layer in [2, 3, 4, 1, 5]:
             tasks.extend(load_tasks(layer))
     else:
         tasks = load_tasks(args.layer, args.tool)
+
+    if args.task:
+        tasks = [t for t in tasks if t["id"] == args.task]
 
     if not tasks:
         print("No tasks found.", file=sys.stderr)
@@ -350,6 +443,17 @@ def main():
 
     report = EvalReport(results)
     report.print_summary()
+
+    if args.refine:
+        from evals.harness.refine_loop import refine_from_results
+        path = refine_from_results(args.refine, results)
+        if path:
+            print(f"Refined driver written to {path} — review and "
+                  f"`clive --promote-driver {args.refine}` to activate.",
+                  file=sys.stderr)
+        else:
+            print(f"No refinement for {args.refine} (no matching failure "
+                  f"signals or no existing driver).", file=sys.stderr)
 
     if args.output:
         with open(args.output, "w") as f:

@@ -1,0 +1,118 @@
+[
+  {
+    "id": "l5_discovery_json_filter_001",
+    "layer": 5,
+    "tool": "discovery",
+    "mode": "interactive",
+    "task": "Extract all email addresses from users.json and save them to /tmp/clive/result.txt, one per line.",
+    "initial_state": {
+      "filesystem": "fixtures/json_data",
+      "registry_tier": 0
+    },
+    "success_criteria": {
+      "type": "deterministic",
+      "check": "grep -q 'alice@example.com' /tmp/clive/result.txt && grep -q 'charlie@example.com' /tmp/clive/result.txt"
+    },
+    "discovery_criteria": {
+      "must_use_commands": [
+        "list",
+        "info"
+      ],
+      "expected_tool": "jq"
+    },
+    "min_turns": 3,
+    "max_turns": 8,
+    "timeout_seconds": 45
+  },
+  {
+    "id": "l5_discovery_json_to_csv_002",
+    "layer": 5,
+    "tool": "discovery",
+    "mode": "interactive",
+    "task": "Convert products.json to CSV with the columns name,price (no header), sorted by price descending, and save to /tmp/clive/result.csv.",
+    "initial_state": {
+      "filesystem": "fixtures/json_data",
+      "registry_tier": 0
+    },
+    "success_criteria": {
+      "type": "deterministic",
+      "check": "test $(wc -l < /tmp/clive/result.csv | tr -d ' ') -eq 3 && head -1 /tmp/clive/result.csv | grep -q '^saw'"
+    },
+    "discovery_criteria": {
+      "must_use_commands": [
+        "list",
+        "info"
+      ],
+      "expected_tool": "jq"
+    },
+    "min_turns": 3,
+    "max_turns": 8,
+    "timeout_seconds": 45
+  },
+  {
+    "id": "l5_discovery_yaml_fallback_001",
+    "layer": 5,
+    "tool": "discovery",
+    "mode": "interactive",
+    "task": "Parse config.yaml and write the value of database.port to /tmp/clive/result.txt.",
+    "initial_state": {
+      "filesystem": "fixtures/yaml_config",
+      "registry_tier": 0,
+      "disabled_tools": [
+        "yq"
+      ]
+    },
+    "success_criteria": {
+      "type": "deterministic",
+      "check": "test \"$(cat /tmp/clive/result.txt | tr -d '[:space:]')\" = \"5432\""
+    },
+    "discovery_criteria": {
+      "expected_fallback": "dasel|grep|python3|awk|sed"
+    },
+    "min_turns": 3,
+    "max_turns": 12,
+    "timeout_seconds": 60
+  },
+  {
+    "id": "l5_discovery_log_errors_001",
+    "layer": 5,
+    "tool": "discovery",
+    "mode": "interactive",
+    "task": "Count how many lines in app.log are ERROR-level and write just the number to /tmp/clive/result.txt.",
+    "initial_state": {
+      "filesystem": "fixtures/logs",
+      "registry_tier": 0
+    },
+    "success_criteria": {
+      "type": "deterministic",
+      "check": "test \"$(cat /tmp/clive/result.txt | tr -d '[:space:]')\" = \"7\""
+    },
+    "discovery_criteria": {
+      "expected_tool": "rg|grep|lnav"
+    },
+    "min_turns": 2,
+    "max_turns": 8,
+    "timeout_seconds": 45
+  },
+  {
+    "id": "l5_discovery_file_search_001",
+    "layer": 5,
+    "tool": "discovery",
+    "mode": "interactive",
+    "task": "Find all Python files under the current directory that mention 'timeout' and write their relative paths to /tmp/clive/result.txt, one per line.",
+    "initial_state": {
+      "filesystem": "fixtures/search_tree",
+      "registry_tier": 0
+    },
+    "success_criteria": {
+      "type": "deterministic",
+      "check": "grep -q 'config.py' /tmp/clive/result.txt && grep -q 'worker.py' /tmp/clive/result.txt && ! grep -q 'utils.py' /tmp/clive/result.txt && ! grep -q 'readme.md' /tmp/clive/result.txt"
+    },
+    "discovery_criteria": {
+      "expected_tool": "rg|fd"
+    },
+    "min_turns": 2,
+    "max_turns": 8,
+    "timeout_seconds": 45
+  }
+]

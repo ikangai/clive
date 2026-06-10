@@ -1,0 +1,12 @@
+app:
+  name: inventory
+  debug: false
+
+database:
+  host: db.internal
+  port: 5432
+  name: inventory_prod
+
+cache:
+  host: redis.internal
+  port: 6379

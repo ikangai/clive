@@ -1,0 +1,42 @@
+[
+  {
+    "id": "l2_rg_filetype_filter_001",
+    "layer": 2,
+    "tool": "shell",
+    "mode": "script",
+    "task": "Search the current directory for the string TODO in Python files only and write the matching file paths to /tmp/clive/result.txt, one per line.",
+    "initial_state": {
+      "filesystem": "fixtures/src_tree"
+    },
+    "success_criteria": {
+      "type": "deterministic",
+      "check": "grep -q 'a.py' /tmp/clive/result.txt && ! grep -q 'c.js' /tmp/clive/result.txt && ! grep -q 'notes.txt' /tmp/clive/result.txt"
+    },
+    "discovery_criteria": {
+      "expected_tool": "rg|grep"
+    },
+    "min_turns": 1,
+    "max_turns": 3,
+    "timeout_seconds": 30
+  },
+  {
+    "id": "l2_rg_count_matches_002",
+    "layer": 2,
+    "tool": "shell",
+    "mode": "script",
+    "task": "Count how many lines across all files in the current directory contain ERROR (case-sensitive, uppercase only) and write just the number to /tmp/clive/result.txt.",
+    "initial_state": {
+      "filesystem": "fixtures/src_tree"
+    },
+    "success_criteria": {
+      "type": "deterministic",
+      "check": "test \"$(cat /tmp/clive/result.txt | tr -d '[:space:]')\" = \"3\""
+    },
+    "discovery_criteria": {
+      "expected_tool": "rg|grep"
+    },
+    "min_turns": 1,
+    "max_turns": 3,
+    "timeout_seconds": 30
+  }
+]

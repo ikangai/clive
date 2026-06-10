@@ -1,0 +1,5 @@
+[
+  {"name": "hammer", "price": 12.5, "stock": 40},
+  {"name": "saw", "price": 19.99, "stock": 12},
+  {"name": "screwdriver", "price": 7.25, "stock": 88}
+]

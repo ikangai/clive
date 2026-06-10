@@ -1,0 +1,42 @@
+[
+  {
+    "id": "l2_jq_nested_filter_001",
+    "layer": 2,
+    "tool": "shell",
+    "mode": "script",
+    "task": "From api_response.json, extract all users where role is 'admin' and output their names, one per line, to /tmp/clive/result.txt.",
+    "initial_state": {
+      "filesystem": "fixtures/api_response"
+    },
+    "success_criteria": {
+      "type": "deterministic",
+      "check": "test $(wc -l < /tmp/clive/result.txt | tr -d ' ') -eq 2 && grep -q 'Alice' /tmp/clive/result.txt && grep -q 'Dana' /tmp/clive/result.txt"
+    },
+    "discovery_criteria": {
+      "expected_tool": "jq"
+    },
+    "min_turns": 1,
+    "max_turns": 3,
+    "timeout_seconds": 30
+  },
+  {
+    "id": "l2_jq_json_to_csv_002",
+    "layer": 2,
+    "tool": "shell",
+    "mode": "script",
+    "task": "Convert the users array in api_response.json to CSV lines name,age (no header), sorted by age ascending, and save to /tmp/clive/result.csv.",
+    "initial_state": {
+      "filesystem": "fixtures/api_response"
+    },
+    "success_criteria": {
+      "type": "deterministic",
+      "check": "test $(wc -l < /tmp/clive/result.csv | tr -d ' ') -eq 4 && head -1 /tmp/clive/result.csv | grep -q '^Bob,28'"
+    },
+    "discovery_criteria": {
+      "expected_tool": "jq"
+    },
+    "min_turns": 1,
+    "max_turns": 3,
+    "timeout_seconds": 30
+  }
+]

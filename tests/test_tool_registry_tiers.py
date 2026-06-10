@@ -12,8 +12,10 @@ def test_tier0_lists_active_categories_with_counts():
         assert cat in summary, f"missing category {cat}"
     # Counts appear (e.g. "data(4)")
     assert "(" in summary and ")" in summary
-    # Discovery hint is present
-    assert "tool_info" in summary
+    # Discovery hint must reference the command that actually exists
+    # in-pane (gh#40 live-eval finding: `tool_info` was a phantom).
+    assert "clive-tools info" in summary
+    assert "clive-tools list" in summary
 
 def test_tier0_is_compact():
     """Tier 0 stays under 200 tokens even with all categories loaded."""

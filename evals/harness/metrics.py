@@ -33,6 +33,24 @@ class EvalResult:
 
 
 @dataclass
+class ToolEvalResult(EvalResult):
+    """EvalResult extended with tool-discovery metrics (gh#40, Layer 5).
+
+    `passed` requires both the outcome check and the discovery criteria;
+    these fields record the process so reports can split "right answer"
+    from "right tool via discovery".
+    """
+    tool_used: str | None = None           # Which tool the agent actually used
+    tool_expected: str | None = None       # Which tool was expected
+    tool_correct: bool = True              # Did agent pick the right tool?
+    discovery_turns: int = 0               # clive-tools invocations observed
+    flags_correct: bool = True             # Did agent use correct flags/syntax?
+    pipeline_stages: int = 0               # Number of tools chained
+    fallback_used: bool = False            # Did agent fall back to alternative?
+    fallback_expected: bool = False        # Did the task expect a fallback?
+
+
+@dataclass
 class EvalReport:
     """Aggregated eval report."""
     results: list[EvalResult]
@@ -80,6 +98,52 @@ class EvalReport:
             return 0.0
         return sum(1 for r in completed if r.false_completion) / len(completed)
 
+    # ---- tool-discovery metrics (gh#40); defined over ToolEvalResults ----
+
+    @property
+    def tool_results(self) -> list[ToolEvalResult]:
+        return [r for r in self.results if isinstance(r, ToolEvalResult)]
+
+    @property
+    def tool_accuracy(self) -> float:
+        """% of tool evals where the agent picked the right tool."""
+        trs = self.tool_results
+        if not trs:
+            return 0.0
+        return sum(1 for r in trs if r.tool_correct) / len(trs)
+
+    @property
+    def discovery_efficiency(self) -> float:
+        """Average clive-tools turns to discover a tool (Layer 5 only).
+
+        Averages over evals that actually used discovery; tasks with
+        zero discovery turns are failures of a different kind and would
+        skew the efficiency number toward zero.
+        """
+        l5 = [
+            r for r in self.tool_results
+            if r.layer == 5 and r.discovery_turns > 0
+        ]
+        if not l5:
+            return 0.0
+        return sum(r.discovery_turns for r in l5) / len(l5)
+
+    @property
+    def pipeline_success_rate(self) -> float:
+        """% of multi-tool pipeline evals (Layer 3) that passed."""
+        pipes = [r for r in self.tool_results if r.layer == 3]
+        if not pipes:
+            return 0.0
+        return sum(1 for r in pipes if r.passed) / len(pipes)
+
+    @property
+    def fallback_success_rate(self) -> float:
+        """% of fallback-expecting evals where the agent actually fell back."""
+        expecting = [r for r in self.tool_results if r.fallback_expected]
+        if not expecting:
+            return 0.0
+        return sum(1 for r in expecting if r.fallback_used) / len(expecting)
+
     def estimated_cost(self, model: str | None = None) -> float:
         """Estimate cost using pricing.json. Returns 0.0 if pricing unavailable."""
         import json as _json
@@ -99,6 +163,17 @@ class EvalReport:
             return 0.0
 
     def to_dict(self) -> dict:
+        d = self._base_dict()
+        if self.tool_results:
+            d["tool_metrics"] = {
+                "tool_accuracy": round(self.tool_accuracy, 3),
+                "discovery_efficiency": round(self.discovery_efficiency, 3),
+                "pipeline_success_rate": round(self.pipeline_success_rate, 3),
+                "fallback_success_rate": round(self.fallback_success_rate, 3),
+            }
+        return d
+
+    def _base_dict(self) -> dict:
         return {
             "total_tasks": self.total_tasks,
             "passed": self.passed_tasks,
@@ -137,6 +212,14 @@ class EvalReport:
                 progress(f"         {r.detail}")
         progress(f"{'~' * 60}")
         progress(f"Turn efficiency: {self.avg_turn_efficiency:.0%}")
+        if self.tool_results:
+            progress(f"Tool accuracy:   {self.tool_accuracy:.0%}")
+            if any(r.layer == 5 for r in self.tool_results):
+                progress(f"Discovery turns: {self.discovery_efficiency:.1f} avg")
+            if any(r.layer == 3 for r in self.tool_results):
+                progress(f"Pipeline pass:   {self.pipeline_success_rate:.0%}")
+            if any(r.fallback_expected for r in self.tool_results):
+                progress(f"Fallback rate:   {self.fallback_success_rate:.0%}")
         progress(f"Total tokens:    {self.total_tokens:,}")
         cost = self.estimated_cost()
         if cost > 0:

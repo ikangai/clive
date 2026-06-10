@@ -1,0 +1,15 @@
+2026-06-01 09:00:01 INFO  startup complete
+2026-06-01 09:00:14 ERROR db connection refused (attempt 1)
+2026-06-01 09:00:15 WARN  retrying db connection
+2026-06-01 09:00:16 ERROR db connection refused (attempt 2)
+2026-06-01 09:01:02 INFO  db connection established
+2026-06-01 09:14:33 ERROR request /api/users timed out
+2026-06-01 09:14:34 INFO  request /api/users retried ok
+2026-06-01 10:02:11 ERROR invalid payload on /api/orders
+2026-06-01 10:02:12 DEBUG payload: {"order": null}
+2026-06-01 11:30:00 ERROR worker-3 crashed: OOM
+2026-06-01 11:30:01 WARN  worker-3 restarted
+2026-06-01 12:45:09 ERROR cache miss storm detected
+2026-06-01 13:00:00 INFO  hourly stats flushed
+2026-06-01 14:21:47 ERROR tls handshake failed with upstream
+2026-06-01 14:21:48 INFO  upstream reconnected

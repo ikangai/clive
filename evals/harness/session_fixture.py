@@ -108,6 +108,15 @@ class EvalFixture:
         lines = self.pane.cmd("capture-pane", "-p").stdout
         return "\n".join(lines) if lines else ""
 
+    def capture_scrollback(self) -> str:
+        """Capture the full pane history, not just the visible screen.
+
+        Layer 5 discovery checks parse every command the agent typed;
+        the visible screen may have scrolled past them.
+        """
+        lines = self.pane.cmd("capture-pane", "-p", "-S", "-").stdout
+        return "\n".join(lines) if lines else ""
+
     def wait_for_prompt(self, timeout: float = 5.0) -> str:
         """Wait for [AGENT_READY] prompt to appear, return screen."""
         start = time.time()

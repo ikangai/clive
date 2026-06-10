@@ -263,10 +263,17 @@ def wrap_command(
     """
     nonce = uuid.uuid4().hex[:4]
     marker = f"___DONE_{subtask_id}_{nonce}___"
+    # Heredoc commands need the marker on its own line: appending
+    # `; echo ...` to the terminator line turns `EOF` into `EOF; echo ...`,
+    # which is not a bare delimiter — the shell stays in heredoc>
+    # continuation mode and swallows every subsequent command (pane
+    # wedge, found by the gh#40 Layer 5 live evals). A newline join has
+    # identical sequencing and $? semantics.
+    join = "\n" if "<<" in command else "; "
     if done_file:
         # Side-channel: write exit code to file AND echo marker to screen
-        wrapped = f'{command}; _ec=$?; echo "$_ec" > {done_file}; echo "EXIT:$_ec {marker}"; (exit $_ec)'
+        wrapped = f'{command}{join}_ec=$?; echo "$_ec" > {done_file}; echo "EXIT:$_ec {marker}"; (exit $_ec)'
     else:
         # Always capture exit code alongside marker
-        wrapped = f'{command}; echo "EXIT:$? {marker}"'
+        wrapped = f'{command}{join}echo "EXIT:$? {marker}"'
     return wrapped, marker
