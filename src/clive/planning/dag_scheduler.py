@@ -14,6 +14,7 @@ swap, leaving `executor.run_subtask` unresolvable at call time.
 """
 
 import logging
+import os
 import threading
 import time
 from concurrent.futures import ThreadPoolExecutor, Future
@@ -247,6 +248,40 @@ def execute_plan(
     max_workers = max(len(panes_used), 1)
     wake_event = threading.Event()
 
+    # Control-mode sidecar (gh#12, opt-in): one `tmux -C` attach turns
+    # pane output into instant wake_event sets, so the scheduler loop's
+    # 0.5s fallback poll only covers the no-events case. Best-effort —
+    # any failure falls back to polling.
+    sidecar = _maybe_start_sidecar(panes, wake_event)
+
+    try:
+        return _run_plan_loop(plan, panes, on_event, session_dir,
+                              max_tokens, max_workers, wake_event)
+    finally:
+        if sidecar is not None:
+            sidecar.stop()
+
+
+def _maybe_start_sidecar(panes: dict[str, PaneInfo], wake_event):
+    if os.environ.get("CLIVE_CONTROL_SIDECAR") != "1" or not panes:
+        return None
+    try:
+        from observation.control_sidecar import ControlSidecar
+        from session import SOCKET_NAME
+        any_pane = next(iter(panes.values()))
+        session_name = any_pane.pane.session.name
+        sidecar = ControlSidecar(session_name=session_name,
+                                 socket_name=SOCKET_NAME)
+        sidecar.wake_on_output(wake_event)
+        sidecar.start()
+        return sidecar
+    except Exception as e:
+        log.debug("control sidecar unavailable, falling back to poll: %s", e)
+        return None
+
+
+def _run_plan_loop(plan, panes, on_event, session_dir, max_tokens,
+                   max_workers, wake_event) -> list[SubtaskResult]:
     with ThreadPoolExecutor(max_workers=max_workers) as pool:
         state = _ExecState(plan, panes, on_event, session_dir, max_tokens, pool, wake_event)
         while True:
