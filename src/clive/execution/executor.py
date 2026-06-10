@@ -199,6 +199,7 @@ def run_subtask(
     dep_context: str,
     on_event=None,
     session_dir: str = "/tmp/clive",
+    token_budget: int = 50000,
 ) -> SubtaskResult:
     """Execute a single subtask. Dispatches based on observation level (mode)."""
     # Check for executable skill: if description contains [skill:name] and the skill
@@ -285,6 +286,7 @@ def run_subtask(
         dep_context=dep_context,
         on_event=on_event,
         session_dir=session_dir,
+        token_budget=token_budget,
     )
 
 

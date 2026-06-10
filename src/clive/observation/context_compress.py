@@ -89,6 +89,61 @@ def compress_context(
     return system + [summary_msg] + recent_turns
 
 
+def maybe_squash(
+    messages: list[dict],
+    *,
+    tokens_used: int,
+    token_budget: int,
+    turn: int,
+    squash_count: int,
+    compress_fn,
+    keep_recent: int = 2,
+    threshold: float = 0.7,
+    min_turns: int = 5,
+    max_squashes: int = 2,
+) -> tuple[list[dict], bool]:
+    """Token-budget-triggered context squash for long-running subtasks (gh#6).
+
+    When a subtask's cumulative token spend crosses ``threshold`` of its
+    budget, compress everything except the last ``keep_recent`` turns into
+    a single summary message, extending the subtask's useful lifetime
+    instead of letting it die at the budget wall.
+
+    Guards (in order): a real budget and summarizer must exist, the squash
+    cap (``max_squashes``) must not be reached, and at least ``min_turns``
+    turns must have run — below that there is not enough history for the
+    summary to beat the verbatim turns.
+
+    Returns:
+        (messages, squashed) — ``messages`` is the original list when no
+        squash happened (identity-comparable), so callers can apply their
+        normal per-turn compression instead.
+    """
+    if compress_fn is None or token_budget <= 0:
+        return messages, False
+    if squash_count >= max_squashes:
+        return messages, False
+    if turn < min_turns:
+        return messages, False
+    if tokens_used < threshold * token_budget:
+        return messages, False
+
+    # compress_context keeps (max_user_turns - 1) recent user turns
+    # verbatim and no-ops on shorter histories — exactly the squash
+    # semantics with max_user_turns = keep_recent + 1.
+    squashed = compress_context(
+        messages, max_user_turns=keep_recent + 1, compress_fn=compress_fn
+    )
+    did_squash = squashed is not messages
+    if did_squash:
+        log.info(
+            "context squash #%d at turn %d: %d msgs -> %d (%d/%d tokens spent)",
+            squash_count + 1, turn, len(messages), len(squashed),
+            tokens_used, token_budget,
+        )
+    return squashed, did_squash
+
+
 def make_llm_compressor(client, model: str | None = None):
     """Create a compress_fn that uses a cheap LLM to summarize old turns.
 

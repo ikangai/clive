@@ -57,11 +57,15 @@ Subtasks carry a `mode` field. Pick the cheapest mode that works — the planner
 
 ### Observation loop (interactive modes)
 
-Three phases by cost — WAIT (free: markers, polling, exit codes) → OBSERVE (cheap: `observation/observation.py` regex `ScreenClassifier` → compact events like `[OK exit:0] ...`) → DECIDE (expensive: main model, only when classifier escalates). This cuts tokens 60-80%. `observation/context_compress.py` runs a cheap model to progressively compress old turns rather than dropping them.
+Three phases by cost — WAIT (free: markers, polling, exit codes) → OBSERVE (cheap: `observation/observation.py` regex `ScreenClassifier` → compact events like `[OK exit:0] ...`) → DECIDE (expensive: main model, only when classifier escalates). This cuts tokens 60-80%. `observation/context_compress.py` runs a cheap model to progressively compress old turns rather than dropping them. Under token pressure (≥70% of the subtask `token_budget`, threaded from the plan-level `max_tokens`), `maybe_squash` compresses everything but the last 2 turns into one summary — max 2 squashes per subtask, never before turn 5, emits a `squash` event (gh#6).
 
 ### Per-pane models
 
 Each pane declares a model tier (`fast`/`default`) via its driver frontmatter. Shell/data use Haiku/Flash; browser/email use the default. The tier label resolves to a concrete model via the active provider (`session/session.py`, `llm/llm.py`).
+
+### Pane border state colors (gh#4)
+
+`session/pane_state.py` — when attached to the tmux session, each pane's border color signals agent state: working=yellow, done=green, failed=red, idle/skipped=grey. `PaneBorderColorizer(panes)` adapts the execution `on_event` protocol (seeding a subtask-id → pane map from `subtask_start`, recoloring via `select-pane -P`); `clive_core.py` composes it with the progress printer through `chain_on_event`. Best-effort — every tmux call is swallowed so it never disrupts a run. Opt out with `CLIVE_PANE_COLORS=0`.
 
 ### Command protocol (non-tool-calling path)
 

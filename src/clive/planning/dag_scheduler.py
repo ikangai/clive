@@ -112,6 +112,7 @@ def _submit_ready_subtasks(state: "_ExecState") -> None:
             dep_context=dep_context,
             on_event=state.on_event,
             session_dir=state.session_dir,
+            token_budget=state.max_tokens,
         )
         future.add_done_callback(lambda _f, ev=state.wake_event: ev.set())
         state.futures[subtask.id] = future

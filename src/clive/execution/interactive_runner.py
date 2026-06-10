@@ -13,7 +13,7 @@ import time
 
 from command_extract import extract_command, extract_done
 from completion import wait_for_ready, wrap_command, await_ready_events, MAX_WAIT
-from context_compress import compress_context, make_llm_compressor
+from context_compress import compress_context, make_llm_compressor, maybe_squash
 from llm import get_client, chat, chat_stream
 from observation import ScreenClassifier, format_event_for_llm
 from streaming_extract import EarlyDoneDetector
@@ -125,6 +125,7 @@ def run_subtask_interactive(
     dep_context: str,
     on_event=None,
     session_dir: str = "/tmp/clive",
+    token_budget: int = 50000,
 ) -> SubtaskResult:
     """Execute a subtask via the read-think-type loop.
 
@@ -135,6 +136,8 @@ def run_subtask_interactive(
     client = get_client()
     total_pt = total_ct = 0
     empty_reply_count = 0
+    squash_count = 0
+    squash_turns: list[int] = []
 
     from llm import MODEL
     from runtime import context_budget
@@ -241,7 +244,25 @@ def run_subtask_interactive(
                 prev_screen = screen
 
                 messages.append({"role": "user", "content": diff})
-                messages = compress_context(messages, max_user_turns=budget["max_user_turns"], compress_fn=_compressor)
+                # Token-pressure squash (gh#6): when cumulative spend nears
+                # the budget, compress everything but the last 2 turns so the
+                # subtask survives instead of dying at the budget wall. Falls
+                # through to the normal per-turn compression when it doesn't
+                # trigger.
+                messages, did_squash = maybe_squash(
+                    messages,
+                    tokens_used=total_pt + total_ct,
+                    token_budget=token_budget,
+                    turn=turn,
+                    squash_count=squash_count,
+                    compress_fn=_compressor,
+                )
+                if did_squash:
+                    squash_count += 1
+                    squash_turns.append(turn)
+                    _emit(on_event, "squash", subtask.id, turn, squash_count)
+                else:
+                    messages = compress_context(messages, max_user_turns=budget["max_user_turns"], compress_fn=_compressor)
 
                 # Speculation first: if a completed speculative call is
                 # ready AND its snapshot is still a prefix of the current
@@ -364,9 +385,13 @@ def run_subtask_interactive(
 
         # Exhausted turns
         final_screen = capture_pane(pane_info)
+        _squash_note = (
+            f" (squashed at turn {', '.join(map(str, squash_turns))})"
+            if squash_turns else ""
+        )
         return SubtaskResult(
             subtask_id=subtask.id, status=SubtaskStatus.FAILED,
-            summary=f"Exhausted {subtask.max_turns} turns without completing",
+            summary=f"Exhausted {subtask.max_turns} turns without completing{_squash_note}",
             output_snippet=final_screen[-500:],
             turns_used=subtask.max_turns, prompt_tokens=total_pt, completion_tokens=total_ct,
         )
