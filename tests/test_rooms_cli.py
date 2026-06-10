@@ -45,13 +45,80 @@ def tmp_env(tmp_path, monkeypatch):
     }
 
 
-def _wait_for(predicate, *, timeout=3.0, interval=0.05):
+# Cold `clive` subprocesses (full interpreter + app import) plus broker
+# event-loop startup can take several seconds when the whole test suite is
+# running in parallel. The old fixed 3s waits + a single 0.5s member-bootstrap
+# sleep raced under that load — whichever socket test got starved failed.
+# Make the waits generous and env-tunable, and poll for room membership
+# instead of assuming it after a fixed sleep.
+_ROOMS_TIMEOUT = float(os.environ.get("CLIVE_TEST_ROOMS_TIMEOUT", "15"))
+
+
+def _wait_for(predicate, *, timeout=_ROOMS_TIMEOUT, interval=0.05):
     deadline = time.time() + timeout
     while time.time() < deadline:
         if predicate():
             return True
         time.sleep(interval)
     return False
+
+
+def _observer_confirms_member_in_room(sock_path, room, members, *,
+                                      timeout=_ROOMS_TIMEOUT):
+    """Open an observer socket, join `room`, and open a thread including
+    `members`; the broker returns `thread_opened` iff every member is
+    currently in-room, else `nack:members_not_in_room`.
+
+    A member's join can lag behind its process start under load, so this
+    polls — reconnecting and retrying open_thread until `thread_opened` or
+    the overall timeout — rather than assuming membership after a fixed
+    sleep. Returns the frame kinds seen on the final attempt.
+    """
+    deadline = time.time() + timeout
+    last_kinds: set = set()
+    while time.time() < deadline:
+        obs = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+        try:
+            obs.connect(sock_path)
+            obs.sendall(b"NONCE nO\n")
+            obs.sendall((encode("session_hello",
+                                {"client_kind": "clive", "name": "observer"},
+                                nonce="nO") + "\n").encode())
+            obs.settimeout(2.0)
+            obs.recv(4096)   # session_ack
+            obs.sendall((encode("join_room", {"room": room},
+                                nonce="nO") + "\n").encode())
+            time.sleep(0.1)
+            obs.sendall((encode("open_thread", {
+                "room": room,
+                "members": list(members),
+                "private": False,
+                "prompt": "ping",
+            }, nonce="nO") + "\n").encode())
+
+            kinds: set = set()
+            inner = time.time() + 2.0
+            data = b""
+            while (time.time() < inner and "thread_opened" not in kinds
+                   and "nack" not in kinds):
+                try:
+                    chunk = obs.recv(4096)
+                except socket.timeout:
+                    break
+                if not chunk:
+                    break
+                data += chunk
+                for f in decode_all(data.decode("utf-8", errors="replace"),
+                                    nonce="nO"):
+                    kinds.add(f.kind)
+            last_kinds = kinds
+            if "thread_opened" in kinds:
+                return kinds
+        finally:
+            obs.close()
+        # Member join may still be in flight (nack) — back off and retry.
+        time.sleep(0.2)
+    return last_kinds
 
 
 def test_join_without_name_is_rejected(tmp_env):
@@ -109,41 +176,10 @@ def test_join_auto_enables_conversational(tmp_env):
             stdout=subprocess.PIPE, stderr=subprocess.PIPE,
         )
         try:
-            time.sleep(0.5)
-            obs = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
-            obs.connect(sock_path)
-            obs.sendall(b"NONCE nO\n")
-            obs.sendall((encode("session_hello",
-                                {"client_kind": "clive", "name": "observer"},
-                                nonce="nO") + "\n").encode())
-            obs.settimeout(1.0)
-            obs.recv(4096)
-            obs.sendall((encode("join_room", {"room": "general"},
-                                nonce="nO") + "\n").encode())
-            time.sleep(0.1)
-            obs.sendall((encode("open_thread", {
-                "room": "general",
-                "members": ["observer", "alice"],
-                "private": False,
-                "prompt": "ping",
-            }, nonce="nO") + "\n").encode())
-
-            obs.settimeout(2.0)
-            data = b""
-            kinds = set()
-            deadline = time.time() + 3.0
-            while time.time() < deadline and "thread_opened" not in kinds:
-                try:
-                    chunk = obs.recv(4096)
-                except socket.timeout:
-                    break
-                if not chunk:
-                    break
-                data += chunk
-                for f in decode_all(data.decode("utf-8", errors="replace"),
-                                    nonce="nO"):
-                    kinds.add(f.kind)
-            obs.close()
+            # Poll for alice in-room rather than assuming a fixed sleep is
+            # enough — her join can lag her process start under load.
+            kinds = _observer_confirms_member_in_room(
+                sock_path, "general", ["observer", "alice"])
             assert "thread_opened" in kinds, (
                 f"alice's --join did not take effect without explicit "
                 f"--conversational; observer saw: {sorted(kinds)}"
@@ -213,52 +249,12 @@ def test_cli_join_flag_bootstraps_against_running_lobby(tmp_env):
             stdout=subprocess.PIPE, stderr=subprocess.PIPE,
         )
         try:
-            # Give the member time to connect + bootstrap. We
-            # detect completion by polling the lobby as an observer
-            # and verifying alice is in-room.
-            time.sleep(0.5)   # cooperative: member connects, sends hello+join
-
-            # Observer: connect raw, send hello + join_room(general),
-            # then open_thread with alice — only succeeds if alice is
-            # a current room member.
-            obs = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
-            obs.connect(sock_path)
-            obs.sendall(b"NONCE nO\n")
-            obs.sendall((encode("session_hello",
-                                {"client_kind": "clive", "name": "observer"},
-                                nonce="nO") + "\n").encode())
-            obs.settimeout(1.0)
-            obs.recv(4096)   # session_ack
-            obs.sendall((encode("join_room", {"room": "general"},
-                                nonce="nO") + "\n").encode())
-            time.sleep(0.1)
-            obs.sendall((encode("open_thread", {
-                "room": "general",
-                "members": ["observer", "alice"],
-                "private": False,
-                "prompt": "ping",
-            }, nonce="nO") + "\n").encode())
-
-            # Read until we either see `thread_opened` (alice IS
-            # in-room) or `nack:members_not_in_room` (she isn't).
-            obs.settimeout(2.0)
-            data = b""
-            kinds = set()
-            deadline = time.time() + 3.0
-            while time.time() < deadline and "thread_opened" not in kinds \
-                    and "nack" not in kinds:
-                try:
-                    chunk = obs.recv(4096)
-                except socket.timeout:
-                    break
-                if not chunk:
-                    break
-                data += chunk
-                for f in decode_all(data.decode("utf-8", errors="replace"),
-                                    nonce="nO"):
-                    kinds.add(f.kind)
-
-            obs.close()
+            # Detect completion by polling the lobby as an observer and
+            # verifying alice is in-room — reconnect+retry until she has
+            # joined (open_thread nacks members_not_in_room until then),
+            # which is robust to her join lagging under load.
+            kinds = _observer_confirms_member_in_room(
+                sock_path, "general", ["observer", "alice"])
             assert "thread_opened" in kinds, (
                 f"alice's --join did not place her in room `general`; "
                 f"observer's open_thread saw kinds: {sorted(kinds)}"
