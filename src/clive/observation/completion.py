@@ -23,6 +23,9 @@ import uuid
 from typing import Optional
 
 from models import PaneInfo
+from .ps1_exit import PS1_EXIT_RE  # gh#8: recognize exit-bearing prompt form
+                                   # (relative import: avoids the flat-shim
+                                   # circular import during observation init)
 
 DEFAULT_IDLE_TIMEOUT = 2.0
 MAX_WAIT = 30.0
@@ -148,8 +151,12 @@ def _wait_polling(
                 if marker in _line and "EXIT:$" not in _line:
                     return screen, "marker"
 
-        # Strategy 2: prompt sentinel on last line
-        if lines and "[AGENT_READY] $" in lines[-1]:
+        # Strategy 2: prompt sentinel on last line. Recognize both the plain
+        # prompt and the gh#8 exit-bearing form ("[AGENT_READY] ec=<n> $",
+        # under CLIVE_PS1_EXITCODE=1) — additive, so default behavior is
+        # unchanged. parse_ps1_exit() recovers the code from the same line.
+        if lines and ("[AGENT_READY] $" in lines[-1]
+                      or PS1_EXIT_RE.search(lines[-1])):
             return screen, "prompt"
 
         # Strategy 2.5: intervention detection (streaming observation)
