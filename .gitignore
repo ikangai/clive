@@ -18,3 +18,6 @@ security-audit-results.tsv
 # Local project kanban (kanban skill)
 .kanban/
 .dev-diary/
+
+# Machine-local Claude Code settings (permissions allowlist)
+.claude/settings.local.json
