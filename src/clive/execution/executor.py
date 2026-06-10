@@ -36,8 +36,9 @@ from runtime import (  # noqa: E402
 # here so `executor.run_subtask_script` / `run_subtask_interactive` still
 # resolve (tests patch them at these names).
 from script_runner import run_subtask_script  # noqa: E402
-from interactive_runner import run_subtask_interactive, _trim_messages  # noqa: E402
+from interactive_runner import run_subtask_interactive, _trim_messages, _SHELL_LIKE_APP_TYPES  # noqa: E402
 from planned_runner import run_subtask_planned  # noqa: E402
+from pane_isolation import isolation_enabled  # noqa: E402
 from llm_runner import run_subtask_llm  # noqa: E402
 # DAG scheduler lives in dag_scheduler.py. Re-export the symbols that other
 # modules / tests import from executor (execute_plan, _try_collapse_plan,
@@ -115,6 +116,25 @@ def handle_agent_pane_frame(pane, screen_blob: str, nonce: str) -> bool:
 
 # ─── Direct Mode Worker ──────────────────────────────────────────────────────
 
+def _wait_for_ec_file(ec_file: str, max_wait: float = 30.0, poll: float = 0.1) -> bool:
+    """Wait until the exit-code file exists and is non-empty.
+
+    The shell writes ``echo $? > ec_file`` after the command completes,
+    so a non-empty file means the command (and its redirect) finished.
+    Lock-free — concurrent direct subtasks on the same pane each poll
+    their own file (gh#14).
+    """
+    deadline = time.time() + max_wait
+    while time.time() < deadline:
+        try:
+            if os.path.getsize(ec_file) > 0:
+                return True
+        except OSError:
+            pass
+        time.sleep(poll)
+    return False
+
+
 def run_subtask_direct(
     subtask: Subtask,
     pane_info: PaneInfo,
@@ -152,14 +172,25 @@ def run_subtask_direct(
     out_file = os.path.join(session_dir, f"_direct_{subtask.id}.out")
     ec_file = os.path.join(session_dir, f"_direct_{subtask.id}.ec")
 
-    # Redirect output to file, write exit code to file, then echo marker
-    combined = f'{cmd} > {out_file} 2>&1; echo $? > {ec_file}; echo "{marker}"'
-
     lock = _pane_locks.setdefault(subtask.pane, threading.Lock())
-    with lock:
-        pane_info.pane.send_keys(combined, enter=True)
-        time.sleep(0.15)  # Let shell start processing before polling
-        wait_for_ready(pane_info, marker=marker, max_wait=30.0)
+
+    if isolation_enabled() and pane_info.app_type in _SHELL_LIKE_APP_TYPES:
+        # gh#14 response isolation: output already goes to per-subtask
+        # files, so the lock only needs to cover keystroke delivery. The
+        # subshell stops env/cwd leakage between subtasks sharing the
+        # pane; waiting on our own ec_file is concurrent — queued
+        # commands type-ahead in the tty and run sequentially.
+        combined = f'( {cmd} ) > {out_file} 2>&1; echo $? > {ec_file}; echo "{marker}"'
+        with lock:
+            pane_info.pane.send_keys(combined, enter=True)
+        _wait_for_ec_file(ec_file, max_wait=30.0)
+    else:
+        # Redirect output to file, write exit code to file, then echo marker
+        combined = f'{cmd} > {out_file} 2>&1; echo $? > {ec_file}; echo "{marker}"'
+        with lock:
+            pane_info.pane.send_keys(combined, enter=True)
+            time.sleep(0.15)  # Let shell start processing before polling
+            wait_for_ready(pane_info, marker=marker, max_wait=30.0)
 
     # Read exit code from file
     exit_code = 0

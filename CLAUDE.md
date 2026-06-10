@@ -87,6 +87,14 @@ Plain text. LLM emits ```bash fenced blocks; `observation/command_extract.py` pa
 
 Under the flag, `build_tools_summary` emits Tier 0 + Tier 1 instead of the legacy flat dump (~86% token reduction on `full`). Planner emits `subtask.tools=[...]`; interactive/toolcall runners inject matching Tier-2 cards via `build_worker_tool_context`. In-pane discovery: `tools/clive-tools list|info`. Auto-categorization helper: `classify_tool_to_category(name, description)` (used by gh#41 auto-explore to drop newly-explored tools into an existing category). The flag is default-off until validated by gh#40 evals; legacy path is untouched.
 
+### Response isolation (gh#14, opt-in via `CLIVE_PANE_ISOLATION=1`)
+
+`execution/pane_isolation.py` — per-pane locks normally serialize whole subtasks (send+execute+wait). Under the flag, shell-like panes isolate each request's *output* instead: `wrap_isolated` bookends commands with unique tags inside a subshell `( ... )` (no env/cwd leakage between subtasks), and `PaneIsolation.submit()/feed()` demuxes a pane's line stream to per-request Futures — the lock covers only `send_keys`. `run_subtask_direct` uses it today (waits on its own exit-code file, lock shrinks to send-only); the `PaneIsolation` demux class is the building block for gh#12's control-mode sidecar. Caveats: type-ahead assumes commands don't read stdin; TUI panes keep whole-pane locking.
+
+### Exit-code in PS1 (gh#8, opt-in via `CLIVE_PS1_EXITCODE=1`)
+
+`observation/ps1_exit.py` — alternative to the `EXIT:`/`___DONE___` command wrapper (`observation/completion.py:wrap_command`, the default, left unchanged). Under the flag, `agent_ready_prompt_setup()` installs a `PROMPT_COMMAND` that captures `$?` and a PS1 that renders `[AGENT_READY] ec=<n> $`, so the prompt line itself carries the last exit code — completion detection no longer depends on wrapping the command (tradeoff: couples to shell prompt config). The literal `[AGENT_READY]` substring is preserved so `session.check_health` and plain-prompt detection still match; `completion.py` Strategy 2 additively recognizes the `ec=` form and `parse_ps1_exit()` recovers the code. Ships the *mechanism* only — re-wiring runners to drop `wrap_command` is a deferred follow-up. `session/session.py` routes all four prompt-setup sites through the helper (byte-identical when the flag is off).
+
 ### Router (3-tier intent classification)
 
 `src/clive/router.py` routes user input through: (1) direct match → (2) cheap classifier → (3) full planner. Most tasks resolve at tier 1 or 2.
