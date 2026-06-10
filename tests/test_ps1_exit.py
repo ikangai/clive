@@ -20,9 +20,46 @@ def test_plain_setup_is_unchanged_ps1():
 def test_exit_setup_captures_exit_via_prompt_command():
     from ps1_exit import agent_ready_prompt_setup
     setup = agent_ready_prompt_setup(with_exit=True)
-    # Must capture $? before the prompt renders, and embed it in PS1.
+    # bash branch: capture $? before the prompt renders, embed it in PS1.
     assert "PROMPT_COMMAND='__clive_ec=$?'" in setup
     assert "${__clive_ec}" in setup
+
+
+def test_exit_setup_has_zsh_branch():
+    """zsh ignores PROMPT_COMMAND and needs PROMPT_SUBST + precmd() for
+    ${var} expansion in the prompt (gh#8 follow-up). The setup must branch
+    on $ZSH_VERSION so the same line works in either shell."""
+    from ps1_exit import agent_ready_prompt_setup
+    setup = agent_ready_prompt_setup(with_exit=True)
+    assert "ZSH_VERSION" in setup
+    assert "setopt PROMPT_SUBST" in setup
+    assert "precmd()" in setup
+    assert "PROMPT=" in setup   # zsh prompt var (distinct from bash PS1=)
+
+
+def test_exit_setup_has_both_shell_branches():
+    from ps1_exit import agent_ready_prompt_setup
+    setup = agent_ready_prompt_setup(with_exit=True)
+    # bash branch
+    assert "export PS1=" in setup
+    assert "PROMPT_COMMAND" in setup
+    # zsh branch
+    assert "PROMPT=" in setup
+    assert "precmd" in setup
+    # single if/else line
+    assert setup.startswith("if ") and setup.rstrip().endswith("fi")
+
+
+def test_exit_setup_same_rendered_prompt_both_shells():
+    """Both branches must render the identical sentinel so PS1_EXIT_RE and
+    completion detection are shell-agnostic."""
+    from ps1_exit import agent_ready_prompt_setup, PS1_EXIT_RE
+    setup = agent_ready_prompt_setup(with_exit=True)
+    # The literal ${__clive_ec} sentinel appears once per branch, both with
+    # the [AGENT_READY] ec=... $ shape.
+    assert setup.count("[AGENT_READY] ec=${__clive_ec} $") == 2
+    # And the rendered form (digit substituted) is what the detector matches.
+    assert PS1_EXIT_RE.search("[AGENT_READY] ec=0 $") is not None
 
 
 def test_exit_ps1_preserves_agent_ready_substring():

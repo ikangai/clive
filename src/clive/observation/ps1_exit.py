@@ -39,17 +39,29 @@ def ps1_exit_enabled() -> bool:
 def agent_ready_prompt_setup(with_exit: bool | None = None) -> str:
     """Return the shell command(s) to install the agent-ready prompt.
 
-    ``with_exit=None`` consults :func:`ps1_exit_enabled`. With the exit form,
-    ``PROMPT_COMMAND`` captures ``$?`` before each prompt render and PS1
-    expands ``${__clive_ec}`` at render time (bash ``promptvars`` is on by
-    default), yielding ``[AGENT_READY] ec=<n> $``.
+    ``with_exit=None`` consults :func:`ps1_exit_enabled`. The exit form
+    branches on ``$ZSH_VERSION`` so the *same* line works in either shell:
+
+    - bash: ``PROMPT_COMMAND`` captures ``$?`` before each render and PS1
+      expands ``${__clive_ec}`` (bash ``promptvars`` is on by default).
+    - zsh: ``PROMPT_COMMAND`` is ignored and ``${var}`` is not expanded in
+      the prompt unless ``PROMPT_SUBST`` is set — so use ``setopt
+      PROMPT_SUBST`` + a ``precmd()`` hook + ``PROMPT`` (gh#8 follow-up;
+      without this, a zsh pane on macOS rendered the literal
+      ``${__clive_ec}`` and broke prompt detection).
+
+    Both branches render the identical ``[AGENT_READY] ec=<n> $`` sentinel,
+    so :data:`PS1_EXIT_RE` and completion detection stay shell-agnostic.
+    Each branch parses in both shells; only the matching one runs.
     """
     if with_exit is None:
         with_exit = ps1_exit_enabled()
-    if with_exit:
-        return ("export PROMPT_COMMAND='__clive_ec=$?'; "
-                "export PS1='[AGENT_READY] ec=${__clive_ec} $ '")
-    return f'export PS1="{PLAIN_PS1}"'
+    if not with_exit:
+        return f'export PS1="{PLAIN_PS1}"'
+    prompt = "[AGENT_READY] ec=${__clive_ec} $ "
+    zsh = "setopt PROMPT_SUBST; precmd() { __clive_ec=$?; }; PROMPT='" + prompt + "'"
+    bash = "export PROMPT_COMMAND='__clive_ec=$?'; export PS1='" + prompt + "'"
+    return 'if [ -n "$ZSH_VERSION" ]; then ' + zsh + '; else ' + bash + '; fi'
 
 
 def parse_ps1_exit(line: str | None) -> int | None:
