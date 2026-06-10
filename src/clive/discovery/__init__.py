@@ -8,4 +8,5 @@ Submodules:
     prompts -- exploration goal builder, generation prompt builder, safety lists
     explorer -- explore_tool() adapter over run_subtask_interactive
     generator -- generate_driver() LLM synthesis + write_generated_driver()
+    refiner  -- refine_driver() eval-failure-driven re-synthesis (Phase 3)
 """
