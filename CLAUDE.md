@@ -135,6 +135,8 @@ SSH is the inter-habitat protocol. `clive@host` addressing (`networking/agents.p
 
 Named instances (`--name foo`) are long-running, addressable processes; registry at `~/.clive/instances/`. Local-first resolution — `clive@foo` checks the local registry before SSH.
 
+**Session persistence (gh#13):** the live registry liveness-prunes a dead instance's entry, so on its own a crash/reboot loses all state. `networking/persistence.py` keeps a *restorable snapshot* (toolset, pane layout, session dir, tmux session/socket) at `~/.clive/persist/<name>.json` that survives process death — written best-effort alongside every `register` in `clive.py`, never liveness-pruned. `restorable_instances()` cross-references `registry.get_instance` to list snapshots whose instance is no longer live (i.e. relaunchable from the saved toolset spec via `setup_session` — no external tmux-resurrect/TPM needed). Snapshot writes are atomic (tmp + replace); instance names are charset-validated (`^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$`) since the name is a filename.
+
 ## Self-modification (experimental, off by default)
 
 `selfmod/` implements Proposer → Reviewer → Auditor → deterministic Gate. Gate is regex-only (cannot be talked past). File tiers (IMMUTABLE / GOVERNANCE / CORE / STANDARD / OPEN) determine how many approvals a change needs. Enable via `CLIVE_EXPERIMENTAL_SELFMOD=1`. `gate.py` and `.clive/constitution.md` are IMMUTABLE.

@@ -192,7 +192,28 @@ if __name__ == "__main__":
     # Named instance: register, check collision, set up deregister on exit
     _instance_name = getattr(args, 'name', None)
     if _instance_name:
-        from registry import is_name_available, register as _register, deregister as _deregister, get_instance as _get_inst_reg
+        from registry import is_name_available, register as _register_raw, deregister as _deregister, get_instance as _get_inst_reg
+
+        def _register(name, **kw):
+            # Register in the live registry, then write a restorable
+            # snapshot that survives process death (gh#13). The snapshot is
+            # best-effort: persistence must never block registration.
+            path = _register_raw(name, **kw)
+            try:
+                from persistence import save_snapshot
+                save_snapshot(
+                    name,
+                    toolset=kw.get("toolset", ""),
+                    session_dir=kw.get("session_dir", ""),
+                    tmux_session=kw.get("tmux_session", ""),
+                    tmux_socket=kw.get("tmux_socket", ""),
+                    task=kw.get("task", ""),
+                    conversational=kw.get("conversational", True),
+                )
+            except Exception:
+                pass
+            return path
+
         if not is_name_available(_instance_name):
             existing = _get_inst_reg(_instance_name)
             pid = existing["pid"] if existing else "?"
