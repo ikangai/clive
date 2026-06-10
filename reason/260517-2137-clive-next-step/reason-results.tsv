@@ -1,0 +1,4 @@
+round	winner	votes_A	votes_B	votes_AB	consecutive_wins	A_words	B_words	AB_words	fatal_crit	major_crit	minor_crit
+1	AB	0	0	5	1	616	686	720	2	4	2
+2	AB	0	1	4	2	654	682	693	0	5	2
+3	A	3	0	2	1	635	716	744	1	4	2

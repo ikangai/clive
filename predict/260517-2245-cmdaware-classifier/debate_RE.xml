@@ -1,0 +1,115 @@
+<reliability_engineer_debate round="1">
+
+<!-- ================================================================== -->
+<!-- CHALLENGES TO PEER FINDINGS                                        -->
+<!-- ================================================================== -->
+
+<challenge target="AR-5" stance="DISAGREE_PARTIAL" confidence="HIGH">
+<summary>AR-5 prescribes an env-var kill-switch (CLIVE_CMDAWARE_CLASSIFIER) for parity with CLIVE_STREAMING_OBS. From a reliability standpoint, an env-var alone is the wrong affordance: the failure mode the kill-switch must address is "a specific (command, exit_code) pair was silenced when it should have escalated", and an env var only lets you turn the whole rule off. That converts a 1-of-N bug into an all-or-nothing toggle and discards the reliability win on every OTHER allowlist entry while the offending entry is investigated.</summary>
+<evidence>
+- candidate_A.md:18 — "No environment variable" is stated as a feature; AR-5 wants to invert.
+- CLIVE_STREAMING_OBS / CLIVE_SPECULATE precedent (CLAUDE.md) — both gate orthogonal subsystems, not per-rule policy.
+- RE-4 (my own prior finding) — the granular failure is per-(command, exit-code) pair, not whole-classifier.
+</evidence>
+<counter_proposal>Ship BOTH: (a) a coarse env-var kill-switch as AR-5 proposes (cheap, parity with codebase pattern, fine), AND (b) a per-entry allowlist data structure that can be edited without code change — e.g. a `~/.clive/config/informational_exits.toml` keyed by (command, exit_code), so a regression is a 1-line config edit, not a code revert. AR-5 is half-right; the env var is necessary but not sufficient.</counter_proposal>
+</challenge>
+
+<challenge target="SA-4" stance="DISAGREE_PARTIAL" confidence="MEDIUM">
+<summary>SA-4 argues `test` and `[` allowlist entries enable silent filesystem reconnaissance. The threat model is plausible but the proposed mitigation ("restrict silencing to -z/-n on shell-internal vars") trades the reliability win against a narrow, post-compromise adversary. From a reliability angle the bigger issue is mundane: `test -f` exit codes are noisy for legitimate reasons (script branching) — they account for a large fraction of grounded "informational non-zero" calls in real shell traffic. SA-4 conflates "the rule is too broad for security" with "the rule is too broad full stop" and asks for the security-hardening cut without acknowledging the reliability cost.</summary>
+<evidence>
+- candidate_A.md:13 — test/[ in INFORMATIONAL_NONZERO.
+- SA-4 quotes runtime.py:53-64 BLOCKED_COMMANDS — but the threat is post-prompt-injection, where the attacker is ALREADY inside the loop; silencing or not silencing `test -f /etc/shadow` changes recon ergonomics, not capability.
+- _check_command_safety pre-exists and is not strengthened by this PR's choices.
+</evidence>
+<counter_proposal>Distinguish "informational by intent" (test, [, grep -q, diff -q, cmp -s, git diff --quiet) from "informational by output" (bare grep, bare diff). SA-4's recon-probe concern applies to BOTH classes equally (an attacker can also use `grep -q secret /etc/shadow`), so excising test/[ doesn't fix it. The right fix is SA-1's screen-content scan combined with my RE-1 sandbox-flag carve-out: under sandbox or when the screen tail contains secret-shaped tokens, escalate regardless of allowlist. Keep test/[ in the allowlist with that guard.</counter_proposal>
+</challenge>
+
+<challenge target="DA-6" stance="DISAGREE" confidence="MEDIUM">
+<summary>DA-6 hypothesizes that Branch 6 (UNKNOWN catch-all on exit==0) is the dominant escalation cost, not Branch 3. This is offered without evidence and contradicts what I observe in the runner code: the [EXIT:n] synthesized message at interactive_runner.py:324-331 / toolcall_runner.py:242-244 is emitted on EVERY non-zero exit and becomes the next-turn user message that triggers an LLM call. That IS the escalation surface, just routed around classify() rather than through it. DA-6's framing inversion ("command-shape is a category error") is itself the category error: the dominant cost is non-zero-exit synthesized messages forcing LLM round-trips, which the proposal addresses (assuming AR-1/PE-4/DA-1's runner-gate flip is added to scope).</summary>
+<evidence>
+- interactive_runner.py:324-331 — synthesized "[EXIT:n] Command exited non-zero." becomes the LLM-facing user message on every non-zero exit, unconditionally.
+- toolcall_runner.py:242-244 — same shape, same unconditional escalation.
+- These messages drive a full LLM turn (prompt+completion tokens) for every failed allowlisted command, which IS what the proposal targets — DA-6 is reading "Branch 3 dead code" too literally.
+- DA-6 produces no distribution data for Branch 6 firings — the assertion is symmetric to the proposal's lack-of-baseline that DA-3 criticizes elsewhere.
+</evidence>
+<counter_proposal>DA-6's underlying observation — "we don't know the production distribution of escalation causes" — is valid and aligns with DA-3 and PE-1/2/3. But the conclusion "command-shape is the wrong lever" is unwarranted. Reframe DA-6 as a measurement gap (instrument before deciding which branch dominates), not an architectural verdict. Reject the "category error" claim.</counter_proposal>
+</challenge>
+
+<challenge target="PE-6" stance="AGREE_AMPLIFY" confidence="HIGH">
+<summary>PE-6 flags N=10 as insufficient for detecting a 30% median shift. Reliability adds a stronger objection: LLM-in-the-loop scenarios are NON-DETERMINISTIC by default (temperature, provider-side sampling, tool-call ordering races), and a "median cost_tokens crosses threshold" gate without a determinism harness will produce false PASS/FAIL signals at random. The proposal's "no human judgement" claim is false-precision — without seed/temperature pinning, the gate is gambling.</summary>
+<evidence>
+- PE-6 cites N=10 baseline.
+- candidate_A.md:22 — "no human judgement" — assumes determinism the harness does not provide.
+- llm/llm.py providers (per CLAUDE.md) are LMStudio/Ollama/Anthropic/Gemini — only some support temperature=0 deterministically, and tool-call routing has provider-side jitter even at temp=0.
+- Existing phase1 bench (evals/observation/latency_bench.py:145, 249) hard-codes cost_tokens=0 — so there is no determinism baseline to reference.
+</evidence>
+<counter_proposal>Add to PE-6's N≥30 recommendation: pin (a) temperature=0, (b) a single provider (e.g. anthropic), (c) record provider response IDs in RunResult so re-runs are traceable, and (d) require the comparison bench to run the SAME prompt sequences in baseline and cmdaware modes (paired comparison, not independent samples). Without paired comparison and determinism, even N=100 may not detect a 30% shift reliably.</counter_proposal>
+</challenge>
+
+<!-- ================================================================== -->
+<!-- REVISIONS TO MY OWN FINDINGS                                       -->
+<!-- ================================================================== -->
+
+<revision target="RE-1" change="AMPLIFY" confidence="HIGH">
+<summary>SA-2 independently arrived at the same shlex.split() crash/IndexError concern AND surfaced an additional bypass-via-compound (`grep nomatch foo; rm -rf /` matches as "grep" because shlex doesn't honor `;` as a separator). This second mode is reliability-relevant beyond the security framing: any user/LLM who types a chained command with an allowlisted head gets the WRONG event, even with no adversarial intent. Strengthen RE-1's recommendation to require BOTH (a) try/except around the shlex parse, AND (b) explicit rejection of compound shapes before allowlist match — i.e. fold RE-3's compound-rejection into RE-1's exception handling as the same code-level remediation.</summary>
+</revision>
+
+<revision target="RE-2" change="QUALIFY" confidence="MEDIUM">
+<summary>RE-2 listed `time`, `sudo`, `nice`, `xargs`, etc. as wrapper-prefix concerns. After reading AR-6's argument that the matcher itself is under-specified and should be defined precisely BEFORE merging, I'm partially walking back the "strip wrapper prefixes" recommendation. AR-6 is correct that wrapper-stripping is a slippery slope: `sudo -u alice -E -- grep ...` requires argument-aware parsing, and naive prefix-stripping creates a NEW class of false-positive (you could match `sudo --help` as `--help`). The safer reliability call is the converse of RE-2's original recommendation: REJECT any first token not in a tight set of plain commands. If the user wrapped grep in `time`, escalate to LLM rather than try to be clever. The "safe miss" framing in RE-2 is actually the correct default; my prior recommendation to add wrapper-unwrap was over-engineered.</summary>
+</revision>
+
+<revision target="RE-6" change="STRENGTHEN" confidence="HIGH">
+<summary>AR-2's finding that `cmd` is not in scope at toolcall_runner.py:246 (it's a local in `_handle_tool_call` at line 54 and is dropped by the time `run_subtask_toolcall` calls classify) is a hard prerequisite for my RE-6 (sandbox-wrap vs pre-wrap provenance). The two findings combine: the toolcall path needs a schema change to the result dict to even propagate `last_command` AND that schema must explicitly carry the PRE-WRAP user-intent string. Adopt AR-2's specific code recommendation (add `"command": cmd_for_classifier` to the result dict at toolcall_runner.py:75) as part of RE-6's mitigation. This bumps the "true LOC cost" of the proposal materially — AR-1 + AR-2 + RE-6 together establish the proposal under-counts production-code edits by at least 5-8 lines and 1 schema field.</summary>
+</revision>
+
+<!-- ================================================================== -->
+<!-- VOTES ON EVERY PEER FINDING                                        -->
+<!-- ================================================================== -->
+
+<!-- ARCHITECTURE REVIEWER -->
+<vote target="AR-1" verdict="STRONG_AGREE">Branch 3 dead-code observation is verified by my RE-6 evidence and PE-4 / DA-1 confluence. Runner-gate flip is mandatory and the proposal under-budgets it. This is the single most consequential finding across all peers.</vote>
+<vote target="AR-2" verdict="STRONG_AGREE">`cmd` not in scope at toolcall path is a concrete code-level constraint I missed. Adopting AR-2's specific recommendation into RE-6's mitigation.</vote>
+<vote target="AR-3" verdict="AGREE">Eval-harness-doesn't-measure-the-thing analysis is correct and complements RE-4 (the rule is wrong for some commands but the bench cannot detect that).</vote>
+<vote target="AR-4" verdict="AGREE_WITH_RESERVATION">Conflation-of-concerns argument is structurally correct. Reservation: AR-4 proposes pushing the check up to runner level where app_type lives, but the runners are the WRONG place too if multiple panes share allowlist semantics. The cleaner split is a small `informational_exits.py` module called from runners — neither classify() nor the runner is the right home, a sibling module is.</vote>
+<vote target="AR-5" verdict="AGREE_PARTIAL">Env-var kill-switch is necessary but insufficient (see my challenge above). Per-entry config is the stronger affordance.</vote>
+<vote target="AR-6" verdict="STRONG_AGREE">Matcher under-specification is a HIGH reliability issue and my RE-3/RE-5 enumerated specific symptoms. AR-6's "write the matcher first with 20 real shell forms" prescription is correct.</vote>
+
+<!-- SECURITY ANALYST -->
+<vote target="SA-1" verdict="AGREE">Suppression-as-information-blindness is a real class. The mitigation (re-scan screen tail for intervention/error/secret patterns even on allowlist hit) is cheap to add. Dropping `pgrep` from the seed list is a sound conservative cut.</vote>
+<vote target="SA-2" verdict="STRONG_AGREE">Crashes + compound-bypass + sandbox-no-op trifecta. Confluent with RE-1 and RE-3. The shlex parse must be wrapped AND compound commands rejected AND the pre-vs-post-wrap contract documented.</vote>
+<vote target="SA-3" verdict="AGREE_WITH_RESERVATION">The argument-injection / `--no-index` concern is real but narrow. Reservation: if the matcher is properly canonicalized (per AR-6), `git diff --quiet --no-index /etc/shadow` would not match a strict canonical form (it has extra flags). SA-3 is correct that the proposal's prose is too loose; with AR-6's tight matcher the specific exploit closes, but the meta-point (write the matcher precisely) stands.</vote>
+<vote target="SA-4" verdict="DISAGREE_PARTIAL">See my challenge above. The recon-probe concern doesn't justify excising test/[ alone; the right fix is screen-scan + sandbox guard applied uniformly across the allowlist.</vote>
+<vote target="SA-5" verdict="AGREE">Redaction-by-default for any future propagation of `last_command` into ScreenEvent is sound architectural hygiene. Low cost now, high cost retrofit.</vote>
+<vote target="SA-6" verdict="STRONG_AGREE">Bench has no adversarial / negative-case coverage. The four scenarios SA-6 lists are the minimum I would block merge on, and they align with my RE-1/RE-3/RE-4 enumerated failures.</vote>
+
+<!-- PERFORMANCE ENGINEER -->
+<vote target="PE-1" verdict="STRONG_AGREE">Metric-not-computable is FATAL and confluent with AR-3 and DA-2. The proposal's merge gate cannot fire.</vote>
+<vote target="PE-2" verdict="AGREE">30% magnitude is dimensionally borrowed and uncalibrated. PE-2's "performance theatre" framing is accurate.</vote>
+<vote target="PE-3" verdict="STRONG_AGREE">missed_rate measures the wrong thing — confluent with AR-3. The proposed safety floor is mechanically insensitive to the regressions it's supposedly guarding against.</vote>
+<vote target="PE-4" verdict="STRONG_AGREE">Dead-Branch-3 — confluent with AR-1 and DA-1. Three-way independent confirmation; this is the single non-negotiable expansion to scope.</vote>
+<vote target="PE-5" verdict="AGREE">Micro-cost of shlex on every call is real but small. Recommendation to use str.split for the leading-token case is sound and cheap.</vote>
+<vote target="PE-6" verdict="STRONG_AGREE_AMPLIFY">N+determinism+paired-comparison expansion (see my challenge above).</vote>
+
+<!-- DEVILS ADVOCATE -->
+<vote target="DA-1" verdict="STRONG_AGREE">Locus-is-factually-wrong analysis is the most damaging single critique of the proposal. Confluent with AR-1, PE-4.</vote>
+<vote target="DA-2" verdict="AGREE">Bench-can't-measure-it. Confluent with AR-3, PE-1, PE-3.</vote>
+<vote target="DA-3" verdict="AGREE_WITH_RESERVATION">30% threshold is unjustified. Reservation: DA-3 frames the asymmetric-cost argument (regression catastrophic, win bounded) well, but treats "any regression in missed_rate vetoes" as the obvious gate — that's too strict given missed_rate doesn't measure the right thing (PE-3). The asymmetry argument survives but needs a metric that actually measures false-quiet rate per SA-6.</reservation></vote>
+<vote target="DA-4" verdict="AGREE_WITH_RESERVATION">3-2 vote analysis is fair. Reservation: from a reliability POV, the "AB is destination, A is scaffolding" framing is actually fine — landing the experiment to gather measurement is acceptable IF the measurement scaffolding (per PE-1/2/3) is built; otherwise you ship A and never collect what was promised.</vote>
+<vote target="DA-5" verdict="AGREE">Policy-doc / owner-of-the-table observation is correct. Without a listed owner for INFORMATIONAL_NONZERO, the table becomes lore. From a reliability angle this matters for incident response: when an entry causes a silent regression, you need to know who can change it.</vote>
+<vote target="DA-6" verdict="DISAGREE">See my challenge above. Branch 6 vs Branch 3 framing is hypothetical and the runner-side synthesized [EXIT:n] message IS the live escalation surface the proposal targets.</vote>
+
+<!-- ================================================================== -->
+<!-- SYNTHESIS NOTE                                                     -->
+<!-- ================================================================== -->
+
+<reliability_synthesis>
+Strongest cross-persona consensus (5/5 independent identification): the proposal's targeted code path (Branch 3 on non-zero exit) is unreachable from production runners (AR-1, PE-4, DA-1, RE-6 partial, AR-2 prerequisite). The proposal as written merges as a no-op AND under-counts the LOC required to make it work. This must be resolved before any reliability discussion of the allowlist matters.
+
+Strong cross-persona consensus (4/5): the merge gate is not computable on the existing harness (AR-3, PE-1, PE-3, DA-2). My own findings reinforce this only weakly — I focused on correctness-of-rule, but I now accept the proposal is also non-falsifiable as written.
+
+Reliability-specific concerns NOT well-covered by peers: (a) sandbox-wrap vs pre-wrap provenance and the resulting silent no-op under CLIVE_SANDBOX=1 — RE-6 stands alone here, partially echoed by AR-2; (b) (command, exit_code) pair-specific allowlist vs first-token-only — RE-4 stands alone; (c) flag-sensitive grep/diff (the "is the user using grep as a test or as inspection" distinction) — RE-5 stands alone. All three should be incorporated into any revised proposal.
+
+Net disposition on the proposal: NEEDS_REWORK before merge. The fixes are tractable (5-8 hours of additional code + measurement scaffolding) but the proposal's "5 files, ~25 LOC, no new module" claim is empirically false once you combine runner-gate flip (AR-1) + toolcall schema field (AR-2) + matcher specification (AR-6) + per-pair allowlist (RE-4) + sandbox-aware guard (RE-6) + bench mode addition (PE-1/AR-3) + adversarial scenarios (SA-6).
+</reliability_synthesis>
+
+</reliability_engineer_debate>

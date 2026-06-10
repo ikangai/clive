@@ -1,0 +1,58 @@
+{
+  "version": "1.0",
+  "tool": "predict",
+  "generated_at": "2026-05-17T22:45:00Z",
+  "commit_hash": "bc27c8b35556781ab85d437b688c69bfcde6b552",
+  "scope": [
+    "src/clive/observation/observation.py",
+    "src/clive/observation/byte_classifier.py",
+    "src/clive/execution/interactive_runner.py",
+    "src/clive/execution/toolcall_runner.py",
+    "evals/observation/**"
+  ],
+  "upstream_chain": {
+    "tool": "reason",
+    "run": "reason/260517-2137-clive-next-step",
+    "winning_candidate": "round3/candidate_A.md (command-aware ScreenClassifier, 3-2 vote)"
+  },
+  "summary": {
+    "personas": 5,
+    "rounds": 1,
+    "rounds_planned": 2,
+    "findings_confirmed": 19,
+    "findings_probable": 0,
+    "findings_minority": 6,
+    "findings_discarded": 0,
+    "anti_herd_passed": true,
+    "flip_rate": 0.47,
+    "entropy_estimate": 0.55,
+    "predict_score": 333,
+    "verdict": "NEEDS_REWORK"
+  },
+  "critical_findings": [
+    {
+      "id": "H-01",
+      "severity": "CRITICAL",
+      "confidence": "HIGH",
+      "consensus": "5/5",
+      "title": "Branch 3 unreachable — proposal locus is dead code",
+      "location": "src/clive/observation/observation.py:92-100; src/clive/execution/interactive_runner.py:351; src/clive/execution/toolcall_runner.py:242-248",
+      "description": "Both runners gate classify() on exit_code == 0. Non-zero exits emit a synthesized [EXIT:n] user message at runner level and bypass classify() entirely. The proposal's headline change cannot deliver the headline result without an additional runner-gate flip.",
+      "recommendation": "Move INFORMATIONAL_NONZERO check to the runner level where pane_info/app_type is in scope; keep classify() app-agnostic."
+    },
+    {
+      "id": "H-02",
+      "severity": "CRITICAL",
+      "confidence": "HIGH",
+      "consensus": "5/5",
+      "title": "Merge-gate metric not computable; cost_tokens hard-coded to 0",
+      "location": "evals/observation/latency_bench.py:145, 249; evals/observation/metrics.py:14, 47",
+      "description": "cost_tokens=0 is hard-coded in run_scenario_baseline and run_scenario_phase1. The 6 existing scenarios target L2 ByteClassifier, not ScreenClassifier. aggregate() produces median_cost over scenarios that don't invoke classify(). The proposal's gate aggregates zeros.",
+      "recommendation": "Decouple eval harness from production change; use deterministic (cmd, exit_code) -> (event, needs_llm) unit-test fixture (~30 cases) + production-telemetry baseline."
+    }
+  ],
+  "verdict_rationale": "The reason-loop's converged direction (reduce shell-mode escalation cost by adding command-awareness) survives swarm scrutiny. The specific implementation shape in round3/candidate_A.md has two CRITICAL gaps (dead-code locus, unmeasurable gate) plus 9 HIGH-severity refinements. Combined diff is well past the proposal's '5 files, ~25 LOC, no new module' estimate. The reason-loop's runner-up (round 3 AB with the decision-log + replay-tool seam) becomes a viable round-4 starting point given the swarm-identified scope expansion.",
+  "next_step_recommendation": "Re-run reason loop with the swarm's CRITICAL + HIGH findings injected into the brief, OR proceed to /autoresearch:debug with the hypothesis queue to empirically verify H-01 and H-02 before any code work.",
+  "lineage_path": "predict/260517-2245-cmdaware-classifier/",
+  "hypothesis_queue_path": "predict/260517-2245-cmdaware-classifier/hypothesis-queue.md"
+}

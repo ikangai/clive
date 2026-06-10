@@ -1,0 +1,74 @@
+<architecture_reviewer_findings>
+  <finding id="AR-1">
+    <title>Proposed "Branch 3" target is unreachable from current runner call-sites — the intervention is architecturally inert as specified</title>
+    <location>src/clive/execution/interactive_runner.py:351, src/clive/execution/toolcall_runner.py:242-248, src/clive/observation/observation.py:92-100</location>
+    <severity>CRITICAL</severity>
+    <confidence>HIGH</confidence>
+    <evidence>
+      The proposal (candidate_A.md:7) names `observation.py:92-100` (Branch 3, non-zero exit) as "the dominant escalation surface for shell panes." But both runners gate the classify() call on `exit_code == 0`:
+      - interactive_runner.py:351: `if exit_code is not None and exit_code == 0 and not detection.startswith("intervention:"):` then `obs_classifier.classify(...)`
+      - toolcall_runner.py:242-248: `if exit_code is not None and exit_code != 0: parts.append(f"[EXIT:{exit_code}] ...")` else `elif exit_code == 0: obs_event = obs_classifier.classify(...)`
+      Non-zero exits never reach classify() today; they short-circuit to a synthetic `[EXIT:n]` user message at the runner level (interactive_runner.py:324-331). Therefore adding `INFORMATIONAL_NONZERO` + `last_command` to classify() Branch 3 changes nothing observable until the runner gating is inverted — a structural change the proposal does not list and does not budget. The "3 production files, 2 test/eval files, ~25 LOC + 2x1 LOC" cost estimate (candidate_A.md:18) is wrong by an architectural step.
+    </evidence>
+    <recommendation>Either (a) explicitly include the runner-level escalation gate flip in the same PR — replacing the unconditional `[EXIT:n]` user message at interactive_runner.py:324 and toolcall_runner.py:242 with a `classify(..., last_command=cmd, exit_code=exit_code)` round-trip whose `needs_llm` is honored — and budget the resulting blast radius (every non-zero exit now flows through the regex cascade, including INTERVENTION_PATTERNS and PROGRESS_PATTERNS in observation.py:60,103, neither of which is safe on error tails), or (b) move the INFORMATIONAL_NONZERO check up to the runner sites and leave classify() alone. Option (b) is the correct call architecturally: the runners already own the exit-code escalation decision; classify() owns the screen pattern decision. Pushing command-shape into classify() conflates two concerns that the current call-site separation has clearly delineated.</recommendation>
+  </finding>
+
+  <finding id="AR-2">
+    <title>`last_command` is not in scope at the toolcall_runner classify() call — propagating it requires a new field on the command_result dict, contradicting the "2 line" change estimate</title>
+    <location>src/clive/execution/toolcall_runner.py:53-81, src/clive/execution/toolcall_runner.py:234-248</location>
+    <severity>HIGH</severity>
+    <confidence>HIGH</confidence>
+    <evidence>
+      In toolcall_runner.py, `cmd` is a local variable in `_handle_tool_call` (line 54: `cmd = args.get("command", "")`) and is wrapped/sandboxed before being thrown away when the function returns the `result` dict (lines 75-81). The result dict contains only `screen`, `exit_code`, `detection` — not `command`. The classify() call at line 246 lives in `run_subtask_toolcall`, a different stack frame: `cmd` does not exist in scope there. The proposal's "pass `last_command=cmd` (already in scope as the just-sent command)" (candidate_A.md:14) is true for interactive_runner.py:311 (where `cmd = extract_command(reply)` is local to the same loop body) but false for toolcall_runner. The toolcall path requires adding `"command": cmd` to the result dict at line 75 and unpacking it at line 234 — a small but non-trivial schema change to the runner↔handler protocol.
+    </evidence>
+    <recommendation>Add `"command": cmd_for_classifier` to the toolcall result dict at toolcall_runner.py:75 (capturing the *pre-wrap* user-intent command, not the wrapped-for-sandbox string at line 66 which would leak sandbox prefixes into INFORMATIONAL_NONZERO matching). Document that the "user-intent command" — not the executed shell string — is the classifier input, because `_wrap_for_sandbox` and `wrap_command` mutate the leading token (e.g. `git diff --quiet` becomes `bwrap ... bash -c '... git diff --quiet; echo "EXIT:$? ..."'`). This is the kind of subtle two-version-of-the-same-string bug that the seam-first design would have forced into a typed Strategy input and that the inline approach hides.</recommendation>
+  </finding>
+
+  <finding id="AR-3">
+    <title>Success-metric infrastructure is misadvertised — `scenarios.py` measures L2 byte-event detection latency, not shell-mode escalation cost; the new bench row requires non-trivial harness work</title>
+    <location>evals/observation/scenarios.py:1-62, evals/observation/metrics.py:11-49</location>
+    <severity>HIGH</severity>
+    <confidence>HIGH</confidence>
+    <evidence>
+      scenarios.py:1-7 docstring: "Each scenario is reproducible shell one-liner that generates a known signal pattern. The bench harness runs each scenario N times per mode (baseline/phase1/phase2) and reports detection latency, e2e latency, and missed-event rate." Scenario.expected_l2_kinds (line 16) and the existing six scenarios (color_alert, password_prompt, confirm_prompt, spinner_ok, spinner_fail, color_only at lines 20-62) all target the L2 ByteClassifier subsystem (codebase-analysis.md:13 confirms this is a different subsystem). RunResult.cost_tokens (metrics.py:18) exists as a field but is populated by the L2 latency harness, not by a shell-mode classifier-escalation harness. The proposal's claim "Both numbers are already produced by aggregate() in evals/observation/metrics.py:34" (candidate_A.md:22) is true at the dataclass level and false at the measurement level: aggregate() does compute median_cost, but only over scenarios fed by latency_bench.py, which does not exercise the ScreenClassifier escalation decision. A new mode key (`cmdaware`) and a new scenario class plus harness path to actually invoke ScreenClassifier.classify() with synthetic (screen, exit_code, last_command) tuples and measure whether `needs_llm` flips is needed — that is a new harness, not a new row.
+    </evidence>
+    <recommendation>Either widen the PR scope to include a `escalation_bench.py` that drives ScreenClassifier.classify() directly across a (screen, exit_code, last_command) corpus and emits RunResult rows tagged `mode="cmdaware"` vs `mode="phase1"`, or — preferable architecturally — separate the eval harness from the production change entirely. Land the classifier change behind a default-off flag with unit-test coverage only; build the escalation bench as a follow-up PR whose only success criterion is reproducing the measurement. Coupling a production code change to a not-yet-existing measurement apparatus violates the proposal's own falsifiability premise (candidate_A.md:22).</recommendation>
+  </finding>
+
+  <finding id="AR-4">
+    <title>Hard-coded INFORMATIONAL_NONZERO set inside classify() makes the classifier a god-object — the seam the proposal rejects is exactly the abstraction the proposal forces</title>
+    <location>src/clive/observation/observation.py:53-130</location>
+    <severity>MEDIUM</severity>
+    <confidence>HIGH</confidence>
+    <evidence>
+      ScreenClassifier today has a single responsibility: turn (screen, exit_code) into (EventType, needs_llm). Adding `last_command` and an inline command allowlist couples three concerns inside one class:
+      (1) screen-pattern regex cascade (PROGRESS_PATTERNS at observation.py:28-34, INTERVENTION_PATTERNS imported at line 12),
+      (2) exit-code interpretation (lines 82-100),
+      (3) command-shape lexicon (the new set + `shlex.split(last_command)[0]` logic).
+      Concern (3) is a different axis of variation: it changes per shell environment (git vs jj, BSD test vs GNU test, busybox vs coreutils), per user habit (aliases, function wrappers), and per pane app_type (the `git diff --quiet` allowlist is shell-mode-specific; in a `psql` pane non-zero exit is fatal). Today's classify() is app-type-agnostic by design (no `pane_info` parameter); the proposal smuggles a shell-mode-specific lexicon into an app-type-agnostic primitive. This is precisely the "god object accreting context" antipattern, and the proposal's own argument against the strategy seam ("a refactor in search of a second strategy" — candidate_A.md:26) misses that this PR creates the second strategy *implicitly* by hiding it in a hard-coded set inside the existing one.
+    </evidence>
+    <recommendation>If you accept the inline approach, at minimum: (a) hoist INFORMATIONAL_NONZERO to a module-level constant exported from observation.py so other call-sites (e.g. an eventual `selfmod` reviewer pane that should NOT informationalize `git diff --quiet`) can opt out by passing `last_command=None`; (b) document at observation.py:56 that classify() is now shell-mode-biased and that NEEDS_INPUT for non-shell panes must override. The cleaner architectural call: thread `last_command` through, but keep the allowlist check at the *runner* level (interactive_runner.py:324, toolcall_runner.py:242) where the app_type context already exists. classify() stays pane-agnostic; the runner owns "what counts as informational for this pane class." That preserves the current separation and makes the eventual second strategy fall out naturally per-app-type, not per-classifier-class.</recommendation>
+  </finding>
+
+  <finding id="AR-5">
+    <title>The "no environment variable" claim is a code smell — every prior observation change in this codebase has shipped behind a flag, and removing that affordance pre-commits to a not-yet-validated heuristic</title>
+    <location>src/clive/observation/observation.py:53 (no flag), CLAUDE.md (streaming-obs default-on flagged via CLIVE_STREAMING_OBS=0; speculation gated CLIVE_SPECULATE=1)</location>
+    <severity>MEDIUM</severity>
+    <confidence>MEDIUM</confidence>
+    <evidence>
+      The codebase's working pattern for observation-loop changes is documented in CLAUDE.md: "Streaming observation: Phase 1 is default-on as of 2026-04-16. CLIVE_STREAMING_OBS=0 opts out... Phase 2 speculation ... is behind CLIVE_SPECULATE=1 (default off)." Both prior interventions shipped with a runtime kill-switch because real-world false-positives on observation surface as silently-skipped LLM turns — exactly the class of bug that "missed_rate does not increase" on a 4-scenario bench (candidate_A.md:16) cannot rule out. The proposal explicitly rejects "No environment variable" (candidate_A.md:18) as a feature. But INFORMATIONAL_NONZERO is the highest-stakes class of false-positive in the entire pipeline: a wrong call here means the LLM is told "informational non-zero" for what was actually a real failure, and the failure becomes invisible to the next turn's context. The cost of being wrong is asymmetric (silent task failure) and the corpus validating it is six synthetic scenarios.
+    </evidence>
+    <recommendation>Ship the allowlist behind `CLIVE_CMDAWARE_CLASSIFIER` (default-on if the bench wins, but readable as 0 in the field). Cost: one `os.getenv` line in observation.py near line 92; one mention in CLAUDE.md. Benefit: the next time a user reports "my `make test` came back exit 1 but Clive said success and stopped trying" you can ask them to set the flag to 0 and confirm a regression in 30 seconds rather than bisecting commits. This is the same affordance shape as CLIVE_STREAMING_OBS and CLIVE_SPECULATE; consistency with the codebase's prior observation interventions is architecturally cheaper than absence.</recommendation>
+  </finding>
+
+  <finding id="AR-6">
+    <title>`shlex.split(last_command)[0]` is the wrong matcher shape for the multi-token allowlist entries — proposal under-specifies the matching layer</title>
+    <location>src/clive/observation/observation.py:92 (proposed change site), candidate_A.md:13</location>
+    <severity>MEDIUM</severity>
+    <confidence>HIGH</confidence>
+    <evidence>
+      The proposed allowlist contains multi-token entries: `"git diff --quiet"`, `"git diff --exit-code"`, `"cmp -s"`, `"diff -q"` (candidate_A.md:13). The proposed matcher is `shlex.split(last_command)[0]` (candidate_A.md:13), which extracts only the first token. `shlex.split("git diff --quiet")[0] == "git"` — `"git"` is NOT in the set; the match silently fails. The proposal then adds "plus a tiny suffix check for `git diff --quiet`" as an aside, which means the actual matcher is a hybrid of (first-token lookup) + (prefix/substring check for git variants), not a clean set membership test. This is a 6-set, 2-matcher implementation already, with bash, posix, and zsh edge cases (leading env vars `FOO=1 git diff --quiet`, redirection `git diff --quiet > /dev/null`, command grouping `( git diff --quiet )`, pipe `git diff --quiet | tee`) that all break naive matchers. The "~25 lines" budget (candidate_A.md:13) does not survive contact with the matching layer.
+    </evidence>
+    <recommendation>Specify the matcher precisely before merging: either (a) a normalized canonical-form pass (strip env-var prefix, strip redirections, strip trailing pipes, then `shlex.split` and compare the leading non-flag tokens against a set of tuples — e.g. `("git", "diff")` with required-flag set `{"--quiet", "--exit-code"}`), or (b) a regex-per-entry approach mirroring INTERVENTION_PATTERNS at observation.py:28. Option (b) is architecturally consistent with the file's existing pattern style. Either way, write the matcher *first*, with a unit-test fixture of ~20 real shell forms (`FOO=1 git diff --quiet`, `git -C /tmp diff --quiet`, `! grep foo bar`, etc.), before claiming the +30% cost-token win. The proposal's bench cannot distinguish "the heuristic is right" from "the matcher recognizes the synthetic scenario's exact string and fails on real traffic."</recommendation>
+  </finding>
+</architecture_reviewer_findings>

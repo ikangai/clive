@@ -1,0 +1,11 @@
+round	persona	findings_produced	findings_revised	challenges_issued	flip_count	status
+0	Architecture Reviewer	6	0	0	0	independent_analysis
+0	Security Analyst	6	0	0	0	independent_analysis
+0	Performance Engineer	6	0	0	0	independent_analysis
+0	Reliability Engineer	6	0	0	0	independent_analysis
+0	Devil's Advocate	6	0	0	0	independent_analysis
+1	Architecture Reviewer	6	2	4	0	debate_round_1
+1	Security Analyst	6	3	3	1	debate_round_1
+1	Performance Engineer	6	4	3	1	debate_round_1
+1	Reliability Engineer	6	3	2	0	debate_round_1
+1	Devil's Advocate	6	5	4	2	debate_round_1

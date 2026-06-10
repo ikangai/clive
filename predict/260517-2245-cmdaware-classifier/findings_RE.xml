@@ -1,0 +1,103 @@
+<reliability_engineer_findings>
+
+<finding id="RE-1" confidence="HIGH">
+<title>shlex.split(last_command)[0] crashes on unbalanced quotes and empty strings; no exception handling proposed</title>
+<evidence>
+candidate_A.md:13 — proposal: "matched against `shlex.split(last_command)[0]`"
+observation.py:56 — current classify() signature has no try/except scaffolding around input parsing
+interactive_runner.py:301 — cmd = extract_command(reply); cmd is LLM-generated text and may contain unterminated single/double quotes (a frequent LLM error mode — see the bash-quoting feedback in MEMORY.md noting "nested quote strings... crash user's IDE parser")
+</evidence>
+<failure_modes>
+1. `shlex.split("grep 'foo")` raises ValueError("No closing quotation"). With the proposal as written, this propagates out of classify() and aborts the post-command observation step, which today is wrapped only loosely — interactive_runner.py:352 does not have its own try/except around classify(). A single mis-quoted LLM command would kill the turn-result branch and dump the raw screen instead of a compact event, or worse, raise out of the runner main loop.
+2. `shlex.split("")[0]` is an IndexError if cmd is whitespace-only. _check_command_safety (runtime.py:70) allows empty-after-strip strings through to extract_command, and extract_command can return "" — interactive_runner.py:302 only checks `if not cmd: continue`, but on the toolcall path the run_command tool may pass through whitespace.
+3. `shlex.split("\\")` — trailing backslash — raises ValueError.
+The proposal lists "~25 lines" with no acknowledgment of this hazard.
+</failure_modes>
+<recommendation>Wrap in try/except (ValueError, IndexError) → fall back to current behavior (needs_llm=True for non-zero). Add a unit test for each of: unbalanced quote, trailing backslash, empty string, whitespace-only.</recommendation>
+</finding>
+
+<finding id="RE-2" confidence="HIGH">
+<title>First-token matching mis-classifies command wrappers (sudo / env / time / nice / ionice / stdbuf / nohup / xargs) — all silently escalate or, worse, silently SUCCEED</title>
+<evidence>
+candidate_A.md:13 — INFORMATIONAL_NONZERO matched against `shlex.split(last_command)[0]`
+runtime.py:77-86 — `_wrap_for_sandbox()` prepends `bash <script> <session_dir>` to every command when sandboxed=True or CLIVE_SANDBOX=1 is set. Under sandbox mode the first token is ALWAYS "bash", never "grep" or "git".
+interactive_runner.py:92 — `cmd = _wrap_for_sandbox(cmd, session_dir, sandboxed=pane_info.sandboxed)` — wrapping happens inside _send_agent_command, but the cmd passed to classify() per the proposal is the pre-wrap LLM-emitted text. The pre-wrap text is the right surface to match — but the proposal does not document this invariant, and `time grep foo file` / `sudo grep foo /etc/shadow` / `env -i grep ...` are emitted directly by the LLM.
+</evidence>
+<failure_modes>
+1. `time grep foo nofile` (exit 1, non-zero) — first token is "time", not in allowlist → escalates to LLM. False negative for the rule, but at least safe (extra LLM call).
+2. `sudo grep foo /etc/shadow` (exit 1, no match) — first token is "sudo" → escalates. Same: safe miss.
+3. `! grep foo file` — shlex.split treats `!` as a token; first token is "!" → no match, escalates. But the user's INTENT was to invert exit code; if the rule fired it would incorrectly SUPPRESS the legitimate "negation succeeded" signal. Current proposal accidentally gets this right by missing it, but the right answer is non-obvious.
+4. `nice -n 5 grep foo file` — first token "nice" → escalates. Safe miss.
+5. `stdbuf -oL grep foo file | head` — first token "stdbuf" → escalates. Safe miss but suppresses a high-frequency idiom.
+6. `xargs grep pattern` — first token "xargs" → escalates. Common idiom missed.
+The pattern: the proposal handles the bare-command case and silently misses every wrapped invocation. The "win" on the bench will not translate to real shell traffic where wrappers are ubiquitous.
+</failure_modes>
+<recommendation>Strip a known wrapper-prefix set (`sudo`, `env`, `time`, `nice`, `ionice`, `nohup`, `stdbuf`, `setsid`, `chrt`, `taskset`, `unbuffered`) plus their flag arguments, then re-extract the inner command. Add an explicit "wrapper unwrap" helper with tests including `env -i FOO=bar grep ...` and `sudo -u user -- grep ...`.</recommendation>
+</finding>
+
+<finding id="RE-3" confidence="HIGH">
+<title>Pipelines, &&/||, subshells, and command substitution exit with the LAST command's status — first-token matching gives the wrong allowlist decision</title>
+<evidence>
+candidate_A.md:13 — match is against `shlex.split(last_command)[0]` only
+observation.py:92-100 — Branch 3 fires on `exit_code != 0` from the `wrap_command` echo: the recorded exit IS the pipeline's, not the first command's
+</evidence>
+<failure_modes>
+1. `grep foo file | head` — exit is `head`'s (0 normally; under `set -o pipefail` it's grep's). First token "grep" → allowlist matches → CLASSIFIED AS INFORMATIONAL even when the failure is `head: invalid option` (a real error). False negative: real error swallowed.
+2. `grep foo file && build.sh` — exit is build.sh's. First token "grep" → if grep matches and build.sh fails (exit 2), classifier says "informational non-zero" — masks a build failure.
+3. `( cd /tmp && grep foo file )` — first token "(" or "cd" (depending on shlex behavior with parens) → no match, escalates. Safe miss but inconsistent.
+4. `git diff --quiet || git commit -am 'wip'` — common idiom. First token "git" + "diff" + "--quiet" matches the proposal's suffix check. If `git commit` fails (nothing staged), classifier says "informational non-zero". Real failure suppressed.
+5. `result=$(grep foo file); echo $result` — first token is the assignment word `result=$(grep`, which shlex split keeps intact. No match in allowlist → escalates. Inconsistent with bare `grep`.
+6. Backticks: `` `grep foo file` `` standalone — first token literally backtick-prefixed. Mismatched.
+</failure_modes>
+<recommendation>Reject the allowlist entirely when ANY of these shell metacharacters appear unquoted in `last_command`: `|`, `||`, `&&`, `;`, `$(`, `` ` ``, `<(`, `>(`. Fall back to current behavior. Add explicit tests for each. Document that the rule is "single simple command, no compound, no pipeline" — and consider naming the parameter that way.</recommendation>
+</finding>
+
+<finding id="RE-4" confidence="MEDIUM">
+<title>`git diff --quiet` suffix matcher conflates "tracked-file diff present" with "command failed for an unrelated reason" — exit codes 0/1 are informational, but ≥128 are real failures</title>
+<evidence>
+candidate_A.md:13 — "plus a tiny suffix check for `git diff --quiet`"
+candidate_A.md:13 — "When matched and exit_code != 0, return EventType.SUCCESS with needs_llm=False"
+</evidence>
+<failure_modes>
+git diff's exit-code contract: 0 = no diff, 1 = diff present (informational), 128 = fatal (e.g. "not a git repository", "bad object", corrupt index), 129 = usage error. Killed by SIGTERM gives 143, SIGKILL 137. The proposal's rule treats ALL non-zero (including 128/129/137/143) as informational. So:
+- `git diff --quiet` run from `/tmp` (not a repo) → exit 128, fatal error message printed → classifier says "informational non-zero (exit 128)" → LLM never sees the real problem.
+- Disk full mid-diff → exit 128, "fatal: write error: No space left on device" → suppressed.
+- `grep foo nofile` → exit 2 (file error), distinct from exit 1 (no match). Proposal treats both as informational. Real symptom: missing file silently ignored, LLM thinks pattern wasn't found.
+- `test -f /some/path` → 0 or 1, both informational. But `test` with bad syntax (`test -z`) exits 2 — proposal suppresses.
+</failure_modes>
+<recommendation>Allowlist by (command, exit_code) PAIR, not (command, any-nonzero). Define per-command informational sets: `grep`: {1}; `git diff --quiet|--exit-code`: {1}; `test`/`[`: {1}; `cmp -s`: {1}; `diff -q`: {1}; `pgrep`: {1}. Anything else (especially 2, 126, 127, 128, 129, 130, 137, 139, 143) escalates as today. Add tests for each "real failure" exit code.</recommendation>
+</finding>
+
+<finding id="RE-5" confidence="MEDIUM">
+<title>Flag-sensitive grep/diff variants: `grep -q` vs `grep --quiet` vs unflagged `grep` have different semantics — the allowlist treats them identically and suppresses real "no match found" surfaces the user wanted to see</title>
+<evidence>
+candidate_A.md:13 — `INFORMATIONAL_NONZERO = {"git diff --quiet", ..., "grep", "egrep", "fgrep", ..., "diff -q"}` matched against `shlex.split(last_command)[0]`
+First-token matching cannot distinguish `grep -q foo file` from `grep foo file`
+</evidence>
+<failure_modes>
+1. `grep foo bigfile` (unflagged) at the prompt is OFTEN intentionally inspecting output. If the user typed `grep TODO src/*.py` to count outstanding TODOs and got exit 1, "no TODOs" is the answer they want surfaced — not suppressed as informational. Compare with `grep -q TODO src/*.py` where the user is using grep as a test in a script.
+2. `diff a b` (no `-q`) exiting 1 means "files differ AND diff was printed" — the printed diff is the data. Suppressing as informational loses the payload. Compare with `diff -q a b` whose only output IS the exit code.
+3. The proposal's allowlist mixes "test-mode" tools (`grep -q`, `diff -q`, `git diff --quiet`, `cmp -s`) with "inspect-mode" tools (bare `grep`, bare `diff`). They have categorically different reliability profiles for an "informational exit" rule.
+4. `git diff --exit-code` (without --quiet) PRINTS the diff AND exits non-zero. Same issue: the diff is the payload, suppressing it strips information.
+</failure_modes>
+<recommendation>Limit the allowlist to commands that produce no useful output on the failing-exit path: `grep -q`, `grep --quiet`, `diff -q`, `diff --brief`, `git diff --quiet`, `cmp -s`, `test`, `[`, `pgrep -q`. Require the quiet/silencing flag to be present. Without it, escalate as today. Add a regression test: `grep foo file` exit 1 SHOULD escalate (the matches/non-matches are screen data the LLM may need).</recommendation>
+</finding>
+
+<finding id="RE-6" confidence="MEDIUM">
+<title>Race: the `cmd` threaded into classify() is the LLM-emitted text, but the recorded `exit_code` reflects whatever ACTUALLY ran (after sandbox wrapping, _check_command_safety transforms, prompt-injection, and any intervening tmux input) — the two can disagree</title>
+<evidence>
+interactive_runner.py:92 — _wrap_for_sandbox transforms cmd in-place inside _send_agent_command, but the caller at :311 holds the original; the proposal would pass the ORIGINAL to classify()
+interactive_runner.py:318 — exit_code = _parse_exit_code(prev_screen) parses the marker emitted by wrap_command, which wraps the SANDBOXED command
+runtime.py:82-86 — sandbox wrapping replaces `grep foo file` with `bash /path/run.sh /tmp/clive/sess 'grep foo file'`. If run.sh exits non-zero for sandbox-policy reasons (e.g. network blocked, path outside session_dir, sandbox script bug), the exit code is run.sh's, not grep's.
+toolcall_runner.py:236 — exit_code comes from _execute_tool_call's command_result; provenance of the cmd string vs. what ran is even more removed (the tool boundary).
+</evidence>
+<failure_modes>
+1. Sandbox refuses the command (e.g. write outside session_dir): run.sh exits 1, but the proposal classifies it as "grep informational non-zero" because the LLM-typed first token was `grep`. The LLM never learns sandboxing blocked it and keeps retrying.
+2. Command rewriting in _check_command_safety or future hooks (proposal explicitly does not gate against this) further widens the gap.
+3. Marker mis-parse: _parse_exit_code reads `EXIT:<n>` from the screen. If the screen was truncated mid-marker (rare but real on tmux pane resize), exit_code may be None → the proposal's rule is bypassed (safe), but `git diff --quiet` exit 1 also won't trigger the new branch — the win evaporates intermittently.
+4. Pane intervention path: interactive_runner.py:351 only calls classify() when `exit_code == 0 and not detection.startswith("intervention:")`. Per the codebase-analysis note (lines 30-36), Branch 3 of classify() is dead code from the runner's perspective TODAY. The proposal will need to ALSO modify the runner gate, which is a 1-line change the proposal hides inside "2 lines" — but it changes the runner's response on every non-zero exit (today: explicit `[EXIT:n]` message; after: maybe-classify, maybe-`[EXIT:n]`). That is a behavior change at the toolcall_runner.py:242-248 site that needs its own test matrix.
+</failure_modes>
+<recommendation>(a) Document that `cmd` passed to classify() is the PRE-WRAP, LLM-emitted string and that classify must not assume it is what executed. (b) When sandbox is active, EITHER pass the pre-wrap cmd AND mark a `sandboxed=True` flag so classify can be conservative (default needs_llm=True on non-zero regardless of allowlist), OR skip the allowlist entirely under sandbox. (c) Explicitly call out the runner-gate change as a 3rd production file edit (interactive_runner.py:351 AND toolcall_runner.py:242 BOTH need their `if exit_code != 0` arms reworked) — the proposal's "2 lines" claim is incorrect.</recommendation>
+</finding>
+
+</reliability_engineer_findings>

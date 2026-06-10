@@ -1,0 +1,84 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<performance_engineer_findings persona="Performance Engineer" proposal="candidate_A: command-aware ScreenClassifier" generated_at="2026-05-17T22:55:00Z">
+
+  <finding id="PE-1" confidence="HIGH" severity="FATAL">
+    <title>Merge-gate metric is not computable from the existing harness — wrong axis, wrong measurement, no shell mode</title>
+    <claim>The proposal states "median shell-mode cost_tokens drops >=30% ... Both numbers are already produced by aggregate() in evals/observation/metrics.py:34." This is false on two independent counts.</claim>
+    <evidence>
+      <ref>evals/observation/metrics.py:14 — RunResult.mode is typed as the comment-documented set "baseline | phase1 | phase2". There is no shell-mode row.</ref>
+      <ref>evals/observation/metrics.py:47 — aggregate() returns median_cost across L2-detection scenarios, NOT a per-turn shell-execution cost.</ref>
+      <ref>evals/observation/latency_bench.py:145, 249 — both run_scenario_baseline and run_scenario_phase1 hard-code cost_tokens=0. Zero LLM calls happen in the bench. Every phase1-report.json row at lines 5-543 has cost_tokens: 0.</ref>
+      <ref>evals/observation/scenarios.py:20-62 — the 6 scenarios are synthetic L2-byte-stream signal patterns (color_only, password_prompt, spinner_ok, ...) — none invokes ScreenClassifier.classify(), none consumes a model, none represents a "shell-mode turn".</ref>
+    </claim_consequence>
+    <impact>The merge gate has no defined denominator. There is no baseline series of "median shell-mode cost_tokens" to compare a -30% delta against. The number is literally aggregating zeros today.</impact>
+    <required_to_make_gate_computable>(a) New scenario class that actually drives a runner turn through an LLM, or a unit-test instrumentation that records prompt_tokens+completion_tokens emitted by classify-escalation decisions; (b) a new mode label ("shell" or "cmdaware") added to RunResult.mode and to the aggregate() pivot; (c) a baseline corpus of shell-mode runs captured pre-PR. None of these exist; the proposal does not include them in the "3 production files + 2 test/eval files" diff.</required_to_make_gate_computable>
+  </finding>
+
+  <finding id="PE-2" confidence="HIGH" severity="FATAL">
+    <title>The "30%" number is a fossil from a different gate that was explicitly retired as unreachable</title>
+    <claim>The 30% figure has no provenance in cost_tokens. It is a copy-paste of the streaming-observation Phase 1 latency criterion, which was abandoned in April 2026 for floor-effect reasons.</claim>
+    <evidence>
+      <ref>evals/observation/phase1-report.md:40 — "≥30% median e2e reduction on scenarios 1-3, 5 OR new detection where baseline had 100% missed | ... | **PASS** under revised criterion (2026-04-16)". This criterion was about wall-clock latency, not tokens.</ref>
+      <ref>evals/observation/phase1-report.md:47-50 — explicit retrospective: "The original 30% bar was unreachable on already-fast scenarios for structural reasons" (floor effects at the 10ms adaptive-poll boundary).</ref>
+      <ref>candidate_A.md:22 — proposal lifts "≥30%" verbatim into a different unit (cost_tokens) without justifying the magnitude or showing what the current shell-mode token median is.</ref>
+    </claim_consequence>
+    <impact>The gate is not calibrated. Choosing 30% for tokens when the historical 30% was for latency is dimensional-analysis sloppiness; the actual achievable ceiling on token reduction depends on (i) how often Branch 3 fires in production today, (ii) what fraction of those firings would land in the INFORMATIONAL_NONZERO allowlist, and (iii) the token cost of the escalated turn. None of these are measured.</impact>
+    <recommendation>Either (a) instrument production for one week to capture baseline distribution of "shell-mode classifier escalations per session, with command shape", then pick a magnitude that exceeds the noise floor, or (b) collapse the gate to "shows N escalations turn into N0 SUCCESS events on a recorded corpus, with zero regressions on the missed_rate proxy". Reusing 30% without a baseline is performance theatre.</recommendation>
+  </finding>
+
+  <finding id="PE-3" confidence="HIGH" severity="FATAL">
+    <title>missed_rate in the existing harness measures L2 byte-event detection misses — NOT shell-mode classifier escalation accuracy</title>
+    <claim>The proposal uses missed_rate as the safety constraint ("missed_rate does not increase versus the current phase1 row"). The existing missed_rate has no semantic relationship to "did we wrongly suppress an escalation that should have happened."</claim>
+    <evidence>
+      <ref>evals/observation/metrics.py:46 — missed_rate = sum(1 for r in runs if r.missed) / len(runs). The `missed` flag's semantics are defined upstream.</ref>
+      <ref>evals/observation/latency_bench.py:225-235 (phase1) — `missed` is set True when no ByteEvent of an expected L2 kind (color_alert, password_prompt, cmd_end, ...) lands within timeout. It is a byte-stream detection-coverage metric, not a classifier-decision metric.</ref>
+      <ref>evals/observation/latency_bench.py:131, 137 (baseline) — same shape: `missed` is "did the target text substring appear in capture-pane output". Nothing about whether ScreenClassifier needed_llm correctly.</ref>
+      <ref>predict/260517-2245-cmdaware-classifier/codebase-analysis.md:38-44 — the codebase-analysis file flagged this exact mismatch ("L2 byte-stream event detection ... not shell-command escalation rate").</ref>
+    </claim_consequence>
+    <impact>The proposed safety guard ("missed_rate does not increase") is checking a metric that is mechanically insensitive to the change being made. INFORMATIONAL_NONZERO can suppress every legitimate failure (`make` exit 2 incorrectly classified as informational) and the existing missed_rate stays unchanged. The gate cannot detect false negatives in the regime it is supposedly guarding.</impact>
+    <required_metric>A new "escalation_missed_rate" or "false_quiet_rate" — fraction of runs where (a) the command actually failed in a way needing LLM judgment AND (b) the classifier returned needs_llm=False. This requires labeled ground truth per scenario and a new RunResult field. It does not exist.</required_metric>
+  </finding>
+
+  <finding id="PE-4" confidence="HIGH" severity="HIGH">
+    <title>Branch 3 of classify() — the proposal's target surface — is unreachable from production runners on the non-zero-exit path</title>
+    <claim>The proposal asserts Branch 3 (observation.py:92-100) is "the dominant escalation surface for shell panes". But both runners short-circuit before classify() is called when exit_code != 0, so even a perfect INFORMATIONAL_NONZERO allowlist can save zero tokens unless the runners are also modified.</claim>
+    <evidence>
+      <ref>src/clive/execution/interactive_runner.py:351 — `if exit_code is not None and exit_code == 0 and not detection.startswith("intervention:"):` — classify() runs only on exit_code == 0.</ref>
+      <ref>src/clive/execution/toolcall_runner.py:242-244 — `if exit_code is not None and exit_code != 0: parts.append(f"[EXIT:{exit_code}] Command exited non-zero.")` followed by `elif exit_code == 0:` invoking classify(). Non-zero exits emit synthesized text and skip classify entirely.</ref>
+      <ref>src/clive/observation/observation.py:82-89 — Branch 2 (exit_code==0) returns SUCCESS, needs_llm=False. This is what runners actually exercise. Branch 3 only ever fires if a runner invokes classify with a non-zero code — currently, no runner does.</ref>
+      <ref>candidate_A.md:14 — proposal claims "2 lines" of runner changes ("pass last_command=cmd"). The actual fix to make Branch 3 reachable requires the runner to STOP short-circuiting on exit_code != 0 and route through classify() — that is a ~5-line behavior change at each of two call sites, plus careful handling of the existing [EXIT:n] message path.</ref>
+    </claim_consequence>
+    <impact>The proposal's diff as written is a no-op on token cost. Adding INFORMATIONAL_NONZERO without rewiring the non-zero-exit runner path means the LLM still gets `[EXIT:1] Command exited non-zero.` for every failed `git diff --quiet` — the new code never executes in production. The 30% gate cannot move because the code under test is not invoked.</impact>
+    <recommendation>The proposal needs a fifth (or replacement) bullet: modify interactive_runner.py:351 to route both exit==0 and exit!=0 through classify(), and modify toolcall_runner.py:242 to call classify() before deciding whether to emit [EXIT:n]. With that change, dropping the synthesized [EXIT:n] message becomes the actual cost win. Without it, the proposal ships dead code.</recommendation>
+  </finding>
+
+  <finding id="PE-5" confidence="MEDIUM" severity="MEDIUM">
+    <title>shlex.split on every classify() call introduces a measurable hot-path cost the proposal does not account for</title>
+    <claim>The proposal pickets "~25 lines" of allowlist code but does not specify whether shlex.split runs on every classify() invocation or is memoized. classify() is on the per-turn hot path; shlex parsing is ~10-100x slower than a dict lookup.</claim>
+    <evidence>
+      <ref>candidate_A.md:13 — "matched against shlex.split(last_command)[0] plus a tiny suffix check for `git diff --quiet`".</ref>
+      <ref>src/clive/observation/observation.py:56 — classify() is invoked once per command per turn, in the synchronous observation loop, before any next-turn LLM decision. interactive_runner.py:352 and toolcall_runner.py:246 are the call sites.</ref>
+    </claim_consequence>
+    <impact>Marginal — shlex.split of a typical command string is ~5-20us. At ~10 turns per minute the dollar cost is negligible. But the principle matters: the proposal's argument is "cheapest mode that works" (per CLAUDE.md execution-modes table) and adding even a sub-millisecond unmeasured parse on the screen-classification hot path without a microbenchmark is a small but real precedent.</impact>
+    <recommendation>Cache the parsed first-token via `last_command.split(None, 1)[0]` (str.split is ~10x cheaper than shlex.split for the leading-token-only use case). Also normalize `git diff --quiet` via a startswith() check on the original string rather than a multi-token shlex parse. This is a 30-second fix; the proposal should specify it to avoid an unmeasured-cost slip.</recommendation>
+  </finding>
+
+  <finding id="PE-6" confidence="MEDIUM" severity="LOW">
+    <title>Sample size and run-count for the gate are unspecified — N=10 in phase1-report is too small to detect a 30% median shift with confidence</title>
+    <claim>Even if the metric mechanics are fixed (PE-1, PE-3), the existing harness ran N=10 per scenario (phase1-report.md:24). At N=10 the 95% CI on a median is roughly ±1 rank-order position; detecting a 30% shift in median cost_tokens requires either a much larger N or per-sample bootstrap confidence intervals neither of which the proposal specifies.</claim>
+    <evidence>
+      <ref>evals/observation/phase1-report.md:24 — "Ran at N=10, per-run timeout 3s."</ref>
+      <ref>evals/observation/latency_bench.py:323 — default --runs=50 but the phase1 ship-decision used N=10.</ref>
+      <ref>evals/observation/phase1-report.json:1-543 — exactly 10 RunResult entries per (scenario, mode) confirms the N.</ref>
+      <ref>candidate_A.md:22 — "the diff in the report shows both inequalities. No human judgement" — implies a strict numerical comparison with no CI / no N specified.</ref>
+    </claim_consequence>
+    <impact>A 30% median delta at N=10 with cost_tokens currently always zero in bench (PE-1) is not statistically distinguishable from noise even if real costs were measured — you would need at least N≥30 for non-parametric median CIs, plus reproducible LLM responses (which by default are not deterministic — temperature, sampling). The "PR merges iff numbers cross" rule is brittle without N, seed, and CI policy.</impact>
+    <recommendation>Specify (a) N ≥ 30 per scenario per mode; (b) fixed seed / temperature=0 / cached responses for any LLM-in-the-loop scenarios; (c) bootstrap 95% CI on the median delta, and merge iff the upper CI bound on the delta is below -30%, not just the point estimate. None of this is in candidate_A or the harness today.</recommendation>
+  </finding>
+
+  <summary>
+    <verdict>The proposal's merge-gate is not computable on the existing harness. Of the two numbers the gate names (median shell-mode cost_tokens, missed_rate), the first does not exist (PE-1) — the harness records zero LLM tokens because no scenario invokes a model — and the second measures a different thing (PE-3): byte-event detection coverage, not classifier-escalation accuracy. The 30% magnitude is dimensionally borrowed from a retired latency criterion (PE-2). And the code change as scoped cannot move either number anyway, because Branch 3 of classify() is dead from the runner perspective (PE-4). Three independent fatal issues compound: bad measurement, bad magnitude, dead code path.</verdict>
+    <minimal_fix_for_proposal>To make candidate_A merge-gateable: (1) add a new mode label "cmdaware" to RunResult.mode and a new scenario class that drives a real LLM call (or a test fixture that records the would-have-been-escalated turn token count); (2) gather a one-week pre-PR baseline of shell-mode escalation rate + tokens-per-escalation from production telemetry; (3) re-derive the merge-gate magnitude from that baseline rather than reusing 30%; (4) rewire interactive_runner.py:351 and toolcall_runner.py:242 so Branch 3 of classify() is reachable; (5) add a false-quiet-rate metric with labeled ground truth on the negative-case scenario (`make` exit 2). With these changes the proposal becomes testable. Without them it is unfalsifiable in the stronger sense — the gate will always trivially pass against a zero baseline.</minimal_fix_for_proposal>
+  </summary>
+
+</performance_engineer_findings>

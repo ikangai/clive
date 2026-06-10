@@ -1,0 +1,10 @@
+iteration	category	target	delta	guard	status	description	commit
+0	-	-	-	-	baseline	pytest: collection abort (2 errors); guard not runnable	-
+1a	bug	Bug A — evals/conftest.py	collection unblocked; +15 surfaced compound failures	-	compound_detected	collection now runs, but evals/__init__.py causes pytest to add repo_root to sys.path AFTER conftest, shadowing src/clive/clive.py for `from clive import …`	-
+1b	bug	Bug A — pyproject.toml with pythonpath	+22 more failures	-	discard	pyproject.toml pythonpath did not win the race; ALSO introduced 22 new test isolation issues (test_slash_registry + test_tui_dashboard)	-
+1c	bug	Bug A — pytest_configure re-prepend	0	-	discard	same 15 failures persist; pytest's package walk and pythonpath race resists post-hoc re-insert	-
+1d	bug	Bug A — wrapper clive.py re-exports _is_direct/run when imported	-15 → 0 failures	full pytest pass	fixed	wrapper now equivalent to src/clive/clive.py for module-import callers; CLI invocation unchanged	d5b2e65
+2	bug	Bug C — relative imports inside tui/{tui,tui_commands,tui_task_runner}.py	5 shims fail → 5 shims load	full pytest pass + --tui startup	fixed	break circular dep by addressing tui_* siblings via `from .tui_X import …` instead of routing through top-level shim	29c13cb
+3	bug	Bug D — remove stale get_toolset docstring line	1 doc-drift line gone	full pytest pass	fixed	pure docstring deletion, no behavior change	b4dafc0
+4	bug	Bug B — PaneStream.unsubscribe + try/finally at 2 caller sites + 4 new lifecycle tests	+4 tests; subscriber leak closed	full pytest pass	fixed	idempotent unsubscribe; per-turn and per-subtask queue cleanup paths verified	59d1d88
+final	-	-	0 errors	pass	done	bare `python3 -m pytest` → 964 passed; all 4 bugs from debug session closed; CLI/TUI smoke-tested	-
