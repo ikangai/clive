@@ -47,6 +47,16 @@ PROVIDERS = {
         "api_key_env": None,
         "default_model": "delegate",
     },
+    "claude-cli": {
+        # Inference served by shelling out to the `claude` CLI (`claude -p`),
+        # i.e. the user's Claude Code subscription — no HTTP API, no API key.
+        # Auth lives in the real HOME (~/.claude); when clive runs under a
+        # relocated HOME (e.g. the harness factory's sandbox) set
+        # CLIVE_CLAUDECLI_HOME to the real home so `claude -p` can authenticate.
+        "base_url": None,
+        "api_key_env": None,
+        "default_model": "claude-cli",  # "use Claude Code's default model"; set AGENT_MODEL=sonnet|opus|haiku to pick
+    },
 }
 
 PROVIDER_NAME = os.getenv("LLM_PROVIDER", "openrouter")
@@ -57,6 +67,85 @@ _provider = PROVIDERS[PROVIDER_NAME]
 MODEL = os.getenv("AGENT_MODEL", _provider["default_model"])
 SCRIPT_MODEL = os.getenv("SCRIPT_MODEL", MODEL)
 CLASSIFIER_MODEL = os.getenv("CLASSIFIER_MODEL", "google/gemini-3-flash-preview")
+
+
+class ClaudeCliClient:
+    """Marker client whose inference is served by the `claude` CLI (`claude -p`),
+    i.e. the Claude Code subscription, instead of an HTTP API. Mirrors the
+    DelegateClient pattern: chat()/chat_with_tools()/chat_stream() branch on
+    isinstance(client, ClaudeCliClient)."""
+
+    def __init__(self, model: str | None = None):
+        self.model = model
+
+
+def _render_cli_prompt(messages: list[dict]) -> str:
+    """Flatten clive's (system + multi-turn) messages into a single prompt for the
+    stateless `claude -p` call. The system/driver instructions lead; the
+    conversation follows; the model is asked to continue as the assistant."""
+    sys_parts: list[str] = []
+    convo: list[str] = []
+    for m in messages:
+        role = m.get("role", "user")
+        content = m.get("content") or ""
+        if isinstance(content, list):  # anthropic block form → flatten text
+            content = "".join(b.get("text", "") for b in content if isinstance(b, dict))
+        if role == "system":
+            sys_parts.append(str(content))
+        else:
+            convo.append(f"{role.upper()}: {content}")
+    blob = ""
+    if sys_parts:
+        blob += "\n\n".join(sys_parts) + "\n\n"
+    blob += "--- Conversation so far ---\n" + "\n\n".join(convo)
+    blob += ("\n\nRespond now as ASSISTANT with only your next message, following "
+             "the instructions above. Do not add commentary outside that message.")
+    return blob
+
+
+def _claude_cli_complete(messages: list[dict], model: str | None = None,
+                         timeout: int = 300) -> tuple[str, int, int]:
+    import json as _json
+    import subprocess
+
+    prompt = _render_cli_prompt(messages)
+    argv = ["claude", "-p", "--output-format", "json"]
+    # Only forward a model the `claude` CLI understands (sonnet/opus/haiku or a
+    # claude-* id). clive may pass other ids (e.g. the Gemini CLASSIFIER_MODEL
+    # default) which the CLI would reject — for those, use Claude Code's default.
+    _m = (model or "").lower()
+    if _m in ("sonnet", "opus", "haiku") or (_m.startswith("claude-") and _m != "claude-cli"):
+        argv += ["--model", model]
+
+    env = dict(os.environ)
+    # Auth is HOME-based; under a relocated HOME (factory sandbox) use the real one.
+    real_home = os.environ.get("CLIVE_CLAUDECLI_HOME")
+    if real_home:
+        env["HOME"] = real_home
+
+    try:
+        p = subprocess.run(argv, input=prompt, capture_output=True, text=True,
+                           timeout=timeout, env=env)
+    except Exception as e:  # noqa: BLE001 — surface as text so the runner records a turn
+        est = sum(len(str(m.get("content", ""))) for m in messages) // 4
+        return f"[claude-cli error: {e}]", est, 0
+
+    out = (p.stdout or "").strip()
+    content = out
+    try:
+        d = _json.loads(out)
+        content = d.get("result", "") or d.get("text", "") or ""
+        if d.get("is_error"):
+            content = f"[claude-cli: {content or 'error'}]"
+    except Exception:
+        content = out or (p.stderr or "").strip()
+
+    # Report clive-SIDE token estimates, not `claude -p`'s usage — the latter is
+    # inflated by Claude Code's own ~15k-token system context, which would blow
+    # clive's --max-tokens budget on the first turn.
+    pt = sum(len(str(m.get("content", ""))) for m in messages) // 4
+    ct = len(content) // 4
+    return content, pt, ct
 
 
 _client_cache = None
@@ -72,6 +161,11 @@ def get_client():
     if PROVIDER_NAME == "delegate":
         from delegate_client import DelegateClient
         _client_cache = DelegateClient()
+        return _client_cache
+
+    # claude-cli provider: no HTTP client — inference shells to `claude -p`.
+    if PROVIDER_NAME == "claude-cli":
+        _client_cache = ClaudeCliClient(model=None if MODEL == "claude-cli" else MODEL)
         return _client_cache
 
     api_key_env = _provider["api_key_env"]
@@ -109,6 +203,9 @@ def chat(
     # the openai SDK duck-type is minimal enough that the shared code
     # below would work, but splitting it out keeps the control flow
     # obvious for future maintainers.
+    if isinstance(client, ClaudeCliClient):
+        return _claude_cli_complete(messages, model=model or client.model)
+
     from delegate_client import DelegateClient
     if isinstance(client, DelegateClient):
         resp = client.chat.completions.create(
@@ -174,6 +271,12 @@ def chat_with_tools(
     tool_calls_raw is the provider-native list of tool-call objects; use
     ``tool_defs.parse_tool_calls(raw, format=...)`` to normalise them.
     """
+    if isinstance(client, ClaudeCliClient):
+        # No native tool calling over the CLI — fall back to plain-text chat, so
+        # clive uses its plain-text bash-block command protocol.
+        text, pt, ct = chat(client, messages, max_tokens=max_tokens, model=model)
+        return [], text, pt, ct
+
     from delegate_client import DelegateClient
     if isinstance(client, DelegateClient):
         # DelegateClient does not support tool calling — fall back to
@@ -256,6 +359,13 @@ def chat_stream(
     # Delegate does not stream in v1 — fall back to non-streaming chat()
     # and fire on_token exactly once with the full content. Streaming
     # is a phase-2 follow-up.
+    if isinstance(client, ClaudeCliClient):
+        # No streaming over the CLI — complete and fire on_token once.
+        content, pt, ct = chat(client, messages, max_tokens=max_tokens, model=model)
+        if on_token:
+            on_token(content)
+        return content, pt, ct
+
     from delegate_client import DelegateClient
     if isinstance(client, DelegateClient):
         content, pt, ct = chat(client, messages, max_tokens=max_tokens, model=model)
