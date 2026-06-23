@@ -382,6 +382,104 @@ def cmd_demo(store: Blackboard) -> None:
     print("=" * 64)
 
 
+def _validate_check(abs_path: str) -> tuple[bool, str]:
+    try:
+        with open(abs_path, "r", encoding="utf-8") as fh:
+            src = fh.read()
+        compile(src, abs_path, "exec")
+    except SyntaxError as e:
+        return False, f"syntax error: {e}"
+    except OSError as e:
+        return False, str(e)
+    if "def acceptance" not in src:
+        return False, "no acceptance(ctx) function"
+    return True, ""
+
+
+def _staged_check_ready(sc: dict) -> tuple[bool, str]:
+    chk = sc.get("check", "") or ""
+    if not (chk.endswith(".py")):
+        return False, "needs synth-check"
+    abs_path = os.path.join(paths.FACTORY_ROOT, chk)
+    if not os.path.exists(abs_path):
+        return False, "check file missing"
+    ok, msg = _validate_check(abs_path)
+    return ok, ("ready" if ok else msg)
+
+
+def cmd_staging() -> None:
+    """List mined candidate scenarios awaiting operator vetting."""
+    files = sorted(glob.glob(os.path.join(paths.STAGING_DIR, "*.yaml")))
+    if not files:
+        print("staging is empty — run `factory mine` to propose candidate scenarios.")
+        return
+    print(f"staged candidate scenarios ({len(files)}) — vet -> synth-check -> promote:")
+    for f in files:
+        with open(f, "r", encoding="utf-8") as fh:
+            sc = yaml.safe_load(fh) or {}
+        ready, status = _staged_check_ready(sc)
+        seeds = len(sc.get("seed_files") or {})
+        print(f"  {sc.get('id','?'):30} [{sc.get('class','single')}] seeds={seeds}  "
+              f"check: {'✓ ' + sc['check'] if ready else '✗ ' + status}")
+        print(f"      goal: {(sc.get('goal','') or '')[:96]}")
+
+
+def cmd_show_scenario(staged_id: str) -> None:
+    p = os.path.join(paths.STAGING_DIR, f"{staged_id}.yaml")
+    if not os.path.exists(p):
+        print(f"no staged scenario {staged_id!r}", file=sys.stderr)
+        return
+    with open(p, "r", encoding="utf-8") as fh:
+        print(fh.read())
+
+
+def cmd_synth_check(store: Blackboard, staged_id: str) -> None:
+    """Synthesize a runnable acceptance check for a staged scenario (operator reviews)."""
+    from ..roles.common import synth_check
+    path = synth_check(store, staged_id)
+    if not path:
+        print(f"synth-check failed for {staged_id!r} (no staged scenario, or the model "
+              f"returned no acceptance()).", file=sys.stderr)
+        return
+    ok, msg = _validate_check(path)
+    rel = os.path.relpath(path, paths.FACTORY_ROOT)
+    print(f"synthesized check: {rel}  [{'compiles OK' if ok else 'NEEDS FIX: ' + msg}]")
+    print("REVIEW it before promoting — the check is the product, never trusted unread. Then:")
+    print(f"  factory/bin/factory promote-scenario {staged_id} --partition working")
+
+
+def cmd_promote_scenario(store: Blackboard, staged_id: str, partition: str) -> None:
+    """Operator action: move a vetted staged scenario into the corpus + register it."""
+    if partition not in ("working", "held-out"):
+        print("partition must be 'working' or 'held-out'", file=sys.stderr)
+        return
+    p = os.path.join(paths.STAGING_DIR, f"{staged_id}.yaml")
+    if not os.path.exists(p):
+        print(f"no staged scenario {staged_id!r}", file=sys.stderr)
+        return
+    with open(p, "r", encoding="utf-8") as fh:
+        sc = yaml.safe_load(fh) or {}
+    ready, status = _staged_check_ready(sc)
+    if not ready:
+        print(f"refusing to promote {staged_id!r}: {status}. Run "
+              f"`factory synth-check {staged_id}`, review the check, then promote.",
+              file=sys.stderr)
+        return
+    sc["partition"] = partition
+    sc["source"] = "mined"
+    sc.setdefault("leakage_count", 0)
+    dest_dir = paths.WORKING_DIR if partition == "working" else paths.HELD_OUT_DIR
+    dest = os.path.join(dest_dir, f"{staged_id}.yaml")
+    with open(dest, "w", encoding="utf-8") as fh:
+        yaml.safe_dump(sc, fh, sort_keys=False, allow_unicode=True)
+    os.remove(p)
+    store.upsert_scenario(staged_id, cls=sc.get("class", "single"), partition=partition,
+                          source="mined", spec_path=dest, goal=sc.get("goal", ""),
+                          snapshot=sc.get("snapshot", ""), check_path=sc.get("check", ""))
+    print(f"promoted {staged_id!r} -> {partition} corpus "
+          f"({os.path.relpath(dest, paths.FACTORY_ROOT)}) + registered in the store.")
+
+
 def cmd_status(store: Blackboard) -> None:
     champ = store.get_champion()
     print("=== clive-harness-factory status ===")
@@ -424,6 +522,11 @@ def main(argv: Optional[list[str]] = None) -> int:
     rp.add_argument("--scenario", action="append"); rp.add_argument("--model", action="append")
     hp = sub.add_parser("holdout-check"); hp.add_argument("cid")
     mp = sub.add_parser("mine"); mp.add_argument("--limit", type=int, default=10)
+    sub.add_parser("staging")
+    sp = sub.add_parser("show-scenario"); sp.add_argument("id")
+    yp = sub.add_parser("synth-check"); yp.add_argument("id")
+    pp = sub.add_parser("promote-scenario"); pp.add_argument("id")
+    pp.add_argument("--partition", choices=["working", "held-out"], default="working")
     sub.add_parser("status")
     sub.add_parser("demo")
     a = ap.parse_args(argv)
@@ -457,6 +560,14 @@ def main(argv: Optional[list[str]] = None) -> int:
             cmd_holdout_check(store, a.cid)
         elif a.cmd == "mine":
             cmd_mine(store, a.limit)
+        elif a.cmd == "staging":
+            cmd_staging()
+        elif a.cmd == "show-scenario":
+            cmd_show_scenario(a.id)
+        elif a.cmd == "synth-check":
+            cmd_synth_check(store, a.id)
+        elif a.cmd == "promote-scenario":
+            cmd_promote_scenario(store, a.id, a.partition)
         elif a.cmd == "status":
             cmd_status(store)
     return 0

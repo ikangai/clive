@@ -1,0 +1,75 @@
+id: mined-count-emails-by-month
+class: single
+snapshot: local-sandbox
+goal: 'In {workdir}, count how many emails under {workdir}/mail are dated in March
+  2026 and how many in April 2026, and write the result to {workdir}/counts.txt as
+  exactly two lines: march=N on the first line and april=M on the second line.'
+seed_files:
+  mail/e1.eml: 'From: alerts@svc.io
+
+    Date: 03 Mar 2026 10:00:00 +0000
+
+    Subject: March one
+
+
+    body
+
+    '
+  mail/e2.eml: 'From: alerts@svc.io
+
+    Date: 15 Mar 2026 10:00:00 +0000
+
+    Subject: March two
+
+
+    body
+
+    '
+  mail/e3.eml: 'From: alerts@svc.io
+
+    Date: 28 Mar 2026 10:00:00 +0000
+
+    Subject: March three
+
+
+    body
+
+    '
+  mail/e4.eml: 'From: alerts@svc.io
+
+    Date: 05 Apr 2026 10:00:00 +0000
+
+    Subject: April one
+
+
+    body
+
+    '
+  mail/e5.eml: 'From: alerts@svc.io
+
+    Date: 20 Apr 2026 10:00:00 +0000
+
+    Subject: April two
+
+
+    body
+
+    '
+  mail/e6.eml: 'From: alerts@svc.io
+
+    Date: 10 Feb 2026 10:00:00 +0000
+
+    Subject: February distractor (must not be counted)
+
+
+    body
+
+    '
+check: checks/scenarios/mined_count_emails_by_month_check.py
+rationale: Mined from the 'count the emails - how many in march26 / april26' sessions
+  (2026-04-09). Re-cast as a hermetic count over six fixed seed .eml files (3 March,
+  2 April, 1 February distractor) so the answer is deterministic and gradeable from
+  a file.
+source: mined
+partition: working
+leakage_count: 0

@@ -288,6 +288,42 @@ def mine_scenarios(store: Blackboard, limit: int = 10) -> list[str]:
     return written
 
 
+def synth_check(store: Blackboard, staged_id: str) -> Optional[str]:
+    """Synthesize a deterministic acceptance check (Python) for a STAGED scenario.
+
+    claude -p writes a `def acceptance(ctx) -> CheckResult` module from the
+    scenario's goal + seed_files + check description. The result is saved for
+    OPERATOR REVIEW and the staged scenario's `check` is pointed at it. The human
+    reviews the generated code before promoting the scenario — the check is the
+    product, so it is never trusted unread.
+    """
+    staged = os.path.join(paths.STAGING_DIR, f"{staged_id}.yaml")
+    if not os.path.exists(staged):
+        return None
+    with open(staged, "r", encoding="utf-8") as fh:
+        sc = yaml.safe_load(fh) or {}
+    ctx = {"goal": sc.get("goal", ""), "seed_files": sc.get("seed_files", {}),
+           "check_description": sc.get("check", ""), "class": sc.get("class", "single")}
+    prompt = _load_prompt("check-synth") + "\n\n## SCENARIO\n```json\n" \
+        + json.dumps(ctx, indent=2, default=str) + "\n```\n"
+    reply, tokens, cost = claude_p(prompt)
+    if store:
+        store.add_budget("check-synth", tokens, cost, notes=staged_id)
+
+    code = _extract(reply, ("python", ""))
+    if "def acceptance" not in code:
+        return None
+    rel = f"checks/scenarios/{staged_id.replace('-', '_')}_check.py"
+    path = os.path.join(paths.FACTORY_ROOT, rel)
+    with open(path, "w", encoding="utf-8") as fh:
+        fh.write(code if code.endswith("\n") else code + "\n")
+    # Point the staged scenario at the generated check (operator reviews, then promotes).
+    sc["check"] = rel
+    with open(staged, "w", encoding="utf-8") as fh:
+        yaml.safe_dump(sc, fh, sort_keys=False, allow_unicode=True)
+    return path
+
+
 def run_role(name: str, store: Blackboard, **kw):
     if name == "proposer":
         return propose(store)

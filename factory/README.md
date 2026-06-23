@@ -86,8 +86,28 @@ $factory propose             # fires ONLY if >= N new failures accrued (gain gov
 $factory evaluate <cid>      # candidate across working set x panel (concurrency-capped)
 $factory round <cid>         # evaluate (+held-out sample) -> reporter -> gate to queue/rejected
 $factory holdout-check <cid> # arbitration-cadence overfit probe under the held-out MODEL
-$factory mine --limit 10     # scenario-miner -> staging/ for operator vetting
 ```
+
+### Build the corpus from real sessions (the factory is only as good as its battery)
+
+Turn real clive production sessions into vetted, hermetic, deterministically-gradeable
+scenarios. Every step keeps the human in the loop — you vet each scenario and review
+each synthesized check before it enters the corpus.
+
+```bash
+$factory mine --limit 45            # Scenario Miner: ~/.clive_session_log.jsonl -> staging/
+                                    # (re-casts network/email tasks as self-contained tasks
+                                    #  over seed_files; skips ungradeable text-gen)
+$factory staging                    # list staged candidates + check readiness
+$factory show-scenario <id>         # inspect a candidate (goal, seed_files, check spec)
+$factory synth-check <id>           # claude -p writes a runnable acceptance check — REVIEW IT
+$factory promote-scenario <id> --partition working   # operator action: into the corpus + store
+```
+
+A scenario cannot be promoted until it has a check that compiles and defines
+`acceptance(ctx)` — `synth-check` drafts it; you review/edit; `promote-scenario`
+verifies and registers it. Mined scenarios never enter the corpus (and never the
+held-out partition) without this human approval.
 
 A candidate that clears the §9 rule (beats champion on the working set, no
 held-out regression, no panel regression, no safety flag) lands in **awaiting
