@@ -1,0 +1,19 @@
+#!/usr/bin/env bash
+# clive-harness-factory CLI entrypoint. Runs the orchestrator (or the board /
+# smoke test) from the clive repo root so `python3 -m factory.*` resolves.
+#
+#   factory init | baseline | propose | evaluate <cid> | round <cid> | mine | status
+#   factory board        # start the operator's board
+#   factory smoke        # end-to-end smoke test on the single example scenario
+set -euo pipefail
+HERE="$(cd "$(dirname "$0")" && pwd)"
+CLIVE_ROOT="$(cd "$HERE/../.." && pwd)"
+cd "$CLIVE_ROOT"
+PY="${FACTORY_PYTHON:-python3}"
+
+case "${1:-}" in
+  board)  exec "$PY" -m factory.dashboard.server ;;
+  smoke)  shift; exec "$PY" -m factory.smoke_test "$@" ;;
+  "")     echo "usage: factory {init|baseline|propose|evaluate <cid>|round <cid>|mine|status|board|smoke}" >&2; exit 2 ;;
+  *)      exec "$PY" -m factory.orchestrator.orchestrator "$@" ;;
+esac

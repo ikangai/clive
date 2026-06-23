@@ -1,0 +1,36 @@
+# Panel intelligences (spec §5) — the models that DRIVE the candidate clive
+# during evaluation. This is CONFIGURED, not a factory role. Plus one held-out
+# model never used during optimisation (only to detect a harness overfit to the
+# panel).
+#
+# Credentials are NOT stored here. Each entry names a clive provider + model;
+# the API key is sourced from clive's existing .env (python-dotenv) at run time.
+# Edit the model ids / providers to match what you actually have keys for.
+#
+# The entry marked `smoke: true` is the single model the Phase-0 smoke test uses
+# (kept to one model so the smoke test is cheap and hermetic). Mark the cheapest.
+
+panel:
+  - name: or-flash
+    provider: openrouter         # uses the OPENROUTER_API_KEY already in clive/.env
+    model: google/gemini-3-flash-preview
+    tier: fast
+    smoke: true                  # <-- smoke test drives with this (a credential that exists here)
+
+  - name: claude
+    provider: anthropic          # placeholder — set ANTHROPIC_API_KEY in clive/.env to use
+    model: claude-haiku-4-5-20251001
+    tier: default
+
+# Held-out model: NEVER used during optimisation; scored only to detect overfit
+# to the panel. The proposer never sees this, and the optimisation loop never
+# drives with it. Actuated on operator cadence (the arbitration loop) via
+#   factory holdout-check <candidate-id>
+# which runs the candidate under this model on the working set (recorded as
+# partition='holdout-model', kept out of the panel scoreboard) and reports the
+# panel-vs-held-out-model gap as an overfit signal on the board.
+held_out:
+  - name: holdout
+    provider: openai             # OPENAI_API_KEY from clive/.env
+    model: gpt-4o-mini
+    tier: default
