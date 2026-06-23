@@ -1,0 +1,38 @@
+id: mined-srt-to-transcript
+class: single
+snapshot: local-sandbox
+goal: In {workdir}, read the subtitle file {workdir}/captions.srt and write a plain
+  transcript to {workdir}/transcript.txt containing only the caption text lines in
+  order, with the sequence numbers, the timestamp lines, and the blank separator lines
+  all removed.
+seed_files:
+  captions.srt: '1
+
+    00:00:01,000 --> 00:00:03,000
+
+    Hello and welcome.
+
+
+    2
+
+    00:00:03,000 --> 00:00:06,500
+
+    Today we discuss clive.
+
+
+    3
+
+    00:00:06,500 --> 00:00:09,000
+
+    This is the final line.
+
+    '
+check: checks/scenarios/mined_srt_to_transcript_check.py
+rationale: Mined from 'get me the transcript of this youtube video' (2026-04-14),
+  which FAILED once (interactive, 0 tokens) then succeeded at high cost (script, 28482
+  tokens). Network/YouTube dependency removed by shipping a fixed .srt seed; the gradeable
+  essence — strip numbering+timestamps to recover plain text — is preserved with a
+  deterministic expected output.
+source: mined
+partition: working
+leakage_count: 0
