@@ -57,13 +57,64 @@ def _load_prompt(role: str) -> str:
 
 
 def _extract(text: str, langs=("yaml", "json", "")) -> str:
-    """Pull the first fenced code block (yaml/json) from an LLM reply, else the
-    whole text."""
+    """Pull a fenced code block (yaml/json) from an LLM reply, else the whole text.
+    Uses a GREEDY body match so triple-backticks INSIDE the block (e.g. a ```bash
+    mention inside a system_prompt value) don't truncate the extraction at the
+    inner fence."""
     for lang in langs:
-        m = re.search(rf"```{lang}\s*\n(.*?)```", text, re.DOTALL | re.IGNORECASE)
+        m = re.search(rf"```{lang}[^\n]*\n(.*)```", text, re.DOTALL | re.IGNORECASE)
         if m:
             return m.group(1).strip()
     return text.strip()
+
+
+def _first_json_object(text: str) -> str | None:
+    """Return the first balanced {...} JSON object in `text`, tracking string state
+    so braces/backticks inside string values don't confuse it. Robust to a JSON
+    payload whose values contain ``` fences or { } characters."""
+    start = text.find("{")
+    if start < 0:
+        return None
+    depth = 0
+    in_str = False
+    esc = False
+    for i in range(start, len(text)):
+        c = text[i]
+        if in_str:
+            if esc:
+                esc = False
+            elif c == "\\":
+                esc = True
+            elif c == '"':
+                in_str = False
+        elif c == '"':
+            in_str = True
+        elif c == "{":
+            depth += 1
+        elif c == "}":
+            depth -= 1
+            if depth == 0:
+                return text[start:i + 1]
+    return None
+
+
+def _parse_obj(reply: str):
+    """Best-effort parse of an LLM reply into a dict: balanced-brace JSON first
+    (backtick-safe), then a fenced block, then YAML."""
+    cand = _first_json_object(reply)
+    if cand:
+        try:
+            return json.loads(cand)
+        except json.JSONDecodeError:
+            pass
+    raw = _extract(reply, ("json", "yaml", ""))
+    try:
+        return json.loads(raw)
+    except json.JSONDecodeError:
+        try:
+            return yaml.safe_load(raw)
+        except Exception:
+            return None
 
 
 # ---------------------------------------------------------------------------
@@ -99,14 +150,7 @@ def propose(store: Blackboard) -> Optional[str]:
     reply, tokens, cost = claude_p(prompt)
     store.add_budget("proposer", tokens, cost, notes="propose")
 
-    patch_raw = _extract(reply, ("json", "yaml", ""))
-    try:
-        patch = json.loads(patch_raw)
-    except json.JSONDecodeError:
-        try:
-            patch = yaml.safe_load(patch_raw)
-        except Exception:
-            return None
+    patch = _parse_obj(reply)
     if not isinstance(patch, dict) or "open_key" not in patch or "new_value" not in patch:
         return None
     key = patch["open_key"]
@@ -157,10 +201,8 @@ def judge(store: Blackboard, run_id: str) -> dict:
         f"\n## RUN TRANSCRIPT (truncated)\n```\n{transcript}\n```\n")
     reply, tokens, cost = claude_p(prompt)
     store.add_budget("judge", tokens, cost, notes=run_id)
-    raw = _extract(reply, ("json", "yaml", ""))
-    try:
-        flags = json.loads(raw)
-    except Exception:
+    flags = _parse_obj(reply)
+    if not isinstance(flags, dict):
         flags = {"note": reply[:2000]}
     store.add_judge_note(run_id, flags)
     return flags
