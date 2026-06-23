@@ -20,12 +20,13 @@ import argparse
 import glob
 import json
 import os
+import shutil
 import sys
 from typing import Optional
 
 import yaml
 
-from ..common import config, paths, scoring
+from ..common import config, paths, scoring, specs
 from ..common.budget import BudgetGuard
 from ..common.store import Blackboard
 from ..runner.runner import run_one
@@ -112,14 +113,27 @@ def _evaluate(store: Blackboard, candidate_id: str, spec_path: str, *,
         store.set_stage(candidate_id, "evaluating")
 
     consecutive_errors = {"n": 0}
+    progress = {"done": 0, "total": len(plan)}
+    print(f"  {progress['total']} runs: {len(working)} working + {len(held)} held-out "
+          f"× {len(models)} model(s) [{', '.join(m.get('name','?') for m in models)}]",
+          file=sys.stderr)
 
     def make_task(scenario_row, model_entry, partition):
         scen = _scenario_dict(scenario_row)
         return lambda: {**run_one(candidate_id, spec_path, scen, model_entry,
                                   partition=partition),
-                        "partition": partition}
+                        "partition": partition,
+                        "scenario": scenario_row["id"],
+                        "model": model_entry.get("name", "?")}
 
     def on_done(res: dict) -> bool:
+        progress["done"] += 1
+        mark = "✓" if res.get("outcome") == "pass" else "✗"
+        flags = res.get("safety_flags") or []
+        sfx = f" ⚠{len(flags)}" if flags else ""
+        print(f"  [{progress['done']}/{progress['total']}] {mark} "
+              f"{res.get('scenario','?')} @ {res.get('model','?')} → "
+              f"{res.get('outcome','?')} ({res.get('tokens',0)} tok){sfx}", file=sys.stderr)
         guard.add(int(res.get("tokens", 0)))
         if res.get("outcome") == "error":
             consecutive_errors["n"] += 1
@@ -169,12 +183,24 @@ def cmd_baseline(store: Blackboard, sample: Optional[int] = None,
     print("baseline scores:", json.dumps(out["scores"], indent=2, default=str))
 
 
-def cmd_evaluate(store: Blackboard, candidate_id: str, run_judge: bool = True) -> None:
+def _resolve_models(names: Optional[list[str]]) -> Optional[list[dict]]:
+    """Map model NAMES (from --model) to their panel/held-out config entries."""
+    if not names:
+        return None
+    pool = {m["name"]: m for m in (config.panel_models() + config.held_out_models())}
+    out = [pool[n] for n in names if n in pool]
+    return out or None
+
+
+def cmd_evaluate(store: Blackboard, candidate_id: str, run_judge: bool = True,
+                 scenario_ids: Optional[list[str]] = None,
+                 models: Optional[list[dict]] = None) -> None:
     cand = store.get_candidate(candidate_id)
     if not cand:
         print(f"no such candidate: {candidate_id}", file=sys.stderr)
         return
-    out = _evaluate(store, candidate_id, cand["spec_path"], run_judge=run_judge)
+    out = _evaluate(store, candidate_id, cand["spec_path"], run_judge=run_judge,
+                    scenario_ids=scenario_ids, models=models)
     print(f"evaluate {candidate_id}:", json.dumps(out["scores"], indent=2, default=str))
 
 
@@ -277,6 +303,85 @@ def cmd_mine(store: Blackboard, limit: int = 10) -> None:
         print(" ", p)
 
 
+def cmd_reset(keep_logs: bool = False) -> None:
+    """Wipe the blackboard, generated candidate specs, and run logs, then re-init
+    to a clean slate. Run OUTSIDE an open store connection (it deletes the db)."""
+    removed = 0
+    for suffix in ("", "-wal", "-shm"):
+        p = paths.DB_PATH + suffix
+        if os.path.exists(p):
+            os.remove(p); removed += 1
+    for f in glob.glob(os.path.join(paths.CANDIDATES_DIR, "*.yaml")):
+        os.remove(f); removed += 1
+    if not keep_logs and os.path.isdir(paths.RUNS_DIR):
+        shutil.rmtree(paths.RUNS_DIR, ignore_errors=True)
+        os.makedirs(paths.RUNS_DIR, exist_ok=True)
+    print(f"reset: cleared {removed} store/spec files"
+          + ("" if keep_logs else " + run logs") + " — re-initialising…")
+    with Blackboard() as store:
+        cmd_init(store)
+
+
+DEMO_CONVENTION = (
+    "\n\nOUTPUT CONVENTION: Whenever you write a status report or result to a "
+    "file, finish it with a final machine-readable line in the exact form "
+    "`RESULT=OK` on success (or `RESULT=FAIL` on failure), so the outcome can be "
+    "parsed programmatically.")
+
+
+def _seed_demo_candidate(store: Blackboard) -> str:
+    """A deterministic one-change candidate: champion + a machine-readable RESULT=
+    convention in the system_prompt. Fixes the `machine-status` scenario the
+    current champion fails."""
+    champ = specs.load_spec(paths.CHAMPION_YAML)
+    cand = {"meta": {"version": champ["meta"].get("version", 1) + 1, "parent": "champion"},
+            "open": dict(champ["open"]), "frozen": champ["frozen"]}
+    cand["open"]["system_prompt"] = champ["open"].get("system_prompt", "") + DEMO_CONVENTION
+    cand["meta"]["hash"] = specs.compute_hash(cand["open"], cand["frozen"])
+    res = specs.validate_candidate(cand, champ, max_changed_open_keys=config.load_config()
+                                   .get("spec", {}).get("max_changed_open_keys", 1))
+    assert res.ok, f"demo candidate failed validation: {res.errors}"
+    cid = "cand-demo"
+    spec_path = os.path.join(paths.CANDIDATES_DIR, f"{cid}.yaml")
+    os.makedirs(paths.CANDIDATES_DIR, exist_ok=True)
+    specs.dump_spec(cand, spec_path)
+    if not store.get_candidate(cid):
+        store.add_candidate(cid, "champion", spec_path,
+                            change_summary="system_prompt: teach clive to emit a "
+                            "machine-readable RESULT= line", diff=res.diff, stage="proposed")
+    return cid
+
+
+def cmd_demo(store: Blackboard) -> None:
+    """Promotion-gate demo: the champion FAILS `machine-status` (writes a prose
+    report), a one-change candidate that teaches a RESULT= convention PASSES, so it
+    clears the rule and lands in the queue for a human Promote click."""
+    only = ["machine-status"]
+    model = config.smoke_model()
+    print("demo: champion fails 'machine-status' (prose report, no machine-readable "
+          "RESULT= line); a one-change candidate fixes it.\n")
+    print("[1/3] champion baseline on machine-status …")
+    cmd_baseline(store, sample=0, scenario_ids=only, models=[model])
+    cid = _seed_demo_candidate(store)
+    print(f"\n[2/3] candidate {cid}: + machine-readable RESULT= convention "
+          f"(one system_prompt change)")
+    print(f"\n[3/3] evaluation round for {cid} …")
+    cmd_round(store, cid, run_judge=False, scenario_ids=only, models=[model])
+
+    cand = store.get_candidate(cid)
+    stage = cand["stage"] if cand else "?"
+    print("\n" + "=" * 64)
+    if stage == "awaiting_gate":
+        print(f"✅ {cid} CLEARED the rule and is AWAITING YOUR PROMOTION at the gate.")
+        print("   It beat the champion on the working set, no regressions, no safety flag.")
+        print("   Open the board and click Promote (the one human lever):")
+        print("     factory/bin/factory board   →  http://127.0.0.1:8787")
+    else:
+        print(f"{cid} ended at stage '{stage}' (expected awaiting_gate).")
+    print("Nothing was promoted automatically. Promotion is your action at the board.")
+    print("=" * 64)
+
+
 def cmd_status(store: Blackboard) -> None:
     champ = store.get_champion()
     print("=== clive-harness-factory status ===")
@@ -309,26 +414,45 @@ def main(argv: Optional[list[str]] = None) -> int:
     ap = argparse.ArgumentParser(prog="factory.orchestrator")
     sub = ap.add_subparsers(dest="cmd", required=True)
     sub.add_parser("init")
+    rs = sub.add_parser("reset"); rs.add_argument("--keep-logs", action="store_true")
     bp = sub.add_parser("baseline"); bp.add_argument("--sample", type=int, default=None)
+    bp.add_argument("--scenario", action="append"); bp.add_argument("--model", action="append")
     sub.add_parser("propose")
     ep = sub.add_parser("evaluate"); ep.add_argument("cid"); ep.add_argument("--no-judge", action="store_true")
+    ep.add_argument("--scenario", action="append"); ep.add_argument("--model", action="append")
     rp = sub.add_parser("round"); rp.add_argument("cid"); rp.add_argument("--no-judge", action="store_true")
+    rp.add_argument("--scenario", action="append"); rp.add_argument("--model", action="append")
     hp = sub.add_parser("holdout-check"); hp.add_argument("cid")
     mp = sub.add_parser("mine"); mp.add_argument("--limit", type=int, default=10)
     sub.add_parser("status")
+    sub.add_parser("demo")
     a = ap.parse_args(argv)
+
+    # reset deletes the db file, so it must run BEFORE a store connection is opened.
+    if a.cmd == "reset":
+        cmd_reset(keep_logs=a.keep_logs)
+        return 0
+    # demo = clean slate + the champion-fails / candidate-fixes walkthrough.
+    if a.cmd == "demo":
+        cmd_reset(keep_logs=False)
+        with Blackboard() as store:
+            cmd_demo(store)
+        return 0
 
     with Blackboard() as store:
         if a.cmd == "init":
             cmd_init(store)
         elif a.cmd == "baseline":
-            cmd_baseline(store, a.sample)
+            cmd_baseline(store, a.sample, scenario_ids=a.scenario,
+                         models=_resolve_models(a.model))
         elif a.cmd == "propose":
             cmd_propose(store)
         elif a.cmd == "evaluate":
-            cmd_evaluate(store, a.cid, run_judge=not a.no_judge)
+            cmd_evaluate(store, a.cid, run_judge=not a.no_judge,
+                         scenario_ids=a.scenario, models=_resolve_models(a.model))
         elif a.cmd == "round":
-            cmd_round(store, a.cid, run_judge=not a.no_judge)
+            cmd_round(store, a.cid, run_judge=not a.no_judge,
+                      scenario_ids=a.scenario, models=_resolve_models(a.model))
         elif a.cmd == "holdout-check":
             cmd_holdout_check(store, a.cid)
         elif a.cmd == "mine":

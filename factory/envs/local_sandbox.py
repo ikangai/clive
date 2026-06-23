@@ -25,7 +25,11 @@ class LocalSandboxProvider(EnvProvider):
     name = "local"
 
     def provision(self, scenario: dict, run_id: str) -> EnvHandle:
-        root = tempfile.mkdtemp(prefix=f"clive-factory-{run_id}-")
+        # Under /tmp (NOT the macOS default /var/folders): clive's CLIVE_SANDBOX
+        # profile (sandbox/run.sh) only permits shell writes to the session dir +
+        # /tmp + /private/tmp + /dev, so a workdir under /var/folders would be
+        # denied — the candidate could never write to its own workdir.
+        root = tempfile.mkdtemp(prefix=f"cf-{run_id[:24]}-", dir="/tmp")
         workdir = os.path.join(root, "work")
         home = os.path.join(root, "home")
         os.makedirs(workdir, exist_ok=True)

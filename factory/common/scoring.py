@@ -131,7 +131,12 @@ def divergence_signal(store: Blackboard, candidate_id: str,
     promo = evaluate_promotion(store, candidate_id, champion_id, {"promotion": {}})
     cand = promo["candidate_scores"]
     working_up = promo["working_delta"] > 0
+    # "held-out flat" is only a Goodhart signal if held-out was ACTUALLY measured.
+    # When it wasn't sampled (n_held_out == 0), a flat delta means "unmeasured",
+    # not "gamed" — don't cry proxy-gaming on the absence of evidence.
+    held_measured = cand.get("n_held_out", 0) > 0
     held_flat_or_down = promo["held_delta"] <= 0
+    proxy_gaming = working_up and held_flat_or_down and held_measured
     # Threshold scales to the number of panel models actually run: one model
     # diverging out of N trips the alarm. With <2 models, panel-spread can't speak
     # (spread is 0), so only the working-vs-held-out signal applies.
@@ -140,16 +145,17 @@ def divergence_signal(store: Blackboard, candidate_id: str,
     # Held-out-model overfit probe (if it has been run for this candidate).
     hm = holdout_model_signal(store, candidate_id)
     holdout_overfit = bool(hm) and hm.get("overfit_gap", 0) >= 0.34
-    alarm = (working_up and held_flat_or_down) or spread_wide or holdout_overfit
+    alarm = proxy_gaming or spread_wide or holdout_overfit
     return {
         "alarm": bool(alarm),
         "working_delta": promo["working_delta"],
         "held_delta": promo["held_delta"],
+        "held_out_measured": held_measured,
         "panel_spread": cand["panel_spread"],
         "holdout_model": hm,
         "reasons": [
             *(["working-set up while held-out flat/down (proxy gaming)"]
-              if (working_up and held_flat_or_down) else []),
+              if proxy_gaming else []),
             *(["panel spread widening (overfit to one panel model)"]
               if spread_wide else []),
             *([f"panel >> held-out model (gap {hm.get('overfit_gap'):.2f}; overfit "

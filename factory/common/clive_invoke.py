@@ -89,6 +89,12 @@ def build(goal: str, *, applied_env: dict[str, str], applied_flags: list[str],
     env.update(panel_env(model_entry))
     env["CLIVE_KEEP_SESSION"] = "1"
     env["PYTHONUNBUFFERED"] = "1"
+    # For the claude-cli provider: clive shells to `claude -p`, whose auth is in
+    # the REAL home (~/.claude), but the candidate runs under HOME=sandbox. Pass
+    # the real home through so inference can authenticate. (This softens the local
+    # sandbox boundary — the inference subprocess sees the real home; use the
+    # docker provider / an API key for untrusted candidates.)
+    env["CLIVE_CLAUDECLI_HOME"] = os.environ.get("HOME", "")
     # Self-modification must never reach the real clive source from a candidate.
     # load_dotenv(override=False) means this 0 survives clive/.env's =1, and
     # --safe-mode (below) forces it off inside clive regardless.
@@ -126,6 +132,7 @@ def run(goal: str, *, applied_env, applied_flags, env_vars, model_entry,
     overrides = {k: env[k] for k in (
         list((env_vars or {}).keys()) + list((applied_env or {}).keys())
         + list(panel_env(model_entry).keys())
-        + ["CLIVE_KEEP_SESSION", "CLIVE_EXPERIMENTAL_SELFMOD"]) if k in env}
+        + ["CLIVE_KEEP_SESSION", "CLIVE_EXPERIMENTAL_SELFMOD",
+           "CLIVE_CLAUDECLI_HOME"]) if k in env}
     return CliveResult(rc=rc, stdout=out, stderr=err, duration_s=dur,
                        timed_out=timed_out, argv=argv, env_overrides=overrides)

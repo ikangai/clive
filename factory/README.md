@@ -9,8 +9,8 @@ board, ready to be seeded with scenarios and started by hand.
 > to any real system** and **no outbound real-world action**. A human (the
 > **operator**) holds the promotion gate.
 
-Design rationale and the grounding of every discovery point: see
-[`../docs/plans/2026-06-23-clive-harness-factory-phase0-design.md`](../docs/plans/2026-06-23-clive-harness-factory-phase0-design.md).
+- **How it works** (components, data/control flow, diagrams): [`ARCHITECTURE.md`](ARCHITECTURE.md)
+- **Design rationale + grounding of every discovery point**: [`../docs/plans/2026-06-23-clive-harness-factory-phase0-design.md`](../docs/plans/2026-06-23-clive-harness-factory-phase0-design.md)
 
 ## The idea in one breath
 

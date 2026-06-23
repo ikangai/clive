@@ -14,6 +14,6 @@ PY="${FACTORY_PYTHON:-python3}"
 case "${1:-}" in
   board)  exec "$PY" -m factory.dashboard.server ;;
   smoke)  shift; exec "$PY" -m factory.smoke_test "$@" ;;
-  "")     echo "usage: factory {init|baseline|propose|evaluate <cid>|round <cid>|mine|status|board|smoke}" >&2; exit 2 ;;
+  "")     echo "usage: factory {init|reset|baseline|propose|evaluate <cid>|round <cid>|holdout-check <cid>|mine|status|board|smoke|demo}" >&2; exit 2 ;;
   *)      exec "$PY" -m factory.orchestrator.orchestrator "$@" ;;
 esac

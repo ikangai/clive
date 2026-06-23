@@ -51,7 +51,9 @@ class DockerEnvProvider(EnvProvider):
         if not ok:
             raise RuntimeError(f"docker provider unavailable: {reason}")
 
-        root = tempfile.mkdtemp(prefix=f"clive-factory-{run_id}-")
+        # Under /tmp so clive's CLIVE_SANDBOX profile permits writes to the
+        # bind-mounted host workdir (see local_sandbox for the rationale).
+        root = tempfile.mkdtemp(prefix=f"cf-{run_id[:24]}-", dir="/tmp")
         workdir = os.path.join(root, "work")
         home = os.path.join(root, "home")
         os.makedirs(workdir, exist_ok=True)

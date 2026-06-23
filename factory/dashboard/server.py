@@ -45,7 +45,7 @@ def build_state() -> dict:
         scoreboard = {"panel": panel, "rows": [row(CHAMPION_ID, "champion (baseline)")]}
         for c in cands:
             if c["id"] != CHAMPION_ID and c["stage"] in ("scored", "awaiting_gate", "promoted"):
-                scoreboard["rows"].append(row(c["id"], c["change"][:40] or c["id"]))
+                scoreboard["rows"].append(row(c["id"], c["change_summary"][:40] or c["id"]))
 
         # Divergence alarms
         divergence = []
