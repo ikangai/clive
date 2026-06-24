@@ -1,1 +1,0 @@
-"""clive-harness-factory package."""
