@@ -1,0 +1,18 @@
+id: gate-demo
+class: single
+snapshot: local-sandbox
+partition: working
+leakage_count: 0
+source: seed
+
+# Fresh promotion-gate demo. (Champion v1's RESULT= gap was promoted away in v2.)
+# This one rewards a completion-RECEIPT convention the current champion prompt does
+# not establish: the goal only asks for a status report, but the check also requires
+# a sibling <file>.done receipt — so the champion fails and a one-change candidate
+# that teaches clive to leave receipts clears it.
+goal: >
+  Verify that the directory {workdir} is writable (create a temporary file there and
+  remove it), then write a short status report describing the outcome to the file
+  {workdir}/status.txt.
+
+check: checks/scenarios/gate_demo_check.py

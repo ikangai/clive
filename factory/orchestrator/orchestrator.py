@@ -175,11 +175,17 @@ def cmd_baseline(store: Blackboard, sample: Optional[int] = None,
                  models: Optional[list[dict]] = None) -> None:
     cfg = config.load_config()
     sample = cfg.get("held_out", {}).get("sample_size", 1) if sample is None else sample
-    print(f"baseline: evaluating champion across working set + {sample} held-out …")
-    out = _evaluate(store, CHAMPION_ID, paths.CHAMPION_YAML,
+    # Run the STORE's current champion spec, not the hardcoded seed — so a board
+    # promotion (which repoints the champion at the promoted candidate's spec)
+    # actually takes effect for the loop. The champion id stays CHAMPION_ID.
+    champ = store.get_champion()
+    champ_path = champ["spec_path"] if champ else paths.CHAMPION_YAML
+    print(f"baseline: evaluating champion [{os.path.basename(champ_path)}] across "
+          f"working set + {sample} held-out …")
+    out = _evaluate(store, CHAMPION_ID, champ_path,
                     held_out_sample=sample, run_judge=False,
                     scenario_ids=scenario_ids, models=models)
-    store.set_champion(CHAMPION_ID, paths.CHAMPION_YAML, scores=out["scores"])
+    store.set_champion(CHAMPION_ID, champ_path, scores=out["scores"])
     print("baseline scores:", json.dumps(out["scores"], indent=2, default=str))
 
 
@@ -323,16 +329,16 @@ def cmd_reset(keep_logs: bool = False) -> None:
 
 
 DEMO_CONVENTION = (
-    "\n\nOUTPUT CONVENTION: Whenever you write a status report or result to a "
-    "file, finish it with a final machine-readable line in the exact form "
-    "`RESULT=OK` on success (or `RESULT=FAIL` on failure), so the outcome can be "
-    "parsed programmatically.")
+    "\n\nOUTPUT CONVENTION: After you finish writing any report or result file for "
+    "a task, also create an empty sibling completion-receipt file named "
+    "<that filename>.done (for example, `touch status.txt.done`), so a task's "
+    "completion is verifiable on disk.")
 
 
 def _seed_demo_candidate(store: Blackboard) -> str:
-    """A deterministic one-change candidate: champion + a machine-readable RESULT=
-    convention in the system_prompt. Fixes the `machine-status` scenario the
-    current champion fails."""
+    """A deterministic one-change candidate: champion + a completion-receipt
+    convention in the system_prompt. Fixes the `gate-demo` scenario the current
+    champion fails."""
     champ = specs.load_spec(paths.CHAMPION_YAML)
     cand = {"meta": {"version": champ["meta"].get("version", 1) + 1, "parent": "champion"},
             "open": dict(champ["open"]), "frozen": champ["frozen"]}
@@ -347,23 +353,24 @@ def _seed_demo_candidate(store: Blackboard) -> str:
     specs.dump_spec(cand, spec_path)
     if not store.get_candidate(cid):
         store.add_candidate(cid, "champion", spec_path,
-                            change_summary="system_prompt: teach clive to emit a "
-                            "machine-readable RESULT= line", diff=res.diff, stage="proposed")
+                            change_summary="system_prompt: teach clive to leave a "
+                            "<file>.done completion receipt", diff=res.diff, stage="proposed")
     return cid
 
 
 def cmd_demo(store: Blackboard) -> None:
-    """Promotion-gate demo: the champion FAILS `machine-status` (writes a prose
-    report), a one-change candidate that teaches a RESULT= convention PASSES, so it
-    clears the rule and lands in the queue for a human Promote click."""
-    only = ["machine-status"]
+    """Promotion-gate demo: the champion FAILS `gate-demo` (writes the report but
+    leaves no completion receipt), a one-change candidate that teaches a <file>.done
+    receipt convention PASSES, so it clears the rule and lands in the queue for a
+    human Promote click."""
+    only = ["gate-demo"]
     model = config.smoke_model()
-    print("demo: champion fails 'machine-status' (prose report, no machine-readable "
-          "RESULT= line); a one-change candidate fixes it.\n")
-    print("[1/3] champion baseline on machine-status …")
+    print("demo: champion fails 'gate-demo' (writes status.txt but no .done receipt); "
+          "a one-change candidate that teaches a receipt convention fixes it.\n")
+    print("[1/3] champion baseline on gate-demo …")
     cmd_baseline(store, sample=0, scenario_ids=only, models=[model])
     cid = _seed_demo_candidate(store)
-    print(f"\n[2/3] candidate {cid}: + machine-readable RESULT= convention "
+    print(f"\n[2/3] candidate {cid}: + a <file>.done completion-receipt convention "
           f"(one system_prompt change)")
     print(f"\n[3/3] evaluation round for {cid} …")
     cmd_round(store, cid, run_judge=False, scenario_ids=only, models=[model])

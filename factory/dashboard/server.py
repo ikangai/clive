@@ -107,8 +107,12 @@ def do_promote(payload: dict) -> tuple[int, dict]:
         scores = scoring.candidate_scores(store, cid)
         store.add_promotion(cid, "promote", operator, rationale)
         store.set_stage(cid, "promoted")
-        store.set_champion(cid, cand["spec_path"], scores=scores)
-        return 200, {"ok": True, "champion": cid, "operator": operator}
+        # Keep the champion id stable as CHAMPION_ID but repoint its spec at the
+        # promoted candidate, so the loop (which evaluates CHAMPION_ID) runs the
+        # promoted spec. Runtime promotion: `reset` reverts to the seed champion.yaml;
+        # to make it durable, fold the change into champion.yaml + commit.
+        store.set_champion(CHAMPION_ID, cand["spec_path"], scores=scores)
+        return 200, {"ok": True, "champion": f"{CHAMPION_ID} -> {cid}", "operator": operator}
 
 
 class Handler(BaseHTTPRequestHandler):
