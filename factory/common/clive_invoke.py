@@ -89,11 +89,13 @@ def build(goal: str, *, applied_env: dict[str, str], applied_flags: list[str],
     env.update(panel_env(model_entry))
     env["CLIVE_KEEP_SESSION"] = "1"
     env["PYTHONUNBUFFERED"] = "1"
-    # For the claude-cli provider: clive shells to `claude -p`, whose auth is in
-    # the REAL home (~/.claude), but the candidate runs under HOME=sandbox. Pass
-    # the real home through so inference can authenticate. (This softens the local
-    # sandbox boundary — the inference subprocess sees the real home; use the
-    # docker provider / an API key for untrusted candidates.)
+    # The claude-cli panel shells `claude -p` in ISOLATED mode (--setting-sources ""
+    # + no tools + empty --mcp-config — see llm._build_claude_cli_argv), so it loads
+    # no plugins/hooks/MCP and cannot reach the real group chat or host. Its auth is
+    # the operator's subscription KEYCHAIN, reachable only under the real home — but
+    # the candidate runs under HOME=sandbox, so pass the real home through and let
+    # the provider repoint HOME for the `claude -p` subprocess (and only that). Safe
+    # now: isolation is enforced by the argv flags, NOT by withholding HOME.
     env["CLIVE_CLAUDECLI_HOME"] = os.environ.get("HOME", "")
     # Self-modification must never reach the real clive source from a candidate.
     # load_dotenv(override=False) means this 0 survives clive/.env's =1, and

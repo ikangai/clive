@@ -11,6 +11,7 @@ import json
 import os
 import re
 import subprocess
+import tempfile
 import uuid
 from typing import Optional
 
@@ -21,14 +22,44 @@ from ..common.store import Blackboard
 
 
 # ---------------------------------------------------------------------------
-# claude -p transport
+# claude -p transport (ISOLATED — see tests/test_factory_role_isolation.py)
 # ---------------------------------------------------------------------------
+# With --strict-mcp-config this loads ZERO MCP servers.
+_EMPTY_MCP_CONFIG = '{"mcpServers": {}}'
+
+
+def _isolated_claude_argv(json_output: bool = True) -> list[str]:
+    """Argv for an ISOLATED `claude -p` role call. Mirrors
+    llm._build_claude_cli_argv (keep the two in sync). A role is bounded reasoning
+    over a context slice — never a Claude Code agent — so it must load no plugins
+    or hooks (no group-chat ghost, no 600s team barrier), no MCP, and no tools:
+
+      --setting-sources ""   drop user+project settings → `enabledPlugins` never
+                             read → no plugins/hooks. Keeps subscription/keychain
+                             auth (unlike --bare, which would disable it).
+      --tools ""             zero tools (text/JSON only)
+      --strict-mcp-config    ignore all ambient MCP config...
+      --mcp-config {…}       ...and load an empty server set
+    """
+    argv = ["claude", "-p"]
+    if json_output:
+        argv += ["--output-format", "json"]
+    argv += ["--setting-sources", "", "--tools", "",
+             "--strict-mcp-config", "--mcp-config", _EMPTY_MCP_CONFIG]
+    return argv
+
+
 def claude_p(prompt: str, *, timeout: int = 180) -> tuple[str, int, float]:
-    """Call `claude -p` (print mode), prompt on stdin. Returns (text, tokens, cost).
-    Tries JSON output for usage; falls back to plain text."""
+    """Call `claude -p` (print mode, ISOLATED), prompt on stdin. Returns
+    (text, tokens, cost). Tries JSON output for usage; falls back to plain text.
+    Auth is the operator's subscription keychain (roles run under the real HOME)."""
+    # Run from a neutral cwd so no project .claude/CLAUDE.md is discovered
+    # (defense in depth alongside --setting-sources "").
+    neutral_cwd = tempfile.gettempdir()
     try:
-        p = subprocess.run(["claude", "-p", "--output-format", "json"],
-                           input=prompt, capture_output=True, text=True, timeout=timeout)
+        p = subprocess.run(_isolated_claude_argv(json_output=True),
+                           input=prompt, capture_output=True, text=True,
+                           timeout=timeout, cwd=neutral_cwd)
         if p.returncode == 0 and p.stdout.strip():
             try:
                 obj = json.loads(p.stdout)
@@ -42,10 +73,10 @@ def claude_p(prompt: str, *, timeout: int = 180) -> tuple[str, int, float]:
                 return p.stdout, 0, 0.0
     except (FileNotFoundError, subprocess.TimeoutExpired) as e:
         return f"[claude -p unavailable: {e}]", 0, 0.0
-    # fallback: plain text
+    # fallback: plain text (still isolated)
     try:
-        p = subprocess.run(["claude", "-p"], input=prompt, capture_output=True,
-                           text=True, timeout=timeout)
+        p = subprocess.run(_isolated_claude_argv(json_output=False), input=prompt,
+                           capture_output=True, text=True, timeout=timeout, cwd=neutral_cwd)
         return p.stdout, 0, 0.0
     except Exception as e:
         return f"[claude -p failed: {e}]", 0, 0.0

@@ -106,7 +106,11 @@ def run_multi_clive(candidate_id: str, candidate_spec_path: str, scenario: dict,
         base_env.update(clive_invoke.panel_env(model_entry))
         base_env["CLIVE_KEEP_SESSION"] = "1"
         base_env["CLIVE_EXPERIMENTAL_SELFMOD"] = "0"   # never reach real clive source
-        base_env["CLIVE_CLAUDECLI_HOME"] = os.environ.get("HOME", "")  # claude -p auth
+        # Members run isolated (--setting-sources ""); auth is the subscription
+        # keychain under the real home. Members run under HOME=sandbox, so pass the
+        # real home for the provider to repoint the `claude -p` subprocess. Safe:
+        # isolation is the argv flags, not HOME. See common/clive_invoke.py.
+        base_env["CLIVE_CLAUDECLI_HOME"] = os.environ.get("HOME", "")
 
         # --- broker -------------------------------------------------------
         broker_log = os.path.join(evidence_dir, "broker.log")

@@ -97,3 +97,73 @@ def test_llm_base_url_overrides_anthropic_default(monkeypatch):
         monkeypatch.delenv("LLM_BASE_URL", raising=False)
         monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
         importlib.reload(llm)
+
+
+# ─── claude-cli panel isolation ─────────────────────────────────────────────
+# The claude-cli provider shells out to `claude -p`. Because `claude` reads the
+# operator's ~/.claude, an UN-isolated call becomes a full Claude Code agent:
+# it loads user/project plugins (the group-chat plugin → registers a teammate
+# handle, reads + POSTS to the live chat), runs SessionStart/Stop hooks (incl. a
+# 600s team barrier), and connects every configured MCP server. As a *panel*
+# (a dumb completion engine that drives clive, which orchestrates tools itself)
+# it must have NONE of that surface. These tests pin the isolation.
+#
+# Mechanism is empirically chosen (verified against claude v2.1.187):
+#   --setting-sources ""  drops user+project settings → `enabledPlugins` is never
+#                         read → the plugin + its hooks never load. Crucially this
+#                         is NOT --bare: subscription/keychain auth STILL works
+#                         (--bare ignores both the keychain AND CLAUDE_CODE_OAUTH_TOKEN,
+#                         leaving only ANTHROPIC_API_KEY = API spend — which we avoid).
+
+def test_claude_cli_argv_is_fully_isolated():
+    """The panel invocation must carry every isolation flag while preserving
+    subscription auth: --setting-sources "" (no plugins/hooks, but keychain still
+    works), zero tools, zero MCP — and NOT --bare (which would break keychain)."""
+    import json
+    import llm
+    argv = llm._build_claude_cli_argv(model="sonnet")
+    assert "-p" in argv
+    assert argv[argv.index("--output-format") + 1] == "json"
+    # drop all setting sources → enabledPlugins not read → no plugin, no hooks.
+    assert argv[argv.index("--setting-sources") + 1] == ""
+    # zero tools: the panel returns assistant text only — never runs Bash/MCP/etc.
+    assert argv[argv.index("--tools") + 1] == ""
+    # ignore ALL ambient MCP config and load an empty server set.
+    assert "--strict-mcp-config" in argv
+    mcp = json.loads(argv[argv.index("--mcp-config") + 1])
+    assert mcp == {"mcpServers": {}}
+    # the requested model is still forwarded.
+    assert argv[argv.index("--model") + 1] == "sonnet"
+    # --bare would disable keychain auth (subscription) — must NOT be used.
+    assert "--bare" not in argv
+
+
+def test_claude_cli_argv_omits_model_when_default():
+    """No --model for Claude Code's default, but isolation flags stay."""
+    import llm
+    argv = llm._build_claude_cli_argv(model=None)
+    assert "--model" not in argv
+    assert argv[argv.index("--setting-sources") + 1] == ""
+    assert "--strict-mcp-config" in argv
+    assert "--bare" not in argv
+
+
+def test_claude_cli_env_points_home_at_real_config_for_keychain_auth():
+    """The isolated panel authenticates via the macOS login keychain, which lives
+    under the REAL home. clive runs the candidate under HOME=sandbox, so the env
+    builder must repoint HOME at the real home (from CLIVE_CLAUDECLI_HOME) for the
+    `claude -p` subprocess. This is SAFE now: the agent surface is disabled by the
+    argv flags (--setting-sources ""/--tools ""/--mcp-config), not by withholding
+    HOME — so the real home no longer drags in plugins or the group chat."""
+    import llm
+    env = llm._build_claude_cli_env({"CLIVE_CLAUDECLI_HOME": "/Users/real",
+                                     "HOME": "/tmp/cf-sandbox"})
+    assert env["HOME"] == "/Users/real"
+
+
+def test_claude_cli_env_leaves_home_when_no_real_home_given():
+    """With no CLIVE_CLAUDECLI_HOME (e.g. running outside the factory sandbox),
+    HOME is left untouched — the default config dir already has the credential."""
+    import llm
+    env = llm._build_claude_cli_env({"HOME": "/Users/real"})
+    assert env["HOME"] == "/Users/real"

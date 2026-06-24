@@ -50,9 +50,12 @@ PROVIDERS = {
     "claude-cli": {
         # Inference served by shelling out to the `claude` CLI (`claude -p`),
         # i.e. the user's Claude Code subscription — no HTTP API, no API key.
-        # Auth lives in the real HOME (~/.claude); when clive runs under a
-        # relocated HOME (e.g. the harness factory's sandbox) set
-        # CLIVE_CLAUDECLI_HOME to the real home so `claude -p` can authenticate.
+        # The call is ISOLATED (`--setting-sources "" + --tools "" + empty
+        # --mcp-config`, see _build_claude_cli_argv) so it is a pure completion
+        # engine, NOT a full Claude Code agent — it loads no plugins/hooks/MCP and
+        # cannot reach the host. Auth stays the subscription keychain (NOT --bare,
+        # which would disable it); under a sandbox HOME, CLIVE_CLAUDECLI_HOME
+        # repoints HOME at the real login keychain (see _build_claude_cli_env).
         "base_url": None,
         "api_key_env": None,
         "default_model": "claude-cli",  # "use Claude Code's default model"; set AGENT_MODEL=sonnet|opus|haiku to pick
@@ -103,29 +106,78 @@ def _render_cli_prompt(messages: list[dict]) -> str:
     return blob
 
 
-def _claude_cli_complete(messages: list[dict], model: str | None = None,
-                         timeout: int = 300) -> tuple[str, int, int]:
-    import json as _json
-    import subprocess
+# With --strict-mcp-config, this loads ZERO MCP servers — ignoring every
+# user/project/global MCP configuration the operator has.
+_EMPTY_MCP_CONFIG = '{"mcpServers": {}}'
 
-    prompt = _render_cli_prompt(messages)
-    argv = ["claude", "-p", "--output-format", "json"]
+
+def _build_claude_cli_argv(model: str | None = None) -> list[str]:
+    """Build the `claude -p` argv for a PANEL completion.
+
+    The panel is a dumb text-completion engine that drives clive; clive
+    orchestrates the shell/tools itself, so the panel must carry NO agent surface.
+    An un-isolated `claude -p` reads the operator's ~/.claude and becomes a full
+    Claude Code agent — loading plugins (e.g. a group-chat plugin that registers a
+    teammate handle and POSTS to the live chat), running SessionStart/Stop hooks
+    (incl. a multi-minute team barrier), and connecting every configured MCP
+    server. These flags strip all of that while PRESERVING subscription auth:
+
+      --setting-sources ""   drop user+project settings → `enabledPlugins` is never
+                             read → plugins + their hooks never load. Unlike --bare,
+                             this keeps keychain/subscription auth working (--bare
+                             ignores the keychain AND CLAUDE_CODE_OAUTH_TOKEN, leaving
+                             only ANTHROPIC_API_KEY = API spend, which we avoid).
+      --tools ""             zero tools — assistant text only, no Bash/Edit/MCP
+      --strict-mcp-config    ignore all ambient MCP config...
+      --mcp-config {…}       ...and load an empty server set
+
+    Auth is the subscription keychain (see _build_claude_cli_env for HOME)."""
+    argv = [
+        "claude", "-p", "--output-format", "json",
+        "--setting-sources", "",
+        "--tools", "",
+        "--strict-mcp-config", "--mcp-config", _EMPTY_MCP_CONFIG,
+    ]
     # Only forward a model the `claude` CLI understands (sonnet/opus/haiku or a
     # claude-* id). clive may pass other ids (e.g. the Gemini CLASSIFIER_MODEL
     # default) which the CLI would reject — for those, use Claude Code's default.
     _m = (model or "").lower()
     if _m in ("sonnet", "opus", "haiku") or (_m.startswith("claude-") and _m != "claude-cli"):
         argv += ["--model", model]
+    return argv
 
-    env = dict(os.environ)
-    # Auth is HOME-based; under a relocated HOME (factory sandbox) use the real one.
-    real_home = os.environ.get("CLIVE_CLAUDECLI_HOME")
+
+def _build_claude_cli_env(base: dict[str, str]) -> dict[str, str]:
+    """Process env for an isolated `claude -p`. The subscription credential lives in
+    the macOS login keychain, which is reachable only under the REAL home. clive
+    runs the candidate under HOME=sandbox, so repoint HOME at the real home (carried
+    in CLIVE_CLAUDECLI_HOME) for the `claude -p` subprocess. SAFE now: the agent
+    surface is disabled by the argv flags (--setting-sources ""/--tools ""/empty
+    --mcp-config), NOT by withholding HOME — so the real home no longer drags in
+    plugins, hooks, or the group chat."""
+    env = dict(base)
+    real_home = base.get("CLIVE_CLAUDECLI_HOME")
     if real_home:
         env["HOME"] = real_home
+    return env
+
+
+def _claude_cli_complete(messages: list[dict], model: str | None = None,
+                         timeout: int = 300) -> tuple[str, int, int]:
+    import json as _json
+    import subprocess
+    import tempfile
+
+    prompt = _render_cli_prompt(messages)
+    argv = _build_claude_cli_argv(model)
+    env = _build_claude_cli_env(dict(os.environ))
 
     try:
-        p = subprocess.run(argv, input=prompt, capture_output=True, text=True,
-                           timeout=timeout, env=env)
+        # Run from a throwaway cwd so no project .claude/CLAUDE.md is discovered
+        # (defense in depth alongside --setting-sources "", which drops settings).
+        with tempfile.TemporaryDirectory(prefix="clive-panel-") as _cwd:
+            p = subprocess.run(argv, input=prompt, capture_output=True, text=True,
+                               timeout=timeout, env=env, cwd=_cwd)
     except Exception as e:  # noqa: BLE001 — surface as text so the runner records a turn
         est = sum(len(str(m.get("content", ""))) for m in messages) // 4
         return f"[claude-cli error: {e}]", est, 0
