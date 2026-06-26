@@ -1,6 +1,8 @@
 """Shared LLM client for planner and executor."""
 
 import os
+import random
+import time
 
 import anthropic
 import openai
@@ -243,6 +245,62 @@ def get_client():
     return _client_cache
 
 
+# ─── Bounded retry for transient provider errors ────────────────────────────
+# A single bare provider call fails the whole subtask the moment a transient
+# 429/5xx/connection-reset hits (interactive_runner's lone fallback then also
+# fails). _with_retry() wraps the NON-STREAMING completion call sites with a
+# small, capped exponential backoff + jitter. It retries ONLY transient errors
+# and fails fast on 4xx auth/validation. Streaming (chat_stream) and the
+# delegate/claude-cli subprocess paths need different reconnection semantics and
+# are deliberately left for a follow-up.
+
+RETRY_MAX_ATTEMPTS = 3   # total tries: 1 initial + up to 2 retries
+RETRY_BASE_DELAY = 0.5   # seconds; doubled each retry
+RETRY_MAX_DELAY = 8.0    # ceiling on the (pre-jitter) backoff per sleep
+
+
+def _is_transient(exc: Exception) -> bool:
+    """True for errors worth retrying: connection/timeout failures, HTTP 429
+    (rate limit), and 5xx server errors. False for everything else — notably
+    4xx auth/validation (401/403/400/404/422), which must fail fast."""
+    # Connection-level failures (DNS, reset, read timeout) — anthropic and
+    # openai both expose APIConnectionError (APITimeoutError is a subclass).
+    if isinstance(exc, (anthropic.APIConnectionError, openai.APIConnectionError)):
+        return True
+    # Server-side 5xx — transient by definition (503/502/500/504).
+    if isinstance(exc, (anthropic.InternalServerError, openai.InternalServerError)):
+        return True
+    # Rate limiting (429).
+    if isinstance(exc, (anthropic.RateLimitError, openai.RateLimitError)):
+        return True
+    # Catch-all by HTTP status for any other status-carrying error (e.g. a proxy
+    # in front of the provider): retry 429 + 5xx, never other 4xx.
+    status = getattr(exc, "status_code", None)
+    if status is None:
+        status = getattr(getattr(exc, "response", None), "status_code", None)
+    if isinstance(status, int):
+        return status == 429 or status >= 500
+    return False
+
+
+def _with_retry(call):
+    """Invoke *call*() with bounded exponential backoff + jitter, retrying ONLY
+    transient errors (connection/timeout/429/5xx) up to RETRY_MAX_ATTEMPTS total
+    attempts. Permanent errors (4xx auth/validation) propagate immediately with
+    no retry. Once the cap is hit, the last transient error is re-raised."""
+    attempt = 0
+    while True:
+        try:
+            return call()
+        except Exception as exc:  # noqa: BLE001 — re-raised below unless retried
+            attempt += 1
+            if attempt >= RETRY_MAX_ATTEMPTS or not _is_transient(exc):
+                raise
+            delay = min(RETRY_BASE_DELAY * (2 ** (attempt - 1)), RETRY_MAX_DELAY)
+            delay += random.uniform(0, delay)  # full jitter to de-correlate retries
+            time.sleep(delay)
+
+
 def chat(
     client,
     messages: list[dict],
@@ -289,7 +347,7 @@ def chat(
         )
         if temperature is not None:
             kwargs["temperature"] = temperature
-        response = client.messages.create(**kwargs)
+        response = _with_retry(lambda: client.messages.create(**kwargs))
         content = response.content[0].text if response.content else ""
         pt = response.usage.input_tokens if response.usage else 0
         ct = response.usage.output_tokens if response.usage else 0
@@ -302,7 +360,7 @@ def chat(
     )
     if temperature is not None:
         kwargs["temperature"] = temperature
-    response = client.chat.completions.create(**kwargs)
+    response = _with_retry(lambda: client.chat.completions.create(**kwargs))
     content = response.choices[0].message.content or ""
     pt = response.usage.prompt_tokens if response.usage else 0
     ct = response.usage.completion_tokens if response.usage else 0
@@ -350,13 +408,13 @@ def chat_with_tools(
             if system else []
         )
 
-        response = client.messages.create(
+        response = _with_retry(lambda: client.messages.create(
             model=model or MODEL,
             max_tokens=max_tokens,
             system=system_blocks,
             messages=filtered,
             tools=tools,
-        )
+        ))
 
         # Separate text content and tool-use blocks
         text_parts = []
@@ -376,12 +434,12 @@ def chat_with_tools(
     from tool_defs import tools_for_openai
     openai_tools = tools_for_openai()
 
-    response = client.chat.completions.create(
+    response = _with_retry(lambda: client.chat.completions.create(
         model=model or MODEL,
         messages=messages,
         max_tokens=max_tokens,
         tools=openai_tools,
-    )
+    ))
 
     choice = response.choices[0]
     text = choice.message.content or ""
