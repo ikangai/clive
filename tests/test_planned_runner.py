@@ -261,6 +261,32 @@ def test_build_planned_prompt_with_deps():
     assert "Found 10 results" in prompt
 
 
+def test_build_planned_prompt_teaches_meaningful_verification():
+    """The planner must be taught to emit verification beyond exit_code==0
+    where correctness depends on it — file presence, output match, or count —
+    materialized as a command whose exit code reflects the check (since the
+    harness only acts on exit codes). Trivial steps still default to
+    exit_code == 0, and the JSON shape (cmd/verify/on_fail) is unchanged."""
+    from prompts import build_planned_prompt
+    prompt = build_planned_prompt(
+        subtask_description="Download data and extract items",
+        pane_name="shell",
+        app_type="shell",
+        tool_description="bash shell",
+        dependency_context="",
+        session_dir="/tmp/clive/test",
+    )
+    # The known-gap disclaimer ("currently always exit_code == 0") must be gone.
+    assert "currently always" not in prompt
+    # Verification is now described as meaningful, with concrete check idioms.
+    assert "meaningful" in prompt.lower()
+    assert "grep -q" in prompt   # output-contains check
+    assert "test -" in prompt    # file-presence check
+    # Default for trivial steps is still exit_code == 0; shape stays the same.
+    assert "exit_code == 0" in prompt
+    assert '"verify"' in prompt and '"on_fail"' in prompt
+
+
 # ─── VALID_MODES inclusion ───────────────────────────────────────────────────
 
 def test_planned_in_valid_modes():
