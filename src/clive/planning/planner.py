@@ -38,24 +38,63 @@ def create_plan(
         {"role": "user", "content": f"Task: {task}"},
     ]
 
+    # Bounded validate-and-correct loop. An empty response, unparseable JSON, or
+    # a plan that fails plan.validate() (unknown pane, cyclic depends_on, bad
+    # mode/shape) does NOT abort the task: we feed the specific error back to the
+    # planner and re-ask, up to MAX_RETRIES total attempts. The dominant failure
+    # mode here is a near-miss that one corrective turn fixes.
     MAX_RETRIES = 3
-    content = ""
+    valid_panes = set(panes.keys())
+    last_error = "no response"
     for attempt in range(1, MAX_RETRIES + 1):
         content, pt, ct = chat(client, messages, max_tokens=2048)
         progress(f"  Planning (attempt {attempt}): {pt} prompt + {ct} completion tokens")
 
-        if content.strip():
-            break
-        progress(f"  WARNING: LLM returned empty response, retrying...")
-    else:
         if not content.strip():
-            raise ValueError("Planner LLM returned empty response after all retries")
+            last_error = "LLM returned an empty response"
+            progress(f"  WARNING: {last_error}, retrying...")
+            continue
 
+        try:
+            return _parse_plan(content, task, valid_panes)
+        except (json.JSONDecodeError, ValueError, KeyError) as e:
+            last_error = _describe_plan_error(e)
+            progress(f"  WARNING: planner produced an invalid plan ({last_error}); requesting correction...")
+            # Standard structured-output repair: show the model its own output
+            # and the precise failure, then ask for corrected JSON only. Rebind
+            # (don't mutate) so each chat() call records the messages it saw.
+            messages = messages + [
+                {"role": "assistant", "content": content},
+                {"role": "user", "content": (
+                    f"Your previous response was not a valid plan: {last_error}\n"
+                    "Return ONLY the corrected JSON plan, with no commentary."
+                )},
+            ]
+
+    raise ValueError(
+        f"Planner failed to produce a valid plan after {MAX_RETRIES} attempts. "
+        f"Last error: {last_error}"
+    )
+
+
+def _describe_plan_error(e: Exception) -> str:
+    """Render a parse/validation error as concise feedback for the planner."""
+    if isinstance(e, json.JSONDecodeError):
+        return f"invalid JSON: {e}"
+    if isinstance(e, KeyError):
+        return f"missing required field {e}"
+    return str(e)
+
+
+def _parse_plan(content: str, task: str, valid_panes: set[str]) -> Plan:
+    """Parse an LLM response into a validated Plan.
+
+    Raises json.JSONDecodeError (unparseable), KeyError (missing required
+    field), or ValueError (no JSON found, bad subtask id, or failed
+    plan.validate) — all of which the caller treats as repairable.
+    """
     json_str = _extract_json(content)
-    try:
-        data = json.loads(json_str)
-    except json.JSONDecodeError as e:
-        raise ValueError(f"Invalid JSON from planner: {e}\nRaw: {json_str[:500]}")
+    data = json.loads(json_str)
 
     plan = Plan(task=task)
     for s in data["subtasks"]:
@@ -80,7 +119,7 @@ def create_plan(
             tools=tools,
         ))
 
-    errors = plan.validate(valid_panes=set(panes.keys()))
+    errors = plan.validate(valid_panes=valid_panes)
     if errors:
         raise ValueError(f"Invalid plan: {'; '.join(errors)}")
 
