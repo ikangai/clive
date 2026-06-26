@@ -830,7 +830,10 @@ def build_tier2_card(name: str) -> str | None:
     if canonical in PANES:
         pane = PANES[canonical]
         return f"[{canonical}] {pane.get('description', '').strip()}"
-    return None
+    # Neither a COMMAND nor a PANE: a learned/unknown tool — fall back to any
+    # persisted memo from a prior run's probe (gh#41 self-learning).
+    from discovery import tool_memo
+    return tool_memo.memo_card(canonical)
 
 
 def list_toolsets() -> dict[str, list[str]]:
