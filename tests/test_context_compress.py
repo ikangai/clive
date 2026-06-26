@@ -1,5 +1,9 @@
 """Tests for progressive context compression."""
-from context_compress import compress_context, _format_turns_for_summary
+from context_compress import (
+    compress_context,
+    _format_turns_for_summary,
+    extract_dead_ends,
+)
 
 
 def _make_conversation(n_turns, with_system=True):
@@ -132,3 +136,123 @@ def test_format_turns_for_summary():
 
 def test_format_turns_for_summary_empty():
     assert _format_turns_for_summary([]) == ""
+
+
+# --- Dead-end ledger (gh: survive command failures across compression) ---
+
+
+def test_extract_dead_ends_finds_failed_command():
+    """A failing screen pins the immediately-preceding command as a dead end."""
+    turns = [
+        {"role": "user", "content": "screen 0"},
+        {"role": "assistant", "content": "frobnicate --all"},
+        {"role": "user", "content": "bash: frobnicate: command not found"},
+    ]
+    assert extract_dead_ends(turns) == ["frobnicate --all"]
+
+
+def test_extract_dead_ends_recognizes_signals():
+    """Each documented failure signal pins its preceding command."""
+    signals = [
+        "bash: foo: command not found",
+        "cat: nope.txt: No such file or directory",
+        "Command 'x' returned non-zero exit status 1.",
+        'Traceback (most recent call last):\n  File "a.py"',
+        "error: pathspec 'main' did not match",
+        "fatal: not a git repository",
+    ]
+    for i, screen in enumerate(signals):
+        turns = [
+            {"role": "assistant", "content": f"cmd-{i}"},
+            {"role": "user", "content": screen},
+        ]
+        assert extract_dead_ends(turns) == [f"cmd-{i}"], screen
+
+
+def test_extract_dead_ends_ignores_success():
+    """A clean screen does not pin its command."""
+    turns = [
+        {"role": "assistant", "content": "ls"},
+        {"role": "user", "content": "file1  file2  file3"},
+    ]
+    assert extract_dead_ends(turns) == []
+
+
+def test_extract_dead_ends_dedupes_and_preserves_order():
+    """Repeated dead ends collapse; first-seen order is kept."""
+    turns = []
+    for cmd in ["a", "b", "a", "c"]:
+        turns.append({"role": "assistant", "content": cmd})
+        turns.append({"role": "user", "content": "command not found"})
+    assert extract_dead_ends(turns) == ["a", "b", "c"]
+
+
+def test_extract_dead_ends_reparses_prior_summary_block():
+    """Dead ends already pinned in a prior summary are recovered."""
+    summary = {
+        "role": "user",
+        "content": (
+            "[Earlier conversation summary]\n"
+            "DEAD ENDS - already tried and FAILED, do not retry:\n"
+            "- old-cmd-1\n"
+            "- old-cmd-2\n"
+            "\n"
+            "Agent tried to set up the env and failed."
+        ),
+    }
+    assert extract_dead_ends([summary]) == ["old-cmd-1", "old-cmd-2"]
+
+
+def _conversation_with_failure(n_turns, fail_at):
+    """Build n user/assistant pairs; the screen after command `fail_at` fails."""
+    messages = [{"role": "system", "content": "system prompt"}]
+    for i in range(n_turns):
+        screen = f"screen {i}"
+        # the screen at index i is the observation of command (i-1)
+        if i - 1 == fail_at:
+            screen = "bash: command not found"
+        messages.append({"role": "user", "content": screen})
+        messages.append({"role": "assistant", "content": f"command {i}"})
+    return messages
+
+
+def test_compress_emits_dead_ends_block():
+    """Compression pins a failed command into the summary as a DEAD ENDS block."""
+    msgs = _conversation_with_failure(8, fail_at=1)
+
+    def fake_compress(text):
+        return "summary of old turns"
+
+    result = compress_context(msgs, max_user_turns=4, compress_fn=fake_compress)
+    summary_content = result[1]["content"]
+
+    assert "DEAD ENDS" in summary_content
+    assert "command 1" in summary_content
+    # The real summary still rides along.
+    assert "summary of old turns" in summary_content
+
+
+def test_dead_ends_accumulate_across_squashes():
+    """A second compression recovers the dead end from the prior summary block."""
+    msgs = _conversation_with_failure(8, fail_at=1)
+
+    def fake_compress(text):
+        return "summary"
+
+    first = compress_context(msgs, max_user_turns=4, compress_fn=fake_compress)
+    assert "command 1" in first[1]["content"]
+
+    # Continue the conversation, then squash again. The earlier summary
+    # (now at the front) must keep the dead end alive.
+    continued = first + [
+        {"role": "user", "content": f"more screen {i}"}
+        for i in range(0)
+    ]
+    for i in range(4):
+        continued.append({"role": "user", "content": f"later screen {i}"})
+        continued.append({"role": "assistant", "content": f"later command {i}"})
+
+    second = compress_context(continued, max_user_turns=4, compress_fn=fake_compress)
+    second_summary = second[1]["content"]
+    assert "DEAD ENDS" in second_summary
+    assert "command 1" in second_summary
