@@ -24,15 +24,19 @@ SESSION_LOG = os.path.expanduser("~/.clive_session_log.jsonl")
 
 def attempt_recovery(task, results, plan_execute_fn, panes, tool_status,
                      tools_summary, on_event, session_dir, max_tokens):
-    """When some subtasks failed and others were skipped, replan and retry.
+    """When subtasks failed, replan with a fresh approach and retry once.
 
-    Only triggers when failure count is small (<=2) — larger failures suggest
-    fundamental planning problems that replanning won't fix. Extends and
-    returns the combined result list; on exception, returns original results.
+    Triggers whenever 1-2 subtasks failed — including the common autonomous
+    case of a leaf/single-subtask failure that left no skipped dependents (the
+    first approach exhausted its turns or hit an LLM error). The len(failed)<=2
+    cap is kept because larger failures suggest fundamental planning problems
+    that replanning won't fix, and recovery is a single, non-recursive attempt.
+    Extends and returns the combined result list; on exception, returns the
+    original results.
     """
     failed = [r for r in results if r.status == SubtaskStatus.FAILED]
     skipped = [r for r in results if r.status == SubtaskStatus.SKIPPED]
-    if not (failed and skipped and len(failed) <= 2):
+    if not (failed and len(failed) <= 2):
         return results
 
     step("Replanning")
@@ -40,16 +44,20 @@ def attempt_recovery(task, results, plan_execute_fn, panes, tool_status,
     failure_context = "\n".join(
         f"  Subtask {r.subtask_id} FAILED: {r.summary}" for r in failed
     )
-    remaining = "\n".join(
-        f"  Subtask {r.subtask_id} SKIPPED: {r.summary}" for r in skipped
+    replan_parts = [
+        f"Original task: {task}\n",
+        f"These subtasks failed:\n{failure_context}\n",
+    ]
+    if skipped:
+        remaining = "\n".join(
+            f"  Subtask {r.subtask_id} SKIPPED: {r.summary}" for r in skipped
+        )
+        replan_parts.append(f"These subtasks were skipped:\n{remaining}\n")
+    replan_parts.append(
+        "Find an alternative approach to complete the remaining work. "
+        "Account for the failures — try a different method."
     )
-    replan_task = (
-        f"Original task: {task}\n\n"
-        f"These subtasks failed:\n{failure_context}\n\n"
-        f"These subtasks were skipped:\n{remaining}\n\n"
-        f"Find an alternative approach to complete the remaining work. "
-        f"Account for the failures — try a different method."
-    )
+    replan_task = "\n".join(replan_parts)
     try:
         replan = create_plan(replan_task, panes, tool_status, tools_summary=tools_summary)
         if replan.subtasks:
