@@ -9,6 +9,85 @@ import logging
 
 log = logging.getLogger(__name__)
 
+# Header pinned in front of a summary so the failed-command ledger survives
+# the next squash (extract_dead_ends re-parses it from the prior summary).
+DEAD_ENDS_HEADER = "DEAD ENDS - already tried and FAILED, do not retry:"
+
+# Substrings (matched case-insensitively) that mark a screen as a failure.
+_FAILURE_SIGNALS = (
+    "command not found",
+    "no such file",
+    "returned non-zero exit status",
+    "traceback (most recent call",
+)
+
+
+def _screen_is_failure(content: str) -> bool:
+    """True when a screen observation looks like a failed command result."""
+    low = content.lower()
+    if any(sig in low for sig in _FAILURE_SIGNALS):
+        return True
+    # A line starting with "error:" or "fatal:" (git, compilers, ...).
+    for line in low.splitlines():
+        stripped = line.strip()
+        if stripped.startswith("error:") or stripped.startswith("fatal:"):
+            return True
+    return False
+
+
+def _parse_dead_ends_block(content: str) -> list[str]:
+    """Recover the commands listed under a DEAD ENDS header in a prior summary."""
+    cmds = []
+    in_block = False
+    for line in content.splitlines():
+        if not in_block:
+            if line.strip().startswith("DEAD ENDS"):
+                in_block = True
+            continue
+        stripped = line.strip()
+        if stripped.startswith("- "):
+            cmds.append(stripped[2:].strip())
+        else:
+            # A blank line or prose ends the pinned block.
+            break
+    return cmds
+
+
+def extract_dead_ends(turns: list[dict], cap: int = 8) -> list[str]:
+    """Mine the list of commands that have already been tried and FAILED.
+
+    Two sources are merged, in conversation order:
+      * A failing screen observation pins the immediately-preceding assistant
+        command (the command that produced the failure).
+      * Any prior "[Earlier conversation summary]" turn that already carries a
+        DEAD ENDS block has its commands re-parsed, so the ledger ACCUMULATES
+        across repeated squashes instead of being lost.
+
+    Returns a compact, order-preserving, deduped list capped at ``cap`` entries.
+    """
+    dead_ends: list[str] = []
+
+    def _add(cmd: str) -> None:
+        cmd = cmd.strip()
+        if cmd and cmd not in dead_ends:
+            dead_ends.append(cmd)
+
+    for i, msg in enumerate(turns):
+        if msg.get("role") != "user":
+            continue
+        content = msg.get("content", "")
+        # Recover dead ends already pinned in an earlier summary.
+        if DEAD_ENDS_HEADER[:9] in content:  # cheap "DEAD ENDS" guard
+            for cmd in _parse_dead_ends_block(content):
+                _add(cmd)
+        # A failing screen pins the command that preceded it.
+        if _screen_is_failure(content) and i > 0:
+            prev = turns[i - 1]
+            if prev.get("role") == "assistant":
+                _add(prev.get("content", ""))
+
+    return dead_ends[:cap]
+
 
 def _format_turns_for_summary(turns: list[dict]) -> str:
     """Format user/assistant message pairs into compact text for summarization.
@@ -80,6 +159,13 @@ def compress_context(
         log.warning("Context compression failed, falling back to trim")
         from interactive_runner import _trim_messages
         return _trim_messages(messages, max_user_turns=max_user_turns)
+
+    # Pin the failed-command ledger in front of the summary so it survives
+    # this squash AND the next one (re-mined from this block by extract_dead_ends).
+    dead_ends = extract_dead_ends(old_turns)
+    if dead_ends:
+        ledger = DEAD_ENDS_HEADER + "\n" + "\n".join(f"- {c}" for c in dead_ends)
+        summary = f"{ledger}\n\n{summary}"
 
     summary_msg = {
         "role": "user",
