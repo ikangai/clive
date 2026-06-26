@@ -29,6 +29,12 @@ from .ps1_exit import PS1_EXIT_RE  # gh#8: recognize exit-bearing prompt form
 
 DEFAULT_IDLE_TIMEOUT = 2.0
 MAX_WAIT = 30.0
+# Absolute backstop for the poll path. The soft `max_wait` ceiling is
+# activity-aware (see _wait_polling): a slow-but-live command that keeps
+# repainting the pane past `max_wait` is treated as alive and kept polling.
+# MAX_WAIT_HARD bounds that grace period so a pane that changes forever
+# (e.g. a spinner that never finishes) is still eventually abandoned.
+MAX_WAIT_HARD = 180.0
 
 # Patterns that indicate the agent should intervene during execution
 INTERVENTION_PATTERNS = [
@@ -184,9 +190,18 @@ def _wait_polling(
         elif not marker and time.time() - last_change > idle_timeout:
             return screen, "idle"
 
-        # Absolute ceiling
-        if time.time() - start > max_wait:
-            return screen, "max_wait"
+        # Absolute ceiling (activity-aware). Once the soft `max_wait`
+        # elapses, only abandon the command if it has actually gone quiet
+        # (no change for idle_timeout) OR the hard backstop is exceeded. A
+        # slow-but-live command (make / npm install / large download) that
+        # keeps repainting the pane is treated as alive and polled until it
+        # finishes (marker/prompt), stalls (idle), or trips MAX_WAIT_HARD —
+        # so interactive_runner never types the next command into a still-
+        # running pane.
+        elapsed = time.time() - start
+        if elapsed > max_wait:
+            if time.time() - last_change > idle_timeout or elapsed > MAX_WAIT_HARD:
+                return screen, "max_wait"
 
         time.sleep(poll_interval)
         poll_interval = min(poll_interval * 2, 0.5)  # exponential backoff
