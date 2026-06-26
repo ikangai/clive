@@ -18,6 +18,36 @@ log = logging.getLogger(__name__)
 SESSION_NAME = "clive"
 SOCKET_NAME = "clive"  # Dedicated tmux server socket — isolates clive from user sessions
 
+# Errors from a single libtmux/subprocess hiccup that a brief retry can paper
+# over. Kept deliberately narrow so genuine programming errors still surface
+# fast. libtmux.exc.LibTmuxException is added when importable.
+_TRANSIENT_PANE_ERRORS: tuple[type[BaseException], ...] = (OSError, RuntimeError)
+try:  # pragma: no cover - libtmux is a hard dep; guard only for safety
+    from libtmux.exc import LibTmuxException as _LibTmuxException
+    _TRANSIENT_PANE_ERRORS = _TRANSIENT_PANE_ERRORS + (_LibTmuxException,)
+except Exception:
+    pass
+
+
+def _pane_cmd_with_retry(pane, *args, attempts=3, base_delay=0.1, sleep_fn=time.sleep):
+    """Run ``pane.cmd(*args)`` with bounded retry on transient hiccups.
+
+    A single libtmux/subprocess glitch on a capture-pane read would otherwise
+    propagate uncaught and abort the whole subtask. Retry up to ``attempts``
+    times with exponential backoff (``base_delay * 2**i``) between tries,
+    re-raising the last error if every attempt fails. ``sleep_fn`` is
+    injectable so tests run without real delays.
+    """
+    last_exc: BaseException | None = None
+    for i in range(attempts):
+        try:
+            return pane.cmd(*args)
+        except _TRANSIENT_PANE_ERRORS as e:
+            last_exc = e
+            if i < attempts - 1:
+                sleep_fn(base_delay * 2 ** i)
+    raise last_exc
+
 
 def generate_session_id() -> str:
     """Generate a short unique session ID."""
@@ -294,7 +324,7 @@ def check_health(panes: dict[str, PaneInfo]) -> dict[str, dict]:
     """Verify each pane shows [AGENT_READY]. Returns status dict."""
     status = {}
     for name, info in panes.items():
-        lines = info.pane.cmd("capture-pane", "-p").stdout
+        lines = _pane_cmd_with_retry(info.pane, "capture-pane", "-p").stdout
         screen = "\n".join(lines) if lines else ""
         ready = "[AGENT_READY]" in screen
         status[name] = {
@@ -313,8 +343,8 @@ def capture_pane(pane_info: PaneInfo, scrollback: int = 50) -> str:
     as multiple screen lines) and -S to include recent scrollback.
     Strips leading/trailing blank lines to reduce noise and token waste.
     """
-    lines = pane_info.pane.cmd(
-        "capture-pane", "-p", "-J", f"-S-{scrollback}"
+    lines = _pane_cmd_with_retry(
+        pane_info.pane, "capture-pane", "-p", "-J", f"-S-{scrollback}"
     ).stdout
     if not lines:
         return ""
