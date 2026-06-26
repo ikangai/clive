@@ -1,7 +1,31 @@
 """Tests for driver prompt auto-discovery."""
 import os
 import tempfile
-from prompts import load_driver
+from prompts import load_driver, DEFAULT_DRIVER
+
+
+# ─── Verify-before-done — the default driver must instruct the agent to ─────
+# confirm the expected end-state actually holds before reporting success,
+# rather than assuming the last command's exit code means the goal was met.
+
+def test_default_driver_instructs_verify_before_done():
+    """load_driver('default') must carry a verify-before-done step."""
+    import prompts as prompts_mod
+    prompts_mod._driver_cache.clear()
+    prompts_mod._driver_meta_cache.clear()
+    body = load_driver("default").lower()
+    assert "verify" in body
+    assert "before" in body and "done" in body
+    # It must call out NOT trusting the exit code alone.
+    assert "exit code" in body
+
+
+def test_default_driver_constant_instructs_verify_before_done():
+    """The DEFAULT_DRIVER fallback (unknown app_types) must match."""
+    low = DEFAULT_DRIVER.lower()
+    assert "verify" in low
+    assert "before" in low and "done" in low
+    assert "exit code" in low
 
 
 def test_load_existing_driver(tmp_path):
