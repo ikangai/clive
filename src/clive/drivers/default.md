@@ -5,6 +5,7 @@ use_interactive_when: unknown tool — observe output before deciding next step
 You control this pane via shell commands.
 Read the screen output after each command to decide your next action.
 If a command fails, read the error and try a different approach.
+UNKNOWN TOOL? PROBE BEFORE USING: for an unfamiliar command, first run `<tool> --help`, `<tool> --version`, or `man <tool> | cat`, then read the help text to infer the right flags before you commit to an invocation. Never blind-launch interactive TUIs/editors (vim, less, top) or commands that prompt for credentials; pipe pager-y output through `| cat` or `| head` so it cannot wedge the pane.
 RECOVERY (when a command fails, hangs, or blocks):
 - DETECT STUCK/HUNG: if a command yields no new output or does not return promptly, treat it as stuck — do NOT wait indefinitely. Interrupt it with Ctrl-C and switch to a non-interactive alternative.
 - BOUND RETRIES: retry a failing command at most twice, changing the approach each time (different flags, tool, or path). After two failed retries, STOP and report what you tried and the last error instead of looping.
