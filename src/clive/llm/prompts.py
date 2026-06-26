@@ -453,13 +453,28 @@ Pane: {pane_name} [{app_type}] — {tool_description}
 {driver}
 {dep_section}
 Generate a step-by-step plan as a JSON object. Each step is one shell command.
-The harness will execute each step sequentially, check the exit code, and handle failures.
+The harness executes each step sequentially and checks its EXIT CODE: exit 0 = the step passed, non-zero = the step failed and its on_fail action fires. There are no LLM calls during execution, so any check you want enforced must be expressed as a command whose exit code reflects it.
 
-- Each step has a "cmd" (shell command), "verify" (currently always "exit_code == 0"), and "on_fail" action.
+- Each step has a "cmd" (shell command), "verify" (the success condition this step proves), and "on_fail" action.
 - on_fail options: "retry" (re-run the command once), "skip" (continue to next step), "abort" (stop execution).
 - Use "abort" for critical steps, "skip" for optional steps, "retry" for flaky operations.
 - Write output/results to {session_dir}/ (absolute paths).
 - Keep commands simple — one logical operation per step.
+
+VERIFICATION — make "verify" MEANINGFUL, not decorative:
+- Trivial steps (mkdir, cd, echo, a command whose own exit code already proves it did the right thing) keep "verify": "exit_code == 0".
+- But when a step's exit code ALONE does not prove correctness — a download that can still write an empty or HTML-error file, a transform whose output must contain something specific, a step that must produce exactly N records — exit 0 is not enough. Add a real check whose exit code reflects correctness, and state what it proves in "verify". Two ways:
+    1. Chain the check onto the command with && (good with on_fail "retry": a failed check re-runs the whole step):
+       "cmd": "yt-dlp <url> -o {session_dir}/transcript.txt && test -s {session_dir}/transcript.txt"
+    2. Add a dedicated follow-up verification step right after the work step (good as a hard gate with on_fail "abort"):
+       {{"cmd": "test -s {session_dir}/transcript.txt", "verify": "transcript.txt exists and is non-empty", "on_fail": "abort"}}
+- Useful check idioms (each exits non-zero when its condition fails):
+    - file exists / non-empty:   test -f {session_dir}/out.json   |   test -s {session_dir}/out.json
+    - output contains a string:  grep -q "expected text" {session_dir}/out.txt
+    - a count matches:           [ "$(wc -l < {session_dir}/rows.csv)" -eq 5 ]
+    - valid JSON was produced:   jq -e . {session_dir}/out.json > /dev/null
+- A verification check is a GATE: re-running "test -f" won't make a missing file appear, so dedicated verification steps almost always use on_fail "abort". Put "retry" on the flaky work step (the fetch/download), not on its check.
+- The "verify" string is a short, human-readable statement of what passing means ("transcript.txt non-empty", "output contains DONE", "5 rows written"). Default it to "exit_code == 0" only when that genuinely IS the whole success condition.
 
 Respond with ONLY a JSON object (no prose, no markdown):
 {{
@@ -468,6 +483,17 @@ Respond with ONLY a JSON object (no prose, no markdown):
     {{"cmd": "another command", "verify": "exit_code == 0", "on_fail": "skip"}}
   ],
   "done_summary": "one-line summary of what the plan accomplishes"
+}}
+
+Example — fetch-and-process with meaningful per-step verification:
+{{
+  "steps": [
+    {{"cmd": "mkdir -p {session_dir}", "verify": "exit_code == 0", "on_fail": "abort"}},
+    {{"cmd": "curl -fsS https://api.example.com/data -o {session_dir}/data.json && jq -e . {session_dir}/data.json > /dev/null", "verify": "data.json downloaded and is valid JSON", "on_fail": "retry"}},
+    {{"cmd": "jq -r '.items[]' {session_dir}/data.json > {session_dir}/items.txt", "verify": "exit_code == 0", "on_fail": "abort"}},
+    {{"cmd": "test -s {session_dir}/items.txt", "verify": "items.txt is non-empty", "on_fail": "abort"}}
+  ],
+  "done_summary": "fetched data.json and extracted items.txt"
 }}
 """
 
