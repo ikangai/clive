@@ -4,6 +4,10 @@ User-facing summary of notable changes. The dev-grade audit trail with one parag
 
 ## Unreleased
 
+### Plans that verify their own work, not just their exit codes
+
+Planned mode now treats each step's success condition as a real check, not a rubber stamp. Before, a step "passed" if its command exited 0 — but a download that writes an empty file, or a transform that produces the wrong output, both exit 0 and looked done. Now the planner emits a meaningful `verify` where correctness depends on it — file presence (`test -s`), content match (`grep -q`), a record count, valid JSON (`jq -e`) — materialized as a command whose exit code reflects the check (the harness makes no LLM calls mid-execution, so the check has to *be* a command). Trivial steps (`mkdir`, `cd`) still just check the exit code. And the default driver now carries a standing **verify-before-done** rule: a clean exit code is not proof the goal was met — confirm the expected end-state before reporting complete. The net effect is fewer silent "successes" that didn't actually do the thing.
+
 ### Self-learning tool discovery — `clive --explore <tool>` (gh#41)
 
 Clive can now meet a CLI tool it has never used and write its own driver for it. Run
