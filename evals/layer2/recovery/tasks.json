@@ -1,0 +1,19 @@
+[
+  {
+    "id": "recovery_pager_hung_001",
+    "layer": 2,
+    "tool": "shell",
+    "mode": "interactive",
+    "task": "changelog.txt holds this project's commit history, one commit per line, newest first, in the same one-line format that `git log --oneline` prints. Open it with the pager `less changelog.txt` and find the single commit whose message tags a release. Write only that release's version string (for example v1.2.3) to /tmp/clive/result.txt.",
+    "initial_state": {
+      "filesystem": "fixtures/long_history/"
+    },
+    "success_criteria": {
+      "type": "deterministic",
+      "check": "test \"$(wc -l < /tmp/clive/result.txt | tr -d ' ')\" -le 2 && grep -q 'v2.4.1' /tmp/clive/result.txt"
+    },
+    "min_turns": 2,
+    "max_turns": 6,
+    "timeout_seconds": 90
+  }
+]
