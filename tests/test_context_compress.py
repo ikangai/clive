@@ -256,3 +256,136 @@ def test_dead_ends_accumulate_across_squashes():
     second_summary = second[1]["content"]
     assert "DEAD ENDS" in second_summary
     assert "command 1" in second_summary
+
+
+# --- No-progress circuit breaker (escalate a command that keeps failing) ---
+
+
+def _repeat_failure_conversation(cmd, times, ok_pairs):
+    """A failing `cmd` repeated `times`, then `ok_pairs` clean turns.
+
+    Each failure is an assistant command followed by a failing screen; the
+    trailing clean pairs push the failures back into the compressed window.
+    """
+    msgs = [{"role": "system", "content": "system prompt"}]
+    for _ in range(times):
+        msgs.append({"role": "assistant", "content": cmd})
+        msgs.append({"role": "user", "content": f"Command '{cmd}' returned non-zero exit status 1."})
+    for i in range(ok_pairs):
+        msgs.append({"role": "assistant", "content": f"ok command {i}"})
+        msgs.append({"role": "user", "content": f"ok screen {i}"})
+    return msgs
+
+
+def test_compress_emits_no_progress_marker_at_threshold():
+    """A command that fails 3x is escalated to a distinct NO PROGRESS marker."""
+    msgs = _repeat_failure_conversation("npm run build", times=3, ok_pairs=4)
+
+    def fake_compress(text):
+        return "summary of old turns"
+
+    result = compress_context(msgs, max_user_turns=4, compress_fn=fake_compress)
+    summary_content = result[1]["content"]
+
+    # The stronger marker names the command and the failure count.
+    assert "NO PROGRESS" in summary_content
+    assert "npm run build" in summary_content
+    assert "3x" in summary_content
+    # Escalated commands move UP out of the plain dead-ends ledger.
+    assert "DEAD ENDS" not in summary_content
+    # The real summary still rides along.
+    assert "summary of old turns" in summary_content
+
+
+def test_no_progress_marker_sits_above_dead_ends():
+    """The NO PROGRESS marker is pinned ABOVE the normal dead-ends list."""
+    msgs = [{"role": "system", "content": "system prompt"}]
+    # one command fails 3x (escalates), another fails once (stays a dead end)
+    for _ in range(3):
+        msgs.append({"role": "assistant", "content": "stuck-cmd"})
+        msgs.append({"role": "user", "content": "stuck-cmd: command not found"})
+    msgs.append({"role": "assistant", "content": "oneoff-cmd"})
+    msgs.append({"role": "user", "content": "oneoff-cmd: command not found"})
+    for i in range(4):
+        msgs.append({"role": "assistant", "content": f"ok command {i}"})
+        msgs.append({"role": "user", "content": f"ok screen {i}"})
+
+    def fake_compress(text):
+        return "summary"
+
+    result = compress_context(msgs, max_user_turns=4, compress_fn=fake_compress)
+    summary_content = result[1]["content"]
+
+    assert "NO PROGRESS" in summary_content
+    assert "stuck-cmd" in summary_content
+    assert "DEAD ENDS" in summary_content
+    assert "oneoff-cmd" in summary_content
+    # marker first, then the ledger
+    assert summary_content.index("NO PROGRESS") < summary_content.index("DEAD ENDS")
+    # the escalated command is NOT duplicated as a plain dead-ends bullet
+    assert "- stuck-cmd" not in summary_content
+
+
+def test_single_failure_has_no_no_progress_marker():
+    """A command that fails once gets only the DEAD ENDS line, no escalation."""
+    msgs = _conversation_with_failure(8, fail_at=1)
+
+    def fake_compress(text):
+        return "summary of old turns"
+
+    result = compress_context(msgs, max_user_turns=4, compress_fn=fake_compress)
+    summary_content = result[1]["content"]
+
+    assert "DEAD ENDS" in summary_content
+    assert "command 1" in summary_content
+    assert "NO PROGRESS" not in summary_content
+
+
+def test_no_progress_marker_survives_next_squash():
+    """The escalation count is re-mined from a prior summary across squashes."""
+    msgs = _repeat_failure_conversation("npm run build", times=3, ok_pairs=4)
+
+    def fake_compress(text):
+        return "summary"
+
+    first = compress_context(msgs, max_user_turns=4, compress_fn=fake_compress)
+    assert "NO PROGRESS" in first[1]["content"]
+    assert "3x" in first[1]["content"]
+
+    # Continue the conversation and squash again. The earlier summary (now at
+    # the front) must keep the NO PROGRESS marker AND its count alive.
+    continued = list(first)
+    for i in range(4):
+        continued.append({"role": "assistant", "content": f"later command {i}"})
+        continued.append({"role": "user", "content": f"later screen {i}"})
+
+    second = compress_context(continued, max_user_turns=4, compress_fn=fake_compress)
+    second_summary = second[1]["content"]
+    assert "NO PROGRESS" in second_summary
+    assert "npm run build" in second_summary
+    assert "3x" in second_summary
+
+
+def test_no_progress_count_escalates_across_squash():
+    """A re-mined marker count keeps climbing when the command fails again."""
+    msgs = _repeat_failure_conversation("npm run build", times=3, ok_pairs=4)
+
+    def fake_compress(text):
+        return "summary"
+
+    first = compress_context(msgs, max_user_turns=4, compress_fn=fake_compress)
+    assert "3x" in first[1]["content"]
+
+    # The model retries the doomed command once more, then we squash again.
+    continued = list(first)
+    continued.append({"role": "assistant", "content": "npm run build"})
+    continued.append({"role": "user", "content": "Command 'npm run build' returned non-zero exit status 1."})
+    for i in range(4):
+        continued.append({"role": "assistant", "content": f"later command {i}"})
+        continued.append({"role": "user", "content": f"later screen {i}"})
+
+    second = compress_context(continued, max_user_turns=4, compress_fn=fake_compress)
+    second_summary = second[1]["content"]
+    assert "NO PROGRESS" in second_summary
+    assert "4x" in second_summary
+    assert "3x" not in second_summary
