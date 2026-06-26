@@ -458,9 +458,15 @@ The harness executes each step sequentially and checks its EXIT CODE: exit 0 = t
 
 - Each step has a "cmd" (shell command), "verify" (the success condition this step proves), and "on_fail" action.
 - on_fail options: "retry" (re-run the command once), "skip" (continue to next step), "abort" (stop execution).
-- Use "abort" for critical steps, "skip" for optional steps, "retry" for flaky operations.
 - Write output/results to {session_dir}/ (absolute paths).
 - Keep commands simple — one logical operation per step.
+
+FAILURE RECOVERY — choose on_fail DELIBERATELY so the plan degrades gracefully; never blanket-retry:
+- "abort" — CRITICAL steps that later steps depend on. A clear, early failure beats limping forward on bad state. This is the safe default when unsure.
+- "skip" — genuinely OPTIONAL steps whose absence does not invalidate the result.
+- "retry" — ONLY genuinely flaky/transient operations (a network fetch, a rate-limited API, a service still warming up). Do NOT put "retry" on deterministic steps that would just fail the same way twice, and do not slap it on every step.
+- BOUNDED RETRIES: the harness re-runs a "retry" step EXACTLY ONCE, then fails the subtask if it still errors. Plans must not assume unlimited attempts, and must never chain steps hoping repeated runs eventually pass — that loops on a dead end. If a critical step is likely to fail, prefer "abort" with a clear failure over silent looping.
+- IDEMPOTENT, NON-INTERACTIVE commands keep a re-run safe: pass non-interactive flags (curl -fsS, apt-get -y, yt-dlp --no-progress), write to a FIXED output path so a re-run overwrites rather than appends (avoid `>>`), and never use a command that blocks waiting for input. `mkdir -p`, `cp -f`, and "download to a fixed file" are safe to repeat; "append a line" or "confirm with y/N" are not.
 
 VERIFICATION — make "verify" MEANINGFUL, not decorative:
 - Trivial steps (mkdir, cd, echo, a command whose own exit code already proves it did the right thing) keep "verify": "exit_code == 0".
