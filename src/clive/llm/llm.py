@@ -174,12 +174,21 @@ def _claude_cli_complete(messages: list[dict], model: str | None = None,
     argv = _build_claude_cli_argv(model)
     env = _build_claude_cli_env(dict(os.environ))
 
-    try:
+    def _spawn():
         # Run from a throwaway cwd so no project .claude/CLAUDE.md is discovered
         # (defense in depth alongside --setting-sources "", which drops settings).
         with tempfile.TemporaryDirectory(prefix="clive-panel-") as _cwd:
-            p = subprocess.run(argv, input=prompt, capture_output=True, text=True,
-                               timeout=timeout, env=env, cwd=_cwd)
+            return subprocess.run(argv, input=prompt, capture_output=True, text=True,
+                                  timeout=timeout, env=env, cwd=_cwd)
+
+    try:
+        # Retry ONLY transient spawn failures (OSError — e.g. EAGAIN while forking
+        # under load) with bounded backoff. A clean nonzero exit is NOT an
+        # exception — _spawn() returns the CompletedProcess and it's handled below
+        # with no retry — so a deterministic bad-arg/auth failure fails fast. A
+        # non-transient exception (timeout, etc.) also fails fast and is surfaced
+        # below as a text turn so the runner still records a turn.
+        p = _with_retry(_spawn)
     except Exception as e:  # noqa: BLE001 — surface as text so the runner records a turn
         est = sum(len(str(m.get("content", ""))) for m in messages) // 4
         return f"[claude-cli error: {e}]", est, 0
@@ -280,6 +289,16 @@ def _is_transient(exc: Exception) -> bool:
         status = getattr(getattr(exc, "response", None), "status_code", None)
     if isinstance(status, int):
         return status == 429 or status >= 500
+    # Subprocess spawn / stdio-transport failures (delegate + claude-cli paths):
+    # a fork/exec that fails to even start the child, or a broken/reset pipe, is
+    # an OSError (e.g. EAGAIN "resource temporarily unavailable" under load,
+    # ECONNRESET, EPIPE, or a transiently-missing binary) and is worth a bounded
+    # retry. A request TIMEOUT is NOT — re-running a multi-minute call that
+    # already ran out the clock is wasteful — so exclude TimeoutError (which
+    # subclasses OSError). A clean nonzero EXIT is not an exception at all (it
+    # returns a CompletedProcess) so it never reaches here and fails fast.
+    if isinstance(exc, OSError) and not isinstance(exc, TimeoutError):
+        return True
     return False
 
 
@@ -318,12 +337,16 @@ def chat(
 
     from delegate_client import DelegateClient
     if isinstance(client, DelegateClient):
-        resp = client.chat.completions.create(
+        # Wrap the stdio invoke in the same bounded retry: a transient transport
+        # failure (broken/reset pipe) is retried, while a deterministic
+        # delegate-side error (RuntimeError from an llm_error frame) or a timeout
+        # propagates immediately with no retry.
+        resp = _with_retry(lambda: client.chat.completions.create(
             model=model or MODEL,
             messages=messages,
             max_tokens=max_tokens,
             temperature=temperature,
-        )
+        ))
         content = resp.choices[0].message.content or ""
         return content, resp.usage.prompt_tokens, resp.usage.completion_tokens
 
@@ -494,15 +517,26 @@ def chat_stream(
 
         system_blocks = [{"type": "text", "text": system, "cache_control": {"type": "ephemeral"}}] if system else []
 
+        # Retry the stream SETUP/connect (transient-only): the request is issued
+        # on __enter__, so a connection failure there is retried. Once tokens are
+        # flowing we do NOT retry — a mid-flight break propagates as a clean
+        # failure rather than silently re-running a half-consumed stream (which
+        # would double-fire on_token and risk truncated/duplicated content).
+        def _open_stream():
+            mgr = client.messages.stream(
+                model=model or MODEL,
+                max_tokens=max_tokens,
+                system=system_blocks,
+                messages=filtered,
+            )
+            return mgr, mgr.__enter__()
+
+        manager, stream = _with_retry(_open_stream)
+
         content_parts = []
         pt, ct = 0, 0
         stopped_early = False
-        with client.messages.stream(
-            model=model or MODEL,
-            max_tokens=max_tokens,
-            system=system_blocks,
-            messages=filtered,
-        ) as stream:
+        try:
             for text in stream.text_stream:
                 content_parts.append(text)
                 if on_token:
@@ -516,6 +550,10 @@ def chat_stream(
                 final = stream.get_final_message()
                 pt = final.usage.input_tokens
                 ct = final.usage.output_tokens
+        finally:
+            # Always close the stream — including when consumption raised, so the
+            # mid-flight break surfaces cleanly with the connection released.
+            manager.__exit__(None, None, None)
 
         content = "".join(content_parts)
         if stopped_early:
@@ -523,13 +561,16 @@ def chat_stream(
             ct = len(content) // 4
         return content, pt, ct
 
-    # OpenAI-compatible: use streaming
-    response = client.chat.completions.create(
+    # OpenAI-compatible: use streaming. Retry the stream SETUP (the create call
+    # that opens the connection) on transient errors only; do NOT retry once
+    # chunks are flowing below — a mid-stream break propagates as a clean failure
+    # rather than silently re-running a half-consumed stream.
+    response = _with_retry(lambda: client.chat.completions.create(
         model=model or MODEL,
         messages=messages,
         max_tokens=max_tokens,
         stream=True,
-    )
+    ))
 
     content_parts = []
     pt, ct = 0, 0
