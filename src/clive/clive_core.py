@@ -490,7 +490,8 @@ def _run_inner(task, toolset_spec, output_format, max_tokens, session_dir, _clea
         step("Cancelled")
         return "Cancelled"
 
-    # Recovery replan if some subtasks failed + others were skipped
+    # Recovery replan if subtasks failed — including a leaf/single-subtask
+    # failure that left no skipped dependents (single, bounded retry).
     results = summarizer.attempt_recovery(
         task, results, execute_plan,
         panes=panes, tool_status=tool_status, tools_summary=tools_summary,
