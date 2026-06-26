@@ -287,6 +287,34 @@ def test_build_planned_prompt_teaches_meaningful_verification():
     assert '"verify"' in prompt and '"on_fail"' in prompt
 
 
+def test_build_planned_prompt_teaches_bounded_failure_recovery():
+    """The planner must be taught to choose on_fail DELIBERATELY (no blanket
+    retry), that a 'retry' step is re-run only ONCE (bounded — the harness
+    will not loop), and to prefer idempotent, non-interactive commands so a
+    re-run is safe. The JSON shape (cmd/verify/on_fail) stays unchanged."""
+    from prompts import build_planned_prompt
+    prompt = build_planned_prompt(
+        subtask_description="Fetch and process data",
+        pane_name="shell",
+        app_type="shell",
+        tool_description="bash shell",
+        dependency_context="",
+        session_dir="/tmp/clive/test",
+    )
+    low = prompt.lower()
+    # on_fail is a deliberate choice, not a blanket retry on every step.
+    assert "blanket" in low or "deliberate" in low
+    # Bounded retry: the step is re-run exactly once, then the plan fails.
+    assert "once" in low
+    assert "bounded" in low or "unlimited" in low
+    # Prefer idempotent, non-interactive commands so a re-run is safe.
+    assert "idempotent" in low
+    assert "non-interactive" in low or "noninteractive" in low
+    # All three on_fail actions remain documented; JSON shape is unchanged.
+    assert "retry" in prompt and "skip" in prompt and "abort" in prompt
+    assert '"verify"' in prompt and '"on_fail"' in prompt
+
+
 # ─── VALID_MODES inclusion ───────────────────────────────────────────────────
 
 def test_planned_in_valid_modes():
