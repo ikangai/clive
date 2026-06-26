@@ -40,6 +40,17 @@ INTERVENTION_PATTERNS = [
     (re.compile(r'FATAL:|panic:'), "fatal_error"),
     (re.compile(r'Permission denied'), "permission_error"),
     (re.compile(r'No space left on device'), "disk_error"),
+    # Pager / interactive-wedge (gh#40): a `less`/`more` screen leaves the
+    # command blocked on keystrokes. The poll loop otherwise reads the
+    # static pager screen as "idle" forever, so surface it as an
+    # intervention. Matched against the captured screen like the others.
+    (re.compile(r'--More--'), "pager_prompt"),
+    (re.compile(r'\(END\)'), "pager_prompt"),
+    (re.compile(r'lines \d+-\d+'), "pager_prompt"),
+    # A lone ":" alone on the bottom row (less mid-file prompt). Anchored
+    # to the final line (\A|\n ... \Z) so an inline colon like "Note:"
+    # does not false-positive.
+    (re.compile(r'(?:\A|\n):[ \t]*\n?\Z'), "pager_prompt"),
 ]
 
 # Map ByteEvent kinds (from observation.byte_classifier.BYTE_PATTERNS) to the
