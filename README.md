@@ -104,6 +104,8 @@ The planner assigns an execution mode per subtask — how much the agent observe
 
 The planner defaults to `script` or `planned` when the task is deterministic, and to `llm` when the task is a text transformation that shell can't do. `interactive` engages when the task requires observation and adaptation. Chains are first-class: a task like "fetch the transcript and translate it" produces a `script` → `llm` DAG where the transcript file flows between subtasks through the session working directory.
 
+In `planned` mode each step's `verify` is a real success condition — file presence, content match, or count, not just a clean exit code — so a step that writes an empty file or the wrong output is caught rather than passed. The default driver likewise instructs the agent to confirm the expected end-state before reporting a task done: a clean exit code is not proof the goal was met.
+
 ### Observation loop efficiency
 
 The interactive and streaming modes use a three-phase observation architecture that minimizes LLM costs:

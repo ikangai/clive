@@ -28,6 +28,29 @@ def test_default_driver_constant_instructs_verify_before_done():
     assert "exit code" in low
 
 
+# ─── Bounded recovery — the default driver must give concrete, bounded ──────
+# recovery guidance instead of the vague "try a different approach": detect
+# stuck/hung commands and interrupt them, cap retries at a small fixed number
+# then stop and report, and prefer non-interactive invocations that never
+# block waiting on a pager or prompt.
+
+def test_default_driver_instructs_bounded_recovery():
+    """load_driver('default') must carry concrete, bounded recovery steps."""
+    import prompts as prompts_mod
+    prompts_mod._driver_cache.clear()
+    prompts_mod._driver_meta_cache.clear()
+    body = load_driver("default").lower()
+    # (1) Detect a stuck/hung command and interrupt rather than wait forever.
+    assert "stuck" in body or "hung" in body
+    assert "ctrl-c" in body or "interrupt" in body
+    # (2) Bound retries to a small fixed number, then stop and report.
+    assert "retr" in body  # retry / retries / retried
+    assert "at most" in body or "twice" in body or "two" in body
+    assert "report" in body
+    # (3) Prefer non-interactive invocations to avoid pagers/prompts.
+    assert "non-interactive" in body or "--no-pager" in body
+
+
 def test_load_existing_driver(tmp_path):
     driver_file = tmp_path / "shell.md"
     driver_file.write_text("# Shell driver\nKEYS: ctrl-c=interrupt")

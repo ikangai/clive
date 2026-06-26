@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+### Added — Verify-before-done driver step + meaningful planner verification
+
+Planned-mode execution checks a step's exit code, and the per-step `verify` field was a documented no-op (the planner prompt literally said it was "currently always exit_code == 0"). A clean exit is not proof a step met its goal — a download can write an empty or HTML-error file, a transform can produce the wrong output, all with exit 0. Two changes close that gap, both on the open prompt surface:
+
+- **`drivers/default.md` and the `DEFAULT_DRIVER` fallback** (`llm/prompts.py`) now carry a **VERIFY BEFORE DONE** instruction: before reporting a task complete, run a command that confirms the expected end-state actually holds — `test -s out.txt` (file exists and is non-empty), `grep -q "<expected>" out.txt` (content present), `pgrep -f <proc>` (process running), or re-read the output and check it matches what success looks like. Both driver code paths (the file-based driver and the unknown-app-type fallback constant) carry the same rule.
+- **The planned-mode planner prompt** is taught to emit **meaningful per-step verification** instead of defaulting `verify` to `exit_code == 0`. Trivial steps (`mkdir`/`cd`/`echo`) still default to the exit code; steps whose correctness the exit code does not prove get a real check whose exit code reflects it — chained onto the command with `&&` (re-runs on `on_fail: retry`) or as a dedicated follow-up step (a hard gate with `on_fail: abort`). The prompt documents the check idioms (`test -f/-s`, `grep -q`, count via `wc -l`, `jq -e`), the gate semantics (abort on checks, retry on the flaky work step), and a worked fetch-and-process example. The JSON plan shape (`cmd`/`verify`/`on_fail`) is unchanged.
+
+2 new tests in `tests/test_drivers.py` pin the verify-before-done instruction in both driver code paths; 1 new test in `tests/test_planned_runner.py` asserts the planner prompt now teaches meaningful verification (the "currently always" disclaimer is gone, the check idioms are present) while keeping the `exit_code == 0` default for trivial steps and the JSON shape.
+
 ### Added — Driver quarantine + `--promote-driver` (gh#41 scenario #50)
 
 The highest-leverage structural mitigation from the discovery audit: auto-gen drivers no longer become loadable by panes the moment `--explore` finishes. They land in `drivers/.unreviewed/<name>.md`, a quarantine subdir that `load_driver` does not search by default. A human review + explicit `clive --promote-driver <name>` step is required to move the driver into the active set at `drivers/<name>.md`. This blunts every remaining prompt-injection vector that survives the regex-level content filters from the previous fix pass — even a structurally-valid auto-gen driver with a smuggled payload cannot reach a worker pane until promoted.
