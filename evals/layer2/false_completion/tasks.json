@@ -1,0 +1,60 @@
+[
+  {
+    "id": "false_completion_wrong_json_field_001",
+    "layer": 2,
+    "tool": "shell",
+    "mode": "interactive",
+    "task": "Read payload.json. It has a top-level \"status\" and a nested \"result\" object that also has a \"status\". Write the value of the NESTED result.status field (and only that) to answer.txt in the current directory.",
+    "initial_state": {
+      "filesystem": "fixtures/wrong_json_field/"
+    },
+    "success_criteria": {
+      "type": "deterministic",
+      "check": "test \"$(cat answer.txt | tr -d '[:space:]')\" = \"fresh\""
+    },
+    "trap": "Both keys are named \"status\". The obvious '.status' grabs the top-level value ('stale'); the task wants the nested result.status ('fresh'). An agent that does not re-read its own output emits DONE on the wrong field.",
+    "naive_command": "python3 -c \"import json; print(json.load(open('payload.json'))['status'])\" > answer.txt",
+    "correct_command": "python3 -c \"import json; print(json.load(open('payload.json'))['result']['status'])\" > answer.txt",
+    "min_turns": 2,
+    "max_turns": 8,
+    "timeout_seconds": 30
+  },
+  {
+    "id": "false_completion_off_by_one_count_002",
+    "layer": 2,
+    "tool": "shell",
+    "mode": "interactive",
+    "task": "scores.csv has a header row followed by data rows. Count the number of DATA records (excluding the header row) and write just that number to count.txt in the current directory.",
+    "initial_state": {
+      "filesystem": "fixtures/csv_count/"
+    },
+    "success_criteria": {
+      "type": "deterministic",
+      "check": "test \"$(cat count.txt | tr -d '[:space:]')\" = \"3\""
+    },
+    "trap": "The file has 4 lines (1 header + 3 records). The obvious 'wc -l' counts the header too and yields 4 instead of 3. An agent that does not subtract the header line emits DONE on an off-by-one count.",
+    "naive_command": "wc -l < scores.csv | tr -d ' ' > count.txt",
+    "correct_command": "tail -n +2 scores.csv | wc -l | tr -d ' ' > count.txt",
+    "min_turns": 2,
+    "max_turns": 8,
+    "timeout_seconds": 30
+  },
+  {
+    "id": "false_completion_wrong_path_003",
+    "layer": 2,
+    "tool": "shell",
+    "mode": "interactive",
+    "task": "Create a directory named 'report' in the current directory and write the text 'OK' to report/summary.txt (the file must live inside the report directory).",
+    "initial_state": {},
+    "success_criteria": {
+      "type": "deterministic",
+      "check": "test \"$(cat report/summary.txt 2>/dev/null)\" = \"OK\""
+    },
+    "trap": "Writing 'OK' to summary.txt in the current directory succeeds with a 0 exit code, so a non-self-verifying agent emits DONE -- but the required file at report/summary.txt was never created (wrong path).",
+    "naive_command": "echo OK > summary.txt",
+    "correct_command": "mkdir -p report && echo OK > report/summary.txt",
+    "min_turns": 2,
+    "max_turns": 8,
+    "timeout_seconds": 30
+  }
+]
