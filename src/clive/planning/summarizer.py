@@ -8,6 +8,7 @@ Extracted from clive.py to isolate the post-execution phase:
 """
 
 import json
+import logging
 import os
 import time
 
@@ -18,8 +19,61 @@ from output import detail, step
 from planner import create_plan
 from prompts import build_summarizer_prompt, wrap_untrusted
 
+log = logging.getLogger(__name__)
 
 SESSION_LOG = os.path.expanduser("~/.clive_session_log.jsonl")
+
+
+def detect_false_completion(results):
+    """Flag COMPLETED subtask results whose observable evidence contradicts them.
+
+    A subtask can be marked COMPLETED while its evidence says otherwise — a false
+    success that silently poisons the synthesized answer (Terminal-Bench, arXiv
+    2601.11868: verification errors are ~25% of CLI-agent failures). This is a
+    pure, deterministic check that uses ONLY fields already on SubtaskResult.
+
+    PRIMARY signal: status is COMPLETED but ``exit_code`` is an int and != 0 —
+    the agent claimed done, yet the last command failed. ``exit_code is None``
+    (unknown) and ``exit_code == 0`` (supported success) are NOT flagged, so the
+    check produces no false positives; FAILED/SKIPPED results are honest, not
+    *false* completions, so they are skipped too.
+
+    Returns a list of ``(subtask_id, reason)`` pairs (empty when nothing is
+    suspect). Returning the flags — rather than mutating anything — lets the dead
+    ``false_completion`` eval metric (#40) and the false-completion eval
+    scenarios assert on them without touching the frozen execution/ or
+    eval-harness code.
+    """
+    flags = []
+    for r in results:
+        if r.status != SubtaskStatus.COMPLETED:
+            continue
+        # bool is an int subclass; an exit_code should never be a bool, but
+        # guard so a stray True/False can't masquerade as 1/0.
+        if isinstance(r.exit_code, bool):
+            continue
+        if isinstance(r.exit_code, int) and r.exit_code != 0:
+            flags.append((
+                r.subtask_id,
+                f"exit_code={r.exit_code}; DONE claim not supported by evidence",
+            ))
+    return flags
+
+
+def _build_result_text(results, flags):
+    """Render the subtask-result block for the summarizer, annotating each
+    flagged result's line with a grounded ``[UNVERIFIED — ...]`` caveat so the
+    synthesized answer surfaces the discrepancy instead of laundering an
+    unsupported success as fact."""
+    caveats = {sid: reason for sid, reason in flags}
+    lines = []
+    for r in results:
+        line = f"Subtask {r.subtask_id} [{r.status.value}]: {r.summary}"
+        reason = caveats.get(r.subtask_id)
+        if reason:
+            line += f"\n  [UNVERIFIED — {reason}]"
+        lines.append(line)
+    return "\n\n".join(lines)
 
 
 def attempt_recovery(task, results, plan_execute_fn, panes, tool_status,
@@ -103,10 +157,21 @@ def summarize(task, results, output_format="default", session_dir=""):
     """Final LLM call to synthesize all subtask results into a user-facing answer."""
     client = get_client()
 
-    result_text = "\n\n".join(
-        f"Subtask {r.subtask_id} [{r.status.value}]: {r.summary}"
-        for r in results
-    )
+    # Evidence-grounded DONE-verification gate: before trusting any COMPLETED
+    # result at face value, flag the ones whose observable evidence contradicts
+    # success (e.g. non-zero exit_code) and annotate their lines so the
+    # summarizer refuses to present an unverified success as fact. The retry
+    # belongs to the runner; here we only refuse to launder it.
+    flags = detect_false_completion(results)
+    if flags:
+        for sid, reason in flags:
+            log.warning("false_completion subtask=%s %s", sid, reason)
+        detail(
+            f"Unverified DONE claim(s) in {len(flags)} subtask(s) — "
+            "flagged for the summary."
+        )
+
+    result_text = _build_result_text(results, flags)
 
     # Read key output files for richer summarization
     file_context = ""
