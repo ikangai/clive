@@ -8,7 +8,7 @@ or bare lines.
 import re
 
 _FENCED_SHELL_RE = re.compile(
-    r'```(?:bash|sh)\s*\n(.*?)```', re.DOTALL
+    r'```(?:bash|sh|shell|zsh)\s*\n(.*?)```', re.DOTALL
 )
 _FENCED_PYTHON_RE = re.compile(
     r'```python[3]?\s*\n.*?```', re.DOTALL
@@ -24,6 +24,24 @@ _OPEN_FENCE_RE = re.compile(r'```.*', re.DOTALL)
 
 # Lines that are clearly not commands
 _SKIP_PREFIXES = ('#', '//', 'DONE:', '> ')
+
+
+def _strip_prompt(command: str) -> str:
+    """Strip a leading interactive-shell prompt ('$ ' or '# ') from a command.
+
+    Non-Claude models often paste commands carrying a prompt prefix (clive is
+    model-agnostic). '$ ' (normal-user prompt) can never legitimately begin a
+    shell command, so it is always stripped. '# ' is ambiguous — it is also a
+    shell comment — so it is treated as a root prompt only for a single-line
+    command; in a multi-line block a leading '# ...' is a real comment the shell
+    will ignore on its own. Only the leading prompt is removed; an inline
+    '$'/'#' (e.g. inside a quoted argument) is left intact.
+    """
+    if command.startswith('$ '):
+        return command[2:]
+    if command.startswith('# ') and '\n' not in command:
+        return command[2:]
+    return command
 
 
 def _strip_fences(reply: str) -> str:
@@ -48,7 +66,8 @@ def extract_command(reply: str) -> str | None:
 
     Priority:
     1. DONE: marker -> return None (task complete, no command)
-    2. Fenced ```bash or ```sh block -> return contents
+    2. Fenced ```bash/```sh/```shell/```zsh block -> return contents
+       (a leading '$ ' / '# ' shell prompt is stripped)
     3. Line starting with $ -> return remainder
     4. First non-comment, non-empty line -> return as command
     """
@@ -59,10 +78,10 @@ def extract_command(reply: str) -> str | None:
     if extract_done(reply) is not None:
         return None
 
-    # 2. Fenced ```bash or ```sh block (preferred — explicit shell)
+    # 2. Fenced ```bash/```sh/```shell/```zsh block (preferred — explicit shell)
     m = _FENCED_SHELL_RE.search(reply)
     if m:
-        return m.group(1).strip()
+        return _strip_prompt(m.group(1).strip())
 
     # 2b. Skip non-shell fenced blocks (python, etc.)
     if _FENCED_PYTHON_RE.search(reply):
