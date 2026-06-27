@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 import re
+from collections import Counter
 from dataclasses import dataclass, field
 from enum import Enum
 from typing import TYPE_CHECKING, Optional
@@ -71,6 +72,12 @@ class Plan:
             errors.append("Plan has no subtasks")
             return errors
         ids = {s.id for s in self.subtasks}
+        if len(ids) != len(self.subtasks):
+            dups = sorted(sid for sid, n in Counter(s.id for s in self.subtasks).items() if n > 1)
+            errors.append(
+                f"Duplicate subtask id(s): {', '.join(dups)}. "
+                f"Each subtask must have a unique id; merge or rename the repeats."
+            )
 
         for s in self.subtasks:
             for dep in s.depends_on:
