@@ -117,3 +117,144 @@ def test_summarize_no_caveat_when_exit_code_none():
     results = [_completed("1", exit_code=None, summary="all good")]
     content = _summarize_capture(results)
     assert "UNVERIFIED" not in content
+
+
+# --- SLICE 2: classifier-model DONE-verification judge -----------------------
+#
+# The deterministic gate only catches a COMPLETED result with a *contradicting*
+# exit_code. A result that exits 0 (or unknown) yet whose summary does not
+# actually satisfy the task slips through. For exactly those not-yet-flagged
+# COMPLETED results, judge_false_completion() makes ONE cheap classifier-model
+# call grounded in OBSERVABLE evidence; a NEGATIVE verdict is treated like a
+# deterministic flag (UNVERIFIED caveat + returned flag). Cost is bounded: at
+# most one judge call per not-yet-flagged COMPLETED result, and none when there
+# are none. All model calls are stubbed so the tests are deterministic.
+
+SUPPORTED = '{"supported": true, "reason": "evidence matches the claim"}'
+UNSUPPORTED = '{"supported": false, "reason": "no such file in the evidence"}'
+
+
+def _run_summarize(results, judge_verdict=SUPPORTED, task="create report.csv"):
+    """Drive summarize() with BOTH model calls stubbed. The judge call is the
+    one that passes the classifier model (model kwarg set); the final synthesis
+    call passes no model. Returns (summarizer_user_content, calls)."""
+    calls = {"judge": [], "summary": []}
+
+    def fake_chat(client, messages, **kw):
+        if kw.get("model"):  # the judge uses the cheap classifier model
+            calls["judge"].append(messages)
+            return judge_verdict, 0, 0
+        calls["summary"].append(messages)
+        return "final answer", 0, 0
+
+    with patch.object(summarizer, "chat", fake_chat), \
+            patch.object(summarizer, "get_client", return_value=MagicMock()):
+        summarizer.summarize(task=task, results=results)
+
+    user = next(m for m in calls["summary"][-1] if m["role"] == "user")["content"]
+    return user, calls
+
+
+def test_summarize_judge_flags_unsupported_completion():
+    """COMPLETED + exit_code=0 but the judge says NOT supported -> flagged with
+    the UNVERIFIED caveat (the deterministic gate would have let it through)."""
+    results = [_completed("1", exit_code=0, summary="created report.csv")]
+    content, calls = _run_summarize(results, judge_verdict=UNSUPPORTED)
+    assert len(calls["judge"]) == 1          # exactly one judge call
+    assert "[UNVERIFIED" in content
+    assert "created report.csv" in content    # caveat annotates, not replaces
+
+
+def test_summarize_judge_supported_completion_not_flagged():
+    """Same result, but the judge says supported -> NOT flagged, no caveat."""
+    results = [_completed("1", exit_code=0, summary="created report.csv")]
+    content, calls = _run_summarize(results, judge_verdict=SUPPORTED)
+    assert len(calls["judge"]) == 1
+    assert "UNVERIFIED" not in content
+
+
+def test_judge_not_called_for_deterministically_flagged():
+    """Cost guard: a result already flagged by detect_false_completion
+    (COMPLETED + exit_code != 0) is NOT re-judged by the classifier."""
+    results = [_completed("1", exit_code=1, summary="ran migration")]
+    content, calls = _run_summarize(results, judge_verdict=UNSUPPORTED)
+    assert calls["judge"] == []               # no judge call (cost guard)
+    assert "[UNVERIFIED" in content           # still caveated deterministically
+
+
+def test_judge_skipped_when_no_eligible_completions():
+    """Cost guard: with no not-yet-flagged COMPLETED result the judge makes
+    ZERO calls (skip entirely)."""
+    results = [_result("1", SubtaskStatus.FAILED, summary="boom", exit_code=2)]
+    _content, calls = _run_summarize(results, judge_verdict=UNSUPPORTED)
+    assert calls["judge"] == []
+
+
+def test_judge_message_is_evidence_grounded():
+    """The judge call is grounded in OBSERVABLE evidence — the result's summary,
+    output snippet and file previews — not free-form self-critique."""
+    r = SubtaskResult(
+        subtask_id="1",
+        status=SubtaskStatus.COMPLETED,
+        summary="wrote the parser",
+        output_snippet="SyntaxError: unexpected EOF",
+        exit_code=0,
+        output_files=[{"path": "out/parser.py", "preview": "def parse(:"}],
+    )
+    _content, calls = _run_summarize([r], judge_verdict=SUPPORTED)
+    judge_user = next(m for m in calls["judge"][0] if m["role"] == "user")["content"]
+    assert "wrote the parser" in judge_user
+    assert "SyntaxError: unexpected EOF" in judge_user
+    assert "out/parser.py" in judge_user
+
+
+# --- judge_false_completion(): the helper in isolation -----------------------
+
+def _judge(results, flags, verdict=SUPPORTED, record=None):
+    def fake_chat(client, messages, **kw):
+        if record is not None:
+            record.append(kw.get("model"))
+        return verdict, 0, 0
+
+    with patch.object(summarizer, "chat", fake_chat):
+        return summarizer.judge_false_completion(
+            results, "task", flags, client=MagicMock()
+        )
+
+
+def test_judge_helper_flags_unsupported_uses_classifier_model():
+    """The helper flags an unsupported COMPLETED result and the ONE call it makes
+    targets the cheap classifier model."""
+    models = []
+    flags = _judge([_completed("1", exit_code=0)], [], verdict=UNSUPPORTED, record=models)
+    assert [sid for sid, _ in flags] == ["1"]
+    assert models == [summarizer.CLASSIFIER_MODEL]
+
+
+def test_judge_helper_skips_already_flagged():
+    """Cost guard at the helper level: a deterministically-flagged result is
+    never passed to the model."""
+    results = [_completed("1", exit_code=1)]
+    det = summarizer.detect_false_completion(results)
+    models = []
+    flags = _judge(results, det, verdict=UNSUPPORTED, record=models)
+    assert models == []
+    assert flags == []
+
+
+def test_judge_helper_supported_returns_no_flags():
+    results = [_completed("1", exit_code=0)]
+    assert _judge(results, [], verdict=SUPPORTED) == []
+
+
+def test_judge_call_failure_does_not_flag_or_raise():
+    """A failed/garbled judge call defaults to SUPPORTED — a flaky judge must
+    never inject a spurious caveat (false-positive flags degrade the answer)."""
+    def boom_chat(client, messages, **kw):
+        raise RuntimeError("classifier exploded")
+
+    with patch.object(summarizer, "chat", boom_chat):
+        flags = summarizer.judge_false_completion(
+            [_completed("1", exit_code=0)], "task", [], client=MagicMock()
+        )
+    assert flags == []

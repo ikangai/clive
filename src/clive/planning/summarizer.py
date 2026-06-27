@@ -13,7 +13,7 @@ import os
 import time
 
 from file_inspect import sniff_session_files
-from llm import chat, get_client
+from llm import CLASSIFIER_MODEL, chat, get_client
 from models import SubtaskStatus
 from output import detail, step
 from planner import create_plan
@@ -57,6 +57,141 @@ def detect_false_completion(results):
                 r.subtask_id,
                 f"exit_code={r.exit_code}; DONE claim not supported by evidence",
             ))
+    return flags
+
+
+# ── Evidence-grounded DONE-verification judge (classifier-model) ──────────────
+# detect_false_completion() above only catches a COMPLETED result that ALSO
+# carries a *contradicting* exit_code. It is silent on the harder case the
+# Terminal-Bench analysis flags most (arXiv 2601.11868): a result that exits 0
+# (or unknown) yet whose summary does not actually satisfy the task — e.g.
+# "created report.csv" when no such file was produced. For exactly those
+# not-yet-flagged COMPLETED results we make ONE cheap classifier-model call that
+# judges the DONE claim against OBSERVABLE evidence (the captured summary,
+# terminal snippet, and output-file previews). The judge is deliberately an
+# evidence grader, NOT free-form self-critique — pure self-critique can DEGRADE
+# accuracy (ReVeal, VerifiAgent) — and it defaults to "supported" on any
+# ambiguity so it can only ADD a caveat on positive evidence of failure, never
+# manufacture a spurious one.
+
+_JUDGE_SYSTEM = (
+    "You are a strict verification judge for a CLI agent. A subtask was marked "
+    "COMPLETED. Using ONLY the observable evidence provided (the agent's own "
+    "summary, a terminal output snippet, and previews of any output files), "
+    "decide whether that evidence SUPPORTS the claim that the subtask of the "
+    "original task was actually completed. Do not assume work you cannot see. "
+    "If the evidence is consistent with completion (or simply does not "
+    "contradict it), it is supported. Call it unsupported ONLY when the evidence "
+    "positively contradicts the claim or shows the requested result is missing. "
+    'Reply with ONE JSON object and nothing else: '
+    '{"supported": true|false, "reason": "<one short sentence>"}.'
+)
+
+_JUDGE_MAX_TOKENS = 200
+
+
+def _evidence_block(result):
+    """Render the OBSERVABLE evidence for one result — its claimed summary, a
+    terminal output snippet, and short previews of any output files. This, not
+    the model's own reasoning, is what the judge is grounded in."""
+    parts = [f"Claimed summary: {result.summary or '(none)'}"]
+    snippet = (result.output_snippet or "").strip()
+    if snippet:
+        parts.append(f"Terminal output snippet:\n{snippet[:1000]}")
+    previews = []
+    for f in result.output_files or []:
+        path = f.get("path", "")
+        preview = (f.get("preview") or "").strip()
+        if path or preview:
+            previews.append(f"  {path}: {preview[:200]}")
+        if len(previews) >= 5:
+            break
+    if previews:
+        parts.append("Output files:\n" + "\n".join(previews))
+    return "\n\n".join(parts)
+
+
+def _parse_judge_verdict(content):
+    """Parse the classifier reply into ``(supported: bool, reason: str)``.
+
+    Defaults to ``(True, "")`` on ANY ambiguity (unparseable reply, missing or
+    non-bool ``supported`` field) so a flaky judge can never inject a spurious
+    UNVERIFIED caveat — false-positive flags degrade the answer (ReVeal /
+    VerifiAgent)."""
+    text = (content or "").strip()
+    # Strip a ```json fence if present (mirrors _classify in clive_core).
+    if text.startswith("```"):
+        text = text.split("\n", 1)[1] if "\n" in text else text[3:]
+        if text.endswith("```"):
+            text = text[:-3]
+        text = text.strip()
+        if text.startswith("json"):
+            text = text[4:].strip()
+    start, end = text.find("{"), text.rfind("}")
+    if start != -1 and end > start:
+        try:
+            obj = json.loads(text[start:end + 1])
+        except (ValueError, TypeError):
+            obj = None
+        if isinstance(obj, dict) and isinstance(obj.get("supported"), bool):
+            return obj["supported"], str(obj.get("reason", "")).strip()
+    return True, ""
+
+
+def _judge_done_claim(client, task, result):
+    """ONE cheap classifier-model call asking whether the OBSERVABLE evidence
+    supports this COMPLETED result's DONE claim. Returns ``(supported, reason)``.
+    Any failure (network error, garbled reply) is treated as SUPPORTED so the
+    judge can never break the summary or remove a real success."""
+    # The evidence quotes attacker-influenceable content (web text, file
+    # previews), so wrap it as untrusted data — same posture as summarize().
+    user = (
+        f"Original task:\n{task}\n\n"
+        + wrap_untrusted("DONE-CLAIM-EVIDENCE", _evidence_block(result))
+    )
+    messages = [
+        {"role": "system", "content": _JUDGE_SYSTEM},
+        {"role": "user", "content": user},
+    ]
+    try:
+        reply, _, _ = chat(
+            client, messages, max_tokens=_JUDGE_MAX_TOKENS, model=CLASSIFIER_MODEL
+        )
+    except Exception as e:  # noqa: BLE001 — best-effort; never break the summary
+        log.warning("done_judge subtask=%s call failed: %s", result.subtask_id, e)
+        return True, ""
+    return _parse_judge_verdict(reply)
+
+
+def judge_false_completion(results, task, deterministic_flags, client=None):
+    """Evidence-grounded classifier judge for the case detect_false_completion()
+    misses: a COMPLETED result with a non-contradicting exit_code whose evidence
+    still does not support the DONE claim.
+
+    Runs the judge ONLY on COMPLETED results NOT already in *deterministic_flags*
+    — a hard cost guard of at most one classifier call per such result — and
+    skips entirely, making ZERO calls, when there are none. Returns extra
+    ``(subtask_id, reason)`` flags (same shape as detect_false_completion) for
+    results the judge deems UNSUPPORTED, so summarize() can merge them and the
+    caveat/observability path stays identical for both gates.
+    """
+    if CLASSIFIER_MODEL == "none":  # classifier disabled — honor it (see _classify)
+        return []
+    already = {sid for sid, _ in deterministic_flags}
+    candidates = [
+        r for r in results
+        if r.status == SubtaskStatus.COMPLETED and r.subtask_id not in already
+    ]
+    if not candidates:  # nothing to judge -> no model calls at all
+        return []
+    if client is None:
+        client = get_client()
+    flags = []
+    for r in candidates:
+        supported, reason = _judge_done_claim(client, task, r)
+        if not supported:
+            detail_reason = reason or "DONE claim not supported by observable evidence"
+            flags.append((r.subtask_id, f"classifier judge: {detail_reason}"))
     return flags
 
 
@@ -163,6 +298,13 @@ def summarize(task, results, output_format="default", session_dir=""):
     # summarizer refuses to present an unverified success as fact. The retry
     # belongs to the runner; here we only refuse to launder it.
     flags = detect_false_completion(results)
+    # The deterministic gate only catches a *contradicting* exit_code. Layer a
+    # cheap evidence-grounded classifier judge over the COMPLETED results it did
+    # NOT flag (exit_code 0/unknown) — one call each, none when there are none —
+    # so a "done" claim that exits clean yet isn't supported by its evidence is
+    # caught too. Judge flags share detect_false_completion's shape, so they flow
+    # through the same caveat-annotation and observability path below.
+    flags = flags + judge_false_completion(results, task, flags, client=client)
     if flags:
         for sid, reason in flags:
             log.warning("false_completion subtask=%s %s", sid, reason)
