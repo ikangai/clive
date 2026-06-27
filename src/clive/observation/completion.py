@@ -230,28 +230,44 @@ async def await_ready_events(
     """
     idle = timeout or pane_info.idle_timeout or DEFAULT_IDLE_TIMEOUT
     start = time.time()
+    last_event_time = start
+    received_any = False
     method = "max_wait"
 
     while True:
         remaining = max_wait - (time.time() - start)
-        if remaining <= 0:
-            method = "max_wait"
-            break
-
-        # Cap per-event wait at the smaller of idle and remaining — we
-        # want to treat "no events for idle seconds" as idle even if
-        # max_wait hasn't fired yet.
-        wait_slice = min(idle, remaining)
+        # Cap the per-event wait. Before the soft ceiling, use the smaller
+        # of idle and the time left so both idle and max_wait fire
+        # promptly. Past the soft ceiling, wait up to the idle window for
+        # the next event so a stream that goes quiet is detected promptly
+        # while a still-live stream keeps us waiting (activity-aware).
+        wait_slice = min(idle, remaining) if remaining > 0 else idle
         try:
             evt = await asyncio.wait_for(event_source.get(), timeout=wait_slice)
         except asyncio.TimeoutError:
-            # If max_wait already elapsed, the next loop iteration would
-            # return max_wait; prefer idle when there's headroom.
-            if max_wait - (time.time() - start) <= 0:
-                method = "max_wait"
+            elapsed = time.time() - start
+            if elapsed >= max_wait:
+                # Past the soft ceiling. Mirror _wait_polling: the ceiling
+                # is activity-aware — only finalize "max_wait" once the
+                # stream has actually gone idle. A never-active stream is
+                # idle by definition (so test_max_wait_enforced and
+                # test_idle_timeout_when_no_events still return promptly),
+                # and an active stream counts as idle after the idle window
+                # passes with no event. A still-live stream (a recent
+                # event, e.g. the per-slice wait was clipped by `remaining`
+                # right at the boundary) is kept waiting.
+                if not received_any or time.time() - last_event_time >= idle:
+                    method = "max_wait"
+                    break
             else:
+                # Idle window elapsed before the soft ceiling -> idle.
                 method = "idle"
-            break
+                break
+            continue
+
+        # An event arrived -> the command is alive.
+        received_any = True
+        last_event_time = time.time()
 
         # cmd_end with marker match -> "marker"
         if marker and evt.kind == "cmd_end":
@@ -264,7 +280,16 @@ async def await_ready_events(
             method = f"intervention:{_INTERVENTION_KIND_MAP[evt.kind]}"
             break
 
-        # Otherwise keep waiting — non-target events don't stop us.
+        # Activity-aware hard backstop: a stream that floods events forever
+        # past max_wait (a spinner that never finishes) is still eventually
+        # abandoned once MAX_WAIT_HARD is exceeded — the same bound the poll
+        # path applies, reusing the module-level constant.
+        if time.time() - start > MAX_WAIT_HARD:
+            method = "max_wait"
+            break
+
+        # Otherwise keep waiting — non-target events don't stop us, and a
+        # live stream past max_wait is treated as alive (activity-aware).
 
     # Final screen capture (same shape as poll path).
     lines = pane_info.pane.cmd("capture-pane", "-p", "-J").stdout
