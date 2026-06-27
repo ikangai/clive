@@ -15,13 +15,29 @@ _FENCED_PYTHON_RE = re.compile(
 )
 _DONE_RE = re.compile(r'^DONE:\s*(.*)', re.MULTILINE)
 
+# Fenced code blocks: a closed ```...``` pair, or a trailing unclosed fence
+# (mid-stream / malformed). Their contents are command bodies or pasted
+# output, never a top-level completion signal — excise them before the
+# DONE: search so an echoed/heredoc/scrollback 'DONE:' can't be mis-scored.
+_CLOSED_FENCE_RE = re.compile(r'```.*?```', re.DOTALL)
+_OPEN_FENCE_RE = re.compile(r'```.*', re.DOTALL)
+
 # Lines that are clearly not commands
 _SKIP_PREFIXES = ('#', '//', 'DONE:', '> ')
 
 
+def _strip_fences(reply: str) -> str:
+    """Remove fenced code blocks so their contents can't trigger DONE detection."""
+    return _OPEN_FENCE_RE.sub('', _CLOSED_FENCE_RE.sub('', reply))
+
+
 def extract_done(reply: str) -> str | None:
-    """Extract completion summary from DONE: marker. Returns None if not found."""
-    m = _DONE_RE.search(reply)
+    """Extract completion summary from DONE: marker. Returns None if not found.
+
+    DONE: must appear at top level — a DONE: line inside a fenced code block
+    (command body, heredoc, or pasted scrollback) is data, not a signal.
+    """
+    m = _DONE_RE.search(_strip_fences(reply))
     if m:
         return m.group(1).strip()
     return None

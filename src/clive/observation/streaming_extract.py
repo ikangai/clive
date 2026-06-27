@@ -22,6 +22,19 @@ import re
 
 _DONE_RE = re.compile(r'^DONE:\s*(.*)', re.MULTILINE)
 
+# Fenced code blocks: a closed ```...``` pair, or a trailing unclosed fence
+# (the common mid-stream case). Their contents are command bodies or pasted
+# output, never a top-level completion signal — excise them before the DONE:
+# search so a 'DONE:' the model is typing *inside* a command can't abort the
+# stream mid-command. Mirrors command_extract._strip_fences (identical _DONE_RE).
+_CLOSED_FENCE_RE = re.compile(r'```.*?```', re.DOTALL)
+_OPEN_FENCE_RE = re.compile(r'```.*', re.DOTALL)
+
+
+def _strip_fences(text: str) -> str:
+    """Remove fenced code blocks so their contents can't trigger DONE detection."""
+    return _OPEN_FENCE_RE.sub('', _CLOSED_FENCE_RE.sub('', text))
+
 
 class EarlyDoneDetector:
     """Detects DONE: signal during streaming and signals early abort.
@@ -35,7 +48,7 @@ class EarlyDoneDetector:
 
     def feed(self, accumulated: str) -> None:
         """Called with the accumulated response so far."""
-        if not self.done_detected and _DONE_RE.search(accumulated):
+        if not self.done_detected and _DONE_RE.search(_strip_fences(accumulated)):
             self.done_detected = True
 
     def should_stop(self) -> bool:
