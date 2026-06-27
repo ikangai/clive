@@ -142,6 +142,7 @@ def check_discovery_criteria(
         "tool_used": None,
         "tool_expected": criteria.get("expected_tool"),
         "tool_correct": True,
+        "flags_correct": True,
         "discovery_turns": sum(1 for c in cmds if _CLIVE_TOOLS_RE.search(c)),
         "fallback_used": False,
         "fallback_expected": "expected_fallback" in criteria,
@@ -174,6 +175,18 @@ def check_discovery_criteria(
                 if fields["tool_used"] is None:
                     fields["tool_used"] = used
         fields["pipeline_stages"] = matched
+
+    # expected_flags maps a tool token (same alternation form as expected_tool)
+    # to a list of flag strings that must appear on that tool's invocation(s).
+    # This measures the tool-USAGE half of gh#40: not just which tool, but
+    # whether it was called with the right flags. Absent -> flags_correct True.
+    for tool_pat, flags in criteria.get("expected_flags", {}).items():
+        used = _match_alternation(tool_pat, cmds)
+        matching = [c for c in cmds if used and _tool_in_command(used, c)]
+        for flag in flags:
+            if not any(flag in line for line in matching):
+                problems.append(f"required flag not used: {flag}")
+                fields["flags_correct"] = False
 
     if "expected_fallback" in criteria:
         used = _match_alternation(criteria["expected_fallback"], cmds)
