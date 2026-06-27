@@ -113,6 +113,14 @@ class EvalReport:
         return sum(1 for r in trs if r.tool_correct) / len(trs)
 
     @property
+    def flag_accuracy(self) -> float:
+        """% of tool evals where the agent invoked the tool with the right flags."""
+        trs = self.tool_results
+        if not trs:
+            return 0.0
+        return sum(1 for r in trs if r.flags_correct) / len(trs)
+
+    @property
     def discovery_efficiency(self) -> float:
         """Average clive-tools turns to discover a tool (Layer 5 only).
 
