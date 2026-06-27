@@ -129,6 +129,15 @@ intervention detect  compact summaries
 
 Default-on; `CLIVE_STREAMING_OBS=0` opts out to the polling path. An opt-in speculation scheduler (`CLIVE_SPECULATE=1`) can fire the main LLM call speculatively on high-confidence events so inference overlaps with pane settling; version-stamped cancel-on-supersede guarantees ordering, and bounded concurrency + a circuit breaker cap the cost.
 
+### Resilience under flaky conditions
+
+The outside world is unreliable — networks blip, models rate-limit, tools page or hang. clive treats these as expected, not exceptional:
+
+- **Transient-retry** wraps LLM calls (streaming and non-streaming, including delegated `clive@host` and `claude-cli` paths) and `tmux capture-pane` reads with bounded exponential backoff, so a momentary failure is retried rather than fatal.
+- **Self-repairing plans** — a validate-and-correct loop fixes a malformed plan before execution, and replan-on-failure covers leaf and single-subtask failures. The default driver follows a bounded recovery protocol before giving up.
+- **An observation loop that doesn't get stuck** — clive detects a pager or interactive wedge instead of hanging, trips a no-progress circuit breaker when context compression stalls, and keeps polling a pane that is *still changing* past the soft `max_wait` ceiling (up to a hard backstop) rather than abandoning slow-but-live work.
+- **Failure memory** — the ledger of failed commands survives context compression, so the agent doesn't repeat what it already tried.
+
 ### Session state across tasks
 
 The REPL and TUI hold state across tasks so follow-ups work naturally:
