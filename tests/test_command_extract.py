@@ -88,3 +88,48 @@ class TestExtractCommand:
         """Empty fenced block returns empty string."""
         reply = "```bash\n\n```"
         assert extract_command(reply) == ""
+
+
+class TestDoneInsideFenceIgnored:
+    """DONE: lines inside fenced code blocks must NOT count as completion.
+
+    Regression guard: a real command whose body/output contains a line
+    starting 'DONE:' (heredoc, pasted scrollback, echoed text) was being
+    mis-scored as task-complete, so the command never ran.
+    """
+
+    def test_done_inside_bash_block_ignored_by_extract_done(self):
+        reply = "```bash\ncat <<'EOF'\nDONE: this is data, not a signal\nEOF\n```"
+        assert extract_done(reply) is None
+
+    def test_done_echoed_in_command_ignored(self):
+        """A command line that emits 'DONE: ...' is data, not completion."""
+        reply = "```bash\nDONE: leftover scrollback from a prior run\n```"
+        assert extract_done(reply) is None
+
+    def test_command_with_done_in_body_is_still_executed(self):
+        """The actual command must run, not be swallowed as DONE."""
+        reply = "Let me write the marker file.\n```bash\necho 'DONE: x' > /tmp/marker\n```"
+        assert extract_done(reply) is None
+        assert extract_command(reply) == "echo 'DONE: x' > /tmp/marker"
+
+    def test_done_in_heredoc_body_command_executed(self):
+        reply = "```bash\ncat <<'EOF' > log.txt\nDONE: not a real signal\nEOF\n```"
+        assert extract_done(reply) is None
+        assert extract_command(reply) == "cat <<'EOF' > log.txt\nDONE: not a real signal\nEOF"
+
+    def test_done_in_no_lang_fence_ignored(self):
+        reply = "Here is the prior output:\n```\nDONE: old run finished\n```"
+        assert extract_done(reply) is None
+
+    def test_genuine_top_level_done_still_detected(self):
+        """A real DONE: outside any fence is still a completion signal."""
+        reply = "DONE: wrote 3 files"
+        assert extract_done(reply) == "wrote 3 files"
+        assert extract_command(reply) is None
+
+    def test_top_level_done_after_fenced_block_detected(self):
+        """DONE: outside the fence still wins even when a fence is present."""
+        reply = "```bash\necho 'DONE: noise'\n```\nDONE: real summary"
+        assert extract_done(reply) == "real summary"
+        assert extract_command(reply) is None
