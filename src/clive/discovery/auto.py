@@ -76,6 +76,35 @@ def write_generated_driver(*args, **kwargs):  # noqa: D401 — trampoline
     return fn(*args, **kwargs)
 
 
+def _first_nonempty_line(text: str) -> str:
+    """First non-empty stripped line of ``text`` (the driver synopsis), or ''."""
+    for line in (text or "").splitlines():
+        stripped = line.strip()
+        if stripped:
+            return stripped
+    return ""
+
+
+def _derive_memo_fields(tool_name: str, result, driver_text: str) -> tuple[str, str]:
+    """Derive ``(invocation, usage)`` for the learned-tool memo.
+
+    Prefers a clean known-good invocation observed during exploration — the
+    command of the first successful (``exit_code == 0``) probe on ``result``.
+    Falls back to the tool name when no probe succeeded. ``usage`` is always
+    the driver's synopsis (its first non-empty stripped line).
+    """
+    invocation = ""
+    for probe in getattr(result, "probes", None) or []:
+        if getattr(probe, "success", False):
+            cmd = (getattr(probe, "command", "") or "").strip()
+            if cmd:
+                invocation = cmd
+                break
+    if not invocation:
+        invocation = tool_name
+    return invocation, _first_nonempty_line(driver_text)
+
+
 def _explore_async(tool_name: str, drivers_dir: Optional[str]) -> None:
     """Background exploration — fire-and-forget. Logs + swallows any failure."""
     try:
@@ -90,6 +119,13 @@ def _explore_async(tool_name: str, drivers_dir: Optional[str]) -> None:
             "`clive --promote-driver %s`",
             tool_name, path, tool_name,
         )
+        # Persist what we learned so the next run's Tier-2 card can reuse the
+        # known-good invocation (gh#41 slice 2/2). Best-effort: record_tool_memo
+        # never raises, and the whole block is inside the auto-explore try/except
+        # so any derivation slip is logged + swallowed like the rest.
+        from .tool_memo import record_tool_memo
+        invocation, usage = _derive_memo_fields(tool_name, result, driver_text)
+        record_tool_memo(tool_name, invocation, usage)
     except Exception as exc:
         log.warning("[auto-explore] failed for %r: %s", tool_name, exc)
 
