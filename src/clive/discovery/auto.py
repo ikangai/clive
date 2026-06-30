@@ -85,23 +85,57 @@ def _first_nonempty_line(text: str) -> str:
     return ""
 
 
+def _is_help_only(cmd: str) -> bool:
+    """True when ``cmd`` is a help/version-only invocation (e.g. ``jq --help``).
+
+    A probe is help-only when it has at least one token after the tool name and
+    *every* such token is in ``explorer._HELP_FLAGS``. A bare tool name (no
+    trailing tokens) is NOT help-only — it's a legitimate real invocation (cf.
+    ``record_tool_memo("fzf", "fzf", ...)``), so the vacuous-truth case must
+    stay a real usage.
+    """
+    # Reuse the explorer's canonical help/version flag set (single source of
+    # truth) rather than copying the tuple. Imported lazily to keep importing
+    # ``discovery.auto`` cheap — ``.explorer`` pulls in libtmux + the runtime,
+    # which the module docstring deliberately defers (see ``_lazy_import_discovery``).
+    from .explorer import _HELP_FLAGS
+
+    rest = cmd.split()[1:]  # tokens after the tool name as it appears in cmd
+    return bool(rest) and all(tok in _HELP_FLAGS for tok in rest)
+
+
 def _derive_memo_fields(tool_name: str, result, driver_text: str) -> tuple[str, str]:
     """Derive ``(invocation, usage)`` for the learned-tool memo.
 
-    ``invocation`` is the command of the first successful (``exit_code == 0``)
-    probe observed during exploration, or ``""`` when no probe succeeded. An
-    empty invocation is the "nothing learned" signal: ``record_tool_memo`` skips
-    the write so a failed re-exploration cannot clobber a previously-learned
-    known-good memo with a bare-name fallback (gh#41). ``usage`` is always the
-    driver's synopsis (its first non-empty stripped line).
+    ``invocation`` is the command of the first *real-usage* successful
+    (``exit_code == 0``) probe observed during exploration. ``build_exploration_goal``
+    tells the agent to run ``<tool> --help`` first, so the first success is
+    almost always a help/version probe — recording that would teach the next run
+    to re-run ``jq --help`` instead of a real usage like ``jq -r '.x'``,
+    defeating the experiential-reuse goal (gh#41). We therefore prefer the first
+    successful probe that is NOT help/version-only, falling back to the first
+    success only when every success is help-only — never regressing to ``""``
+    when a real success existed.
+
+    ``invocation`` is ``""`` only when no probe succeeded; that empty value is
+    the "nothing learned" signal: ``record_tool_memo`` skips the write so a
+    failed re-exploration cannot clobber a previously-learned known-good memo
+    with a bare-name fallback (gh#41). ``usage`` is always the driver's synopsis
+    (its first non-empty stripped line).
     """
+    first_success = ""
     invocation = ""
     for probe in getattr(result, "probes", None) or []:
         if getattr(probe, "success", False):
             cmd = (getattr(probe, "command", "") or "").strip()
-            if cmd:
+            if not cmd:
+                continue
+            if not first_success:
+                first_success = cmd
+            if not _is_help_only(cmd):
                 invocation = cmd
                 break
+    invocation = invocation or first_success
     return invocation, _first_nonempty_line(driver_text)
 
 
