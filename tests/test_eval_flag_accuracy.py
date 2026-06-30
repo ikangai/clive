@@ -129,3 +129,28 @@ def test_expected_tool_still_checked_alongside_flags():
         _, fields, _, _ = _result_from(t, _scrollback(GOOD_CMDS[t["id"]]))
         assert fields["tool_correct"] is True
         assert fields["tool_used"] is not None
+
+
+def _tool_result(task_id, flags_correct):
+    """A minimal ToolEvalResult carrying just the flag-correctness signal."""
+    return ToolEvalResult(
+        task_id=task_id, layer=2, tool="shell", passed=flags_correct,
+        turns_used=1, min_turns=1, prompt_tokens=0, completion_tokens=0,
+        elapsed_seconds=0.0, detail="", flags_correct=flags_correct,
+    )
+
+
+def test_to_dict_surfaces_flag_accuracy():
+    """flag_accuracy is computed on every tool run but was previously dark
+    in reports. to_dict()['tool_metrics'] must now expose it, equal to the
+    report's flag_accuracy property (gh#40 observability)."""
+    report = EvalReport([
+        _tool_result("a", flags_correct=True),
+        _tool_result("b", flags_correct=False),
+    ])
+    assert report.tool_results, "report must contain ToolEvalResults"
+    tool_metrics = report.to_dict()["tool_metrics"]
+    assert "flag_accuracy" in tool_metrics
+    assert tool_metrics["flag_accuracy"] == round(report.flag_accuracy, 3)
+    # 1 of 2 flags correct -> 0.5, which is round-stable so equals the raw property.
+    assert tool_metrics["flag_accuracy"] == report.flag_accuracy == pytest.approx(0.5)
