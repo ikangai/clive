@@ -53,7 +53,19 @@ def record_tool_memo(tool_name: str, invocation: str, usage: str) -> None:
 
     Loads the existing dict, merges in this tool's entry, and writes atomically
     (tmp file + ``os.replace``). All IO/JSON errors are swallowed and logged.
+
+    A blank ``invocation`` is treated as "nothing learned" and is NOT persisted:
+    the call is a no-op so any previously-learned good memo survives. This guards
+    against a failed re-exploration downgrading a known-good memo to an empty /
+    bare-name fallback (gh#41 self-learning regression).
     """
+    if not (invocation or "").strip():
+        log.debug(
+            "tool_memo: skip recording %r — empty invocation, keeping any "
+            "existing memo",
+            tool_name,
+        )
+        return
     try:
         memos = _load_all()
         memos[tool_name] = {"invocation": invocation, "usage": usage}

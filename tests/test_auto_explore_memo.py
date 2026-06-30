@@ -56,9 +56,13 @@ def test_explore_async_records_known_good_invocation(monkeypatch, tmp_path):
     assert memo["usage"] == "ripgrep: recursive line search"
 
 
-# ── (b) fallback: no successful probe -> invocation=tool_name + synopsis ───────
+# ── (b) failed re-exploration must NOT clobber a learned memo (gh#41) ──────────
 
-def test_explore_async_falls_back_to_tool_name_and_synopsis(monkeypatch, tmp_path):
+def test_explore_async_no_success_preserves_existing_memo(monkeypatch, tmp_path):
+    # Run 1 learned a real known-good invocation.
+    tool_memo.record_tool_memo("ripgrep", "rg -n PATTERN", "recursive line search")
+
+    # Run 2's exploration finds NO working probe (no exit_code==0 outcome).
     result = ExplorationResult(tool_name="ripgrep")
     result.probes.append(ProbeOutcome(command="rg --boom", exit_code=1, screen="err"))
     monkeypatch.setattr(auto, "explore_tool", lambda name: result)
@@ -68,10 +72,31 @@ def test_explore_async_falls_back_to_tool_name_and_synopsis(monkeypatch, tmp_pat
 
     auto._explore_async("ripgrep", drivers_dir=str(tmp_path))
 
+    # The good memo from run 1 must survive — no bare-name downgrade.
     memo = tool_memo.load_tool_memo("ripgrep")
     assert memo is not None
-    assert memo["invocation"] == "ripgrep"
-    assert memo["usage"] == "ripgrep synopsis line"
+    assert memo["invocation"] == "rg -n PATTERN"
+    assert memo["usage"] == "recursive line search"
+
+
+def test_explore_async_success_overwrites_existing_memo(monkeypatch, tmp_path):
+    # A stale memo exists from a prior run.
+    tool_memo.record_tool_memo("ripgrep", "rg -n OLD", "stale usage")
+
+    # Run 2 finds a working probe — it SHOULD overwrite the stale memo.
+    result = ExplorationResult(tool_name="ripgrep")
+    result.probes.append(ProbeOutcome(command="rg --version", exit_code=0, screen="rg 14"))
+    monkeypatch.setattr(auto, "explore_tool", lambda name: result)
+    _stub_generate_and_write(
+        monkeypatch, tmp_path, "ripgrep: recursive line search\n"
+    )
+
+    auto._explore_async("ripgrep", drivers_dir=str(tmp_path))
+
+    memo = tool_memo.load_tool_memo("ripgrep")
+    assert memo is not None
+    assert memo["invocation"] == "rg --version"
+    assert memo["usage"] == "ripgrep: recursive line search"
 
 
 # ── (c) write failure: NO memo recorded, and _explore_async does not raise ────
