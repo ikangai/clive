@@ -16,7 +16,7 @@ import os
 import pytest
 
 from evals.harness.discovery_eval import PROMPT_MARKER, check_discovery_criteria
-from evals.harness.metrics import EvalReport, ToolEvalResult
+from evals.harness.metrics import EvalReport, EvalResult, ToolEvalResult
 
 
 FIXTURE_DIR = os.path.join(
@@ -138,6 +138,46 @@ def _tool_result(task_id, flags_correct):
         turns_used=1, min_turns=1, prompt_tokens=0, completion_tokens=0,
         elapsed_seconds=0.0, detail="", flags_correct=flags_correct,
     )
+
+
+def _plain_result(task_id, passed, turns_used, error_recovered=False,
+                  false_completion=False):
+    """A minimal EvalResult carrying just the reliability signals."""
+    return EvalResult(
+        task_id=task_id, layer=1, tool="shell", passed=passed,
+        turns_used=turns_used, min_turns=1, prompt_tokens=0, completion_tokens=0,
+        elapsed_seconds=0.0, detail="", error_recovered=error_recovered,
+        false_completion=false_completion,
+    )
+
+
+def test_print_summary_surfaces_reliability_rates(monkeypatch):
+    """error_recovery_rate and false_completion_rate are computed on every run
+    and emitted in to_dict(), but were dark in the console summary — the operator
+    reading print_summary() never saw the two most mission-relevant signals.
+    print_summary() must now echo both reliability lines (gh#40 observability)."""
+    import output
+
+    report = EvalReport([
+        _plain_result("a", passed=True, turns_used=2),
+        _plain_result("b", passed=False, turns_used=2, error_recovered=True),
+        _plain_result("c", passed=False, turns_used=2, error_recovered=False),
+        _plain_result("d", passed=True, turns_used=2, false_completion=True),
+    ])
+    # errored = {b, c} (not passed); recovered among them = {b} -> 0.5
+    assert report.error_recovery_rate == pytest.approx(0.5)
+    # completed = 4 (all turns>0); false_completion = {d} -> 0.25
+    assert report.false_completion_rate == pytest.approx(0.25)
+
+    lines = []
+    monkeypatch.setattr(output, "progress", lambda msg: lines.append(msg))
+    report.print_summary()
+
+    out = "\n".join(lines)
+    er = f"{report.error_recovery_rate:.0%}"   # "50%"
+    fc = f"{report.false_completion_rate:.0%}"  # "25%"
+    assert any("Error recovery" in ln and er in ln for ln in lines), out
+    assert any("False completion" in ln and fc in ln for ln in lines), out
 
 
 def test_to_dict_surfaces_flag_accuracy():
