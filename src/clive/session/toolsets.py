@@ -25,6 +25,7 @@ Public API:
 
 import os
 import subprocess
+from concurrent.futures import ThreadPoolExecutor
 
 # ── Pane definitions ─────────────────────────────────────────────────────────
 # Each creates a tmux window — a conversation channel the agent controls.
@@ -669,30 +670,48 @@ def resolve_toolset(spec: str) -> dict:
     }
 
 
+# Upper bound on concurrent tool probes. Probes are independent and
+# subprocess/IO-bound, so the realistic toolset (~30 today, growing with
+# gh#22-38) fits in a single wave: wall-time stays ~one `timeout` instead of
+# growing linearly with the number of tools. Bounded so we never spawn a
+# thread-per-tool unboundedly.
+_CHECK_MAX_WORKERS = 32
+
+
 def check_commands(commands: list[dict]) -> tuple[list[dict], list[dict]]:
     """Check which command-line tools are installed.
 
-    Runs the 'check' command for each tool (e.g. 'command -v jq').
-    Returns (available, missing).
+    Runs the 'check' command for each tool (e.g. 'command -v jq') on a bounded
+    thread pool so startup tool-detection doesn't stall as the toolset grows —
+    the probes are independent and subprocess-bound, so wall-time is bounded by
+    roughly one ``timeout`` regardless of how many tools are checked.
+    Returns (available, missing), preserving input order in each list.
     """
-    available = []
-    missing = []
-
-    for cmd in commands:
+    def _is_available(cmd: dict) -> bool:
         check = cmd.get("check", "")
         if not check:
-            available.append(cmd)
-            continue
+            return True
         try:
             result = subprocess.run(
                 check, shell=True, capture_output=True, timeout=2,
             )
-            if result.returncode == 0:
-                available.append(cmd)
-            else:
-                missing.append(cmd)
+            return result.returncode == 0
         except (subprocess.TimeoutExpired, OSError):
-            missing.append(cmd)
+            return False
+
+    if not commands:
+        return [], []
+
+    max_workers = min(len(commands), _CHECK_MAX_WORKERS)
+    with ThreadPoolExecutor(max_workers=max_workers) as executor:
+        # executor.map preserves input order, so the partition below is
+        # identical (membership and order) to the old sequential loop.
+        results = list(executor.map(_is_available, commands))
+
+    available = []
+    missing = []
+    for cmd, ok in zip(commands, results):
+        (available if ok else missing).append(cmd)
 
     return available, missing
 
