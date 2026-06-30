@@ -93,3 +93,21 @@ def test_lone_colon_not_triggered_by_inline_colon():
     # A colon that is not alone on the bottom row (e.g. "Note:") is fine.
     text = "Building target\nNote: this is informational\nDone."
     assert "pager_prompt" not in _matched_types(text)
+
+
+# --- sudo / ssh-passphrase prompt detection ------------------------------
+# The default sudo prompt puts the colon after the username
+# ("[sudo] password for <user>:") and the ssh key prompt asks for a
+# "passphrase", so neither matches the bare `[Pp]assword:` pattern. On the
+# default poll path these wedge the pane for the full max_wait undetected,
+# then report no progress — broaden the regex to catch both.
+
+
+def test_detects_sudo_password_prompt():
+    text = "[sudo] password for martin: "
+    assert "password_prompt" in _matched_types(text)
+
+
+def test_detects_ssh_passphrase_prompt():
+    text = "Enter passphrase for key '/home/u/.ssh/id_rsa': "
+    assert "password_prompt" in _matched_types(text)

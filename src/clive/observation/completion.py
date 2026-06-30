@@ -40,6 +40,14 @@ MAX_WAIT_HARD = 180.0
 INTERVENTION_PATTERNS = [
     (re.compile(r'\[y/N\]|\[Y/n\]|\(yes/no\)'), "confirmation_prompt"),
     (re.compile(r'[Pp]assword:'), "password_prompt"),
+    # The default sudo prompt is "[sudo] password for <user>:" — the colon
+    # follows the username, not "password", so the bare `[Pp]assword:`
+    # pattern above misses it. The ssh key prompt asks for a "passphrase"
+    # ("Enter passphrase for key '...':") and has no "password" at all.
+    # Both wedge an interactive subtask on the poll path undetected, so map
+    # them to password_prompt too.
+    (re.compile(r'[Pp]assword for .+:'), "password_prompt"),
+    (re.compile(r'[Pp]assphrase'), "password_prompt"),
     (re.compile(r'Are you sure'), "confirmation_prompt"),
     (re.compile(r'[Oo]verwrite.*\?'), "overwrite_prompt"),
     (re.compile(r'Press .* to continue'), "continue_prompt"),
