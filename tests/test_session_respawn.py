@@ -37,10 +37,14 @@ class _FakePane:
         self.dead = dead
         self.cmds: list[tuple] = []
         self.sent: list[str] = []
+        # Unified, ordered log of every cmd/send_keys so a test can assert
+        # ordering *across* the two (e.g. a launch_cmd re-sent after respawn).
+        self.events: list[tuple] = []
         self.respawned = False
 
     def cmd(self, *args):
         self.cmds.append(args)
+        self.events.append(("cmd",) + args)
         head = args[0] if args else ""
         if head == "display-message":
             return _Result(["1" if self.dead else "0"])
@@ -57,14 +61,18 @@ class _FakePane:
 
     def send_keys(self, text, enter=False):
         self.sent.append(text)
+        self.events.append(("send", text))
 
 
 class _FakePaneInfo:
-    def __init__(self, pane, app_type="shell", description="d", name="shell"):
+    # ``launch_cmd`` mirrors the real PaneInfo dataclass default ('').
+    def __init__(self, pane, app_type="shell", description="d", name="shell",
+                 launch_cmd=""):
         self.pane = pane
         self.app_type = app_type
         self.description = description
         self.name = name
+        self.launch_cmd = launch_cmd
 
 
 def test_respawn_dead_pane_restarts_and_resets_agent_ready():
@@ -121,3 +129,52 @@ def test_check_health_live_pane_unchanged():
     assert pane.respawned is False
     assert pane.sent == []
     assert status["shell"]["status"] == "ready"
+
+
+def test_respawn_replays_launch_cmd_after_respawn():
+    """A DEAD pane carrying a launch_cmd has it re-sent after respawn-pane -k.
+
+    A pane originally launched with a non-shell command (``ssh remotehost`` for
+    a REMOTE pane, an app/REPL ``cmd`` for a tool pane) must come back as that
+    same thing — not a bare local shell — or every subtask routed there runs
+    remote/app-intended commands on the local box. ``respawn-pane -k`` only
+    restarts the *shell*, so the stored launch command is replayed afterwards.
+    """
+    pane = _FakePane(dead=True)
+    info = _FakePaneInfo(pane, name="remote", launch_cmd="ssh remotehost")
+
+    respawned = respawn_dead_panes({"remote": info})
+
+    assert respawned == ["remote"]
+    # The launch command was re-sent...
+    assert "ssh remotehost" in pane.sent
+    # ...as the last thing, i.e. after the prompt + pager-safe env re-install.
+    assert pane.sent == [
+        session.agent_ready_prompt_setup(),
+        session.pager_safe_env_setup(),
+        "ssh remotehost",
+    ]
+    # ...and strictly *after* the respawn-pane -k restarted the shell, so the
+    # ssh reconnect runs on a live shell rather than the dead one.
+    respawn_idx = pane.events.index(("cmd", "respawn-pane", "-k"))
+    replay_idx = pane.events.index(("send", "ssh remotehost"))
+    assert respawn_idx < replay_idx
+
+
+def test_respawn_empty_launch_cmd_sends_no_extra_command():
+    """A DEAD pane with launch_cmd='' (a plain local shell) gets no extra send.
+
+    The empty-string default means the ``if info.launch_cmd:`` guard is False,
+    so a bare local shell pane is re-set-up exactly as before — only the
+    AGENT_READY prompt + pager-safe env, no spurious trailing command.
+    """
+    pane = _FakePane(dead=True)
+    info = _FakePaneInfo(pane, name="shell", launch_cmd="")
+
+    respawned = respawn_dead_panes({"shell": info})
+
+    assert respawned == ["shell"]
+    assert pane.sent == [
+        session.agent_ready_prompt_setup(),
+        session.pager_safe_env_setup(),
+    ]

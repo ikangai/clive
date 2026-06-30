@@ -354,6 +354,12 @@ def respawn_dead_panes(panes: dict[str, PaneInfo]) -> list[str]:
         info.pane.cmd("respawn-pane", "-k")
         info.pane.send_keys(agent_ready_prompt_setup(), enter=True)
         info.pane.send_keys(pager_safe_env_setup(), enter=True)
+        # ``respawn-pane -k`` only restarts the *shell*; a pane originally
+        # launched as something else (``ssh host`` for a REMOTE pane, an
+        # app/REPL ``cmd``) must replay that command or it silently comes back
+        # as a bare local shell — a correctness AND safety hazard.
+        if info.launch_cmd:
+            info.pane.send_keys(info.launch_cmd, enter=True)
         respawned.append(name)
     return respawned
 

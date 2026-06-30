@@ -153,6 +153,11 @@ class PaneInfo:
     # empty string for everything else (shell, data, media, etc.).
     # See protocol.py and remote.render_agent_screen.
     frame_nonce: str = ""
+    # How this pane was originally launched (e.g. ``ssh host`` for a REMOTE
+    # pane, an app/REPL ``cmd`` for a tool pane); empty for a plain local
+    # shell. respawn_dead_panes replays it after ``respawn-pane -k`` so a
+    # respawned pane comes back as what it was, not a bare local shell.
+    launch_cmd: str = ""
     # Per-pane model overrides from driver frontmatter.
     # When set, runners use these instead of the global MODEL/SCRIPT_MODEL.
     agent_model: Optional[str] = None
