@@ -196,6 +196,39 @@ def test_expected_flags_missing_flag_fails_with_detail():
     assert "-r" in detail
 
 
+def test_expected_flags_token_boundary():
+    """A required flag must match a whitespace-split command TOKEN, never a
+    raw substring of an unrelated long flag (gh#40 false-positive guard).
+
+    ``-i`` is a substring of ``--include``, so a naive ``flag in line`` test
+    falsely credits a command that never used ``-i``. Tokenized matching must:
+      - reject ``-i`` hidden inside ``--include`` (flags_correct=False),
+      - accept ``-i`` clustered in a single-dash group like ``-ri`` (True),
+      - accept a long-form required flag matched as an exact token (True).
+    """
+    # -i must NOT be credited by the unrelated long flag --include.
+    _, fields, detail = check_discovery_criteria(
+        {"expected_flags": {"rg": ["-i"]}},
+        f"{PROMPT_MARKER} rg --include='*.py' error\n",
+    )
+    assert fields["flags_correct"] is False, detail
+    assert "-i" in detail
+
+    # -i clustered inside a single-dash group (-ri) counts as used.
+    _, fields, detail = check_discovery_criteria(
+        {"expected_flags": {"rg": ["-i"]}},
+        f"{PROMPT_MARKER} rg -ri error\n",
+    )
+    assert fields["flags_correct"] is True, detail
+
+    # A long-form required flag matches its exact token.
+    _, fields, detail = check_discovery_criteria(
+        {"expected_flags": {"grep": ["--ignore-case"]}},
+        f"{PROMPT_MARKER} grep --ignore-case 'foo' app.log\n",
+    )
+    assert fields["flags_correct"] is True, detail
+
+
 def test_no_expected_flags_keeps_flags_correct_true():
     """Back-compat: criteria without expected_flags leaves flags_correct True."""
     ok, fields, _ = check_discovery_criteria(
