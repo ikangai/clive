@@ -106,6 +106,33 @@ def _tool_in_command(name: str, cmd: str) -> bool:
     ) is not None
 
 
+def _flag_in_command(flag: str, cmd: str) -> bool:
+    """Whether a required flag was actually passed in a command line.
+
+    Matches against whitespace-split TOKENS, never as a raw substring of a
+    larger token — so a required short flag like ``-i`` is not falsely
+    credited by an unrelated long flag like ``--include`` (gh#40):
+
+    - a ``--long`` flag matches an exact token (or ``--long=value``);
+    - a short ``-x`` flag matches itself (or ``-x=value``) or appears inside
+      a single-dash cluster like ``-ri``, but never inside a ``--long`` token.
+    """
+    is_long = flag.startswith("--")
+    for tok in cmd.split():
+        if tok == flag or tok.startswith(flag + "="):
+            return True
+        if is_long:
+            continue
+        # Short flag: only a single-dash token can carry it (-i / -ri),
+        # never a --long token (--include must not credit -i).
+        if not tok.startswith("-") or tok.startswith("--"):
+            continue
+        # Single-letter short flags may cluster, e.g. -ri carries -i.
+        if len(flag) == 2 and flag[1] in tok[1:].split("=", 1)[0]:
+            return True
+    return False
+
+
 def _match_alternation(pattern: str, cmds: list[str]) -> str | None:
     """Return the first alternative from 'a|b|c' used in any command."""
     for name in pattern.split("|"):
@@ -184,7 +211,7 @@ def check_discovery_criteria(
         used = _match_alternation(tool_pat, cmds)
         matching = [c for c in cmds if used and _tool_in_command(used, c)]
         for flag in flags:
-            if not any(flag in line for line in matching):
+            if not any(_flag_in_command(flag, line) for line in matching):
                 problems.append(f"required flag not used: {flag}")
                 fields["flags_correct"] = False
 
