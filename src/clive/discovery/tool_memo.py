@@ -19,11 +19,19 @@ from __future__ import annotations
 import json
 import logging
 import os
+import tempfile
+import threading
 from typing import Optional
 
 log = logging.getLogger(__name__)
 
 _MEMO_FILE = "tool_memos.json"
+
+# Serialize the load-modify-replace below. auto_explore spawns one daemon
+# thread per unknown tool, so several record_tool_memo calls race in-process;
+# without this lock the read-modify-write loses entries and the shared tmp
+# file gets clobbered (gh#41 cross-run-reuse regression).
+_write_lock = threading.Lock()
 
 
 def _cache_home() -> str:
@@ -67,16 +75,30 @@ def record_tool_memo(tool_name: str, invocation: str, usage: str) -> None:
         )
         return
     try:
-        memos = _load_all()
-        memos[tool_name] = {"invocation": invocation, "usage": usage}
-
         home = _cache_home()
         os.makedirs(home, exist_ok=True)
         path = _memo_path()
-        tmp = path + ".tmp"
-        with open(tmp, "w", encoding="utf-8") as fh:
-            json.dump(memos, fh)
-        os.replace(tmp, path)
+        # Hold the lock across the whole load-modify-replace so concurrent
+        # auto-explore threads can't read a stale dict or clobber each other's
+        # tmp file; the unique mkstemp name keeps writers off a shared path.
+        with _write_lock:
+            memos = _load_all()
+            memos[tool_name] = {"invocation": invocation, "usage": usage}
+
+            fd, tmp = tempfile.mkstemp(
+                prefix=_MEMO_FILE + ".", suffix=".tmp", dir=home
+            )
+            try:
+                with os.fdopen(fd, "w", encoding="utf-8") as fh:
+                    json.dump(memos, fh)
+                os.replace(tmp, path)
+            except BaseException:
+                # Don't leak the temp file if dump/replace fails.
+                try:
+                    os.unlink(tmp)
+                except OSError:
+                    pass
+                raise
     except (OSError, ValueError, TypeError) as exc:
         log.debug("tool_memo: failed to record %r: %s", tool_name, exc)
 
