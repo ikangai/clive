@@ -31,6 +31,31 @@ class TestScriptPrompt:
                                 "Dep [1] DONE: got 3 files")
         assert "got 3 files" in p
 
+    def test_warns_against_interactive_blocking(self):
+        # Script mode has NO observation during execution, so a command that
+        # blocks on an interactive prompt wedges the pane (#44). The prompt
+        # must tell the model the script must never wait for input.
+        p = build_script_prompt("install jq and parse data", "shell", "shell",
+                                 "Bash shell", "")
+        low = p.lower()
+        assert "non-interactive" in low or "interactive" in low
+        assert "block" in low or "wait" in low or "prompt" in low
+
+    def test_suggests_non_interactive_flags(self):
+        # The model should be steered toward auto-confirm flags rather than
+        # commands that stop on a [Y/n] confirmation.
+        p = build_script_prompt("install a package", "shell", "shell",
+                                 "Bash shell", "")
+        assert "-y" in p or "--yes" in p or "--noconfirm" in p or "--no-input" in p
+
+    def test_suggests_stdin_and_pager_neutralization(self):
+        # App-level pagers/REPLs that tesla's env backstop can't cover must be
+        # neutralized: feed /dev/null on stdin, use --no-pager / pipe to cat.
+        p = build_script_prompt("query a tool that may page output", "shell",
+                                 "shell", "Bash shell", "")
+        assert "/dev/null" in p
+        assert "--no-pager" in p or "| cat" in p
+
 
 class TestInteractivePrompt:
     def test_contains_observation_framing(self):

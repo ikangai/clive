@@ -418,6 +418,12 @@ Write a single self-contained script. Choose bash or Python — whichever fits b
 - Write output/results to {session_dir}/ (absolute paths)
 - Print a short preview of output + one-line summary as last line
 
+NON-INTERACTIVE — the script runs unobserved; nothing can answer a prompt for it. A command that blocks waiting for input (an install confirmation, an ssh host-key question, `rm -i`, a REPL/shell that holds the foreground) wedges the pane until timeout and burns the whole run. Make every command run to completion without a human:
+- Pass auto-confirm/non-interactive flags: `apt-get -y`, `pip install --no-input`, `pacman --noconfirm`, `npm --yes`, `ssh -o BatchMode=yes`, `git --no-pager`. Prefer `-y`/`--yes`/`--no-input`/`--batch`/`--noconfirm` over a bare command that stops on `[Y/n]`.
+- Neutralize app-level pagers and REPLs: append `| cat`, pass `--no-pager`, or run the tool's non-interactive subcommand. Never launch an interactive shell/REPL (`python` with no script, `mysql` with no `-e`, plain `psql`) — pass the work inline (`-c`/`-e`/a heredoc) instead.
+- When a command might still try to read stdin, redirect it from `/dev/null` (e.g. `some-cmd < /dev/null`) so it gets EOF instead of hanging.
+- Supply secrets/answers via flags, env vars, or piped stdin — never let the command stop to prompt for a password or value.
+
 Respond with ONLY the script in a fenced code block. No prose.
 """
 
