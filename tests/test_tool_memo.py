@@ -33,6 +33,24 @@ def test_record_merges_multiple_tools(_redirect_home):
     assert tool_memo.load_tool_memo("bat")["invocation"] == "bat file.py"
 
 
+# ── (a2) empty invocation never persists / never clobbers (gh#41) ─────────────
+
+def test_record_skips_empty_invocation_and_preserves_existing(_redirect_home):
+    tool_memo.record_tool_memo("rg", "rg -n PATTERN", "recursive line search")
+    # A blank invocation (failed re-exploration) must be a no-op, not a clobber.
+    tool_memo.record_tool_memo("rg", "", "would downgrade")
+    tool_memo.record_tool_memo("rg", "   ", "whitespace only")
+    memo = tool_memo.load_tool_memo("rg")
+    assert memo is not None
+    assert memo["invocation"] == "rg -n PATTERN"
+    assert memo["usage"] == "recursive line search"
+
+
+def test_record_empty_invocation_writes_nothing_when_absent(_redirect_home):
+    tool_memo.record_tool_memo("rg", "", "no invocation")
+    assert tool_memo.load_tool_memo("rg") is None
+
+
 # ── (b) memo_card contains the invocation ─────────────────────────────────────
 
 def test_memo_card_contains_invocation(_redirect_home):
