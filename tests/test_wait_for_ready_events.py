@@ -112,6 +112,28 @@ async def test_max_wait_enforced_even_when_smaller_than_idle():
     assert elapsed < 1.0  # proves we didn't wait the full idle_timeout
 
 
+@pytest.mark.parametrize("kind, match, expected", [
+    ("overwrite_prompt", b"Overwrite? ", "intervention:overwrite_prompt"),
+    ("continue_prompt", b"Press any key to continue",
+     "intervention:continue_prompt"),
+    ("disk_error", b"No space left on device", "intervention:disk_error"),
+])
+@pytest.mark.asyncio
+async def test_event_path_intervention_parity(kind, match, expected):
+    """gh#40 follow-up: the three literal-pattern kinds now reachable from
+    the byte-event path map to their intervention:<type> strings."""
+    pane = _fake_pane(match.decode())
+    info = PaneInfo(pane=pane, app_type="shell", description="", name="shell")
+    q = asyncio.Queue()
+    q.put_nowait(ByteEvent(
+        kind=kind, match_bytes=match, stream_offset=0, timestamp=0.0,
+    ))
+    screen, method = await await_ready_events(
+        info, event_source=q, detect_intervention=True, max_wait=1.0,
+    )
+    assert method == expected
+
+
 @pytest.mark.asyncio
 async def test_error_keyword_event_maps_to_fatal_error():
     pane = _fake_pane("Traceback (most recent call last):")

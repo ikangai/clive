@@ -60,17 +60,23 @@ INTERVENTION_PATTERNS = [
 ]
 
 # Map ByteEvent kinds (from observation.byte_classifier.BYTE_PATTERNS) to the
-# intervention:<type> strings produced by the poll path. Four kinds are
+# intervention:<type> strings produced by the poll path. Seven kinds are
 # mapped today: password_prompt, confirm_prompt, permission_error, and
 # error_keyword (Traceback|FATAL|panic: -> fatal_error, matching the poll
-# path's FATAL:|panic: pattern). The remaining poll-path kinds —
-# "overwrite_prompt", "continue_prompt", "disk_error" — are event-path-
-# unreachable because the L2 byte classifier has no patterns for them.
+# path's FATAL:|panic: pattern), plus the three literal-pattern kinds
+# overwrite_prompt / continue_prompt / disk_error (gh#40 follow-up: the L2
+# byte classifier now carries patterns for them, so they are reachable from
+# the event path at parity with the poll path). The pager case remains
+# event-path-unreachable: its lone-colon \A/\Z-anchored regex does not
+# translate cleanly to a byte stream, so it stays poll-only.
 _INTERVENTION_KIND_MAP = {
     "password_prompt": "password_prompt",
     "confirm_prompt":  "confirmation_prompt",
     "permission_error": "permission_error",
     "error_keyword": "fatal_error",
+    "overwrite_prompt": "overwrite_prompt",
+    "continue_prompt": "continue_prompt",
+    "disk_error": "disk_error",
 }
 
 

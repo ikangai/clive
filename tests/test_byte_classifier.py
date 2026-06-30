@@ -27,6 +27,29 @@ def test_detects_cmd_end_marker():
     assert any(e.kind == "cmd_end" for e in events)
 
 
+# --- event-path intervention parity (gh#40 follow-up) --------------------
+# Bring three poll-path INTERVENTION_PATTERNS kinds to the byte stream so a
+# pane that hits them during streaming observation is surfaced, not stuck.
+
+
+def test_detects_overwrite_prompt():
+    clf = ByteClassifier()
+    events = clf.feed(b"File exists. Overwrite? ")
+    assert any(e.kind == "overwrite_prompt" for e in events)
+
+
+def test_detects_continue_prompt():
+    clf = ByteClassifier()
+    events = clf.feed(b"Press any key to continue")
+    assert any(e.kind == "continue_prompt" for e in events)
+
+
+def test_detects_disk_error():
+    clf = ByteClassifier()
+    events = clf.feed(b"write failed: No space left on device")
+    assert any(e.kind == "disk_error" for e in events)
+
+
 def test_multiple_pattern_kinds_same_chunk():
     """Regression: don't let an earlier pattern's match suppress a later
     pattern's match at a lower offset."""
