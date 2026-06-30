@@ -31,6 +31,16 @@ from models import Subtask, PaneInfo
 from llm import get_client
 
 
+def _error_recovered(passed: bool, turns_used: int, min_turns: int) -> bool:
+    """Whether a task recovered from an error: it PASSED but needed MORE than
+    its minimum number of turns, i.e. it had to course-correct.
+
+    Pure predicate (no I/O) so it is unit-testable without a live tmux run;
+    mirrors the inline ``false_completion`` rule at the result constructors.
+    """
+    return bool(passed and turns_used > min_turns)
+
+
 def _annotate_tasks(tasks: list[dict], source_dir: str) -> list[dict]:
     """Tag each task with the directory its tasks.json lives in."""
     for t in tasks:
@@ -306,6 +316,9 @@ def run_single_task(
                 return ToolEvalResult(
                     passed=passed,
                     detail=f"{detail}; {disc_detail}",
+                    error_recovered=_error_recovered(
+                        passed, result.turns_used, task_def.get("min_turns", 1)
+                    ),
                     false_completion=(
                         result.status.value == "completed" and not passed
                     ),
@@ -316,6 +329,9 @@ def run_single_task(
             return EvalResult(
                 passed=passed,
                 detail=detail,
+                error_recovered=_error_recovered(
+                    passed, result.turns_used, task_def.get("min_turns", 1)
+                ),
                 false_completion=(
                     result.status.value == "completed" and not passed
                 ),
