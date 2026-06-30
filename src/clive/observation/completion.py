@@ -68,15 +68,17 @@ INTERVENTION_PATTERNS = [
 ]
 
 # Map ByteEvent kinds (from observation.byte_classifier.BYTE_PATTERNS) to the
-# intervention:<type> strings produced by the poll path. Seven kinds are
+# intervention:<type> strings produced by the poll path. Eight kinds are
 # mapped today: password_prompt, confirm_prompt, permission_error, and
 # error_keyword (Traceback|FATAL|panic: -> fatal_error, matching the poll
-# path's FATAL:|panic: pattern), plus the three literal-pattern kinds
-# overwrite_prompt / continue_prompt / disk_error (gh#40 follow-up: the L2
-# byte classifier now carries patterns for them, so they are reachable from
-# the event path at parity with the poll path). The pager case remains
-# event-path-unreachable: its lone-colon \A/\Z-anchored regex does not
-# translate cleanly to a byte stream, so it stays poll-only.
+# path's FATAL:|panic: pattern), plus the literal-pattern kinds
+# overwrite_prompt / continue_prompt / disk_error and the pager footers
+# (--More--, (END) -> pager_prompt) (gh#40 follow-up: the L2 byte classifier
+# now carries patterns for them, so they are reachable from the event path at
+# parity with the poll path). The remaining pager cases stay poll-only: the
+# lone-colon prompt is \A/\Z-anchored (doesn't translate cleanly to a byte
+# stream) and 'lines \d+-\d+' would false-positive on normal output (e.g.
+# 'lines 1-24') on the always-on byte path.
 _INTERVENTION_KIND_MAP = {
     "password_prompt": "password_prompt",
     "confirm_prompt":  "confirmation_prompt",
@@ -85,6 +87,7 @@ _INTERVENTION_KIND_MAP = {
     "overwrite_prompt": "overwrite_prompt",
     "continue_prompt": "continue_prompt",
     "disk_error": "disk_error",
+    "pager_prompt": "pager_prompt",
 }
 
 
