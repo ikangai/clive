@@ -11,7 +11,7 @@ from output import progress
 from models import PaneInfo
 from prompts import load_driver_meta
 from runtime import resolve_model_tier
-from ps1_exit import agent_ready_prompt_setup
+from ps1_exit import agent_ready_prompt_setup, pager_safe_env_setup
 
 log = logging.getLogger(__name__)
 
@@ -91,6 +91,7 @@ def setup_session(
         if not is_remote:
             # Local tools: set up environment, then launch
             pane.send_keys(agent_ready_prompt_setup(), enter=True)
+            pane.send_keys(pager_safe_env_setup(), enter=True)
             pane.send_keys(
                 f'printf "\\033]2;{tool["app_type"]}\\033\\\\"',
                 enter=True,
@@ -105,6 +106,7 @@ def setup_session(
                 pane.send_keys(f"ssh {tool['host']}", enter=True)
             time.sleep(tool.get("connect_timeout", 3))
             pane.send_keys(agent_ready_prompt_setup(), enter=True)
+            pane.send_keys(pager_safe_env_setup(), enter=True)
             pane.send_keys(
                 f'printf "\\033]2;{tool["app_type"]}\\033\\\\"',
                 enter=True,
@@ -160,6 +162,7 @@ def add_pane(session: libtmux.Session, tool: dict, session_dir: str | None = Non
 
     if not is_remote:
         pane.send_keys(agent_ready_prompt_setup(), enter=True)
+        pane.send_keys(pager_safe_env_setup(), enter=True)
         pane.send_keys(f'printf "\\033]2;{tool["app_type"]}\\033\\\\"', enter=True)
         if tool.get("cmd"):
             pane.send_keys(tool["cmd"], enter=True)
@@ -170,6 +173,7 @@ def add_pane(session: libtmux.Session, tool: dict, session_dir: str | None = Non
             pane.send_keys(f"ssh {tool['host']}", enter=True)
         time.sleep(tool.get("connect_timeout", 3))
         pane.send_keys(agent_ready_prompt_setup(), enter=True)
+        pane.send_keys(pager_safe_env_setup(), enter=True)
         pane.send_keys(f'printf "\\033]2;{tool["app_type"]}\\033\\\\"', enter=True)
 
     cwd = os.getcwd()
