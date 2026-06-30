@@ -86,13 +86,20 @@ def pager_safe_env_setup() -> str:
       missing ``-m`` on ``git commit``) no-op instead of opening ``vi``.
     - ``GIT_TERMINAL_PROMPT=0`` fails git auth prompts fast rather than
       blocking the pane on interactive input.
+    - ``DEBIAN_FRONTEND=noninteractive``/``PIP_NO_INPUT=1``/``NONINTERACTIVE=1``
+      stop the package managers from blocking the pane on an interactive prompt
+      — apt's "Configuring tzdata" dialog (the most common autonomous-agent
+      wedge), pip keyring prompts, and Homebrew confirmations. All three are
+      well-established and side-effect-free for non-interactive use. ``CI=1`` is
+      deliberately *not* set: it changes tool behavior, not just prompting.
 
     A single side-effect-free ``export`` line so it composes with the existing
     ``send_keys`` setup sequence.
     """
     return (
         "export PAGER=cat GIT_PAGER=cat MANPAGER=cat "
-        "EDITOR=true GIT_TERMINAL_PROMPT=0 LESS=-FRX"
+        "EDITOR=true GIT_TERMINAL_PROMPT=0 LESS=-FRX "
+        "DEBIAN_FRONTEND=noninteractive PIP_NO_INPUT=1 NONINTERACTIVE=1"
     )
 
 

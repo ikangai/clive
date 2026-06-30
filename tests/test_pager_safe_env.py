@@ -25,6 +25,18 @@ def test_pager_safe_env_exports_all_vars():
     assert "LESS=-FRX" in setup
 
 
+def test_pager_safe_env_exports_package_manager_noninteractive_vars():
+    from ps1_exit import pager_safe_env_setup
+    setup = pager_safe_env_setup()
+    # Package managers must not block the pane on an interactive prompt
+    # (apt's "Configuring tzdata" dialog, pip keyring, brew confirmations).
+    assert "DEBIAN_FRONTEND=noninteractive" in setup
+    assert "PIP_NO_INPUT=1" in setup
+    assert "NONINTERACTIVE=1" in setup
+    # CI=1 is deliberately excluded — it changes tool behavior, not just prompts.
+    assert "CI=1" not in setup
+
+
 def test_pager_safe_env_is_a_single_export():
     from ps1_exit import pager_safe_env_setup
     setup = pager_safe_env_setup()
@@ -34,7 +46,8 @@ def test_pager_safe_env_is_a_single_export():
     # Exact contract string (the wiring sends this verbatim).
     assert setup == (
         "export PAGER=cat GIT_PAGER=cat MANPAGER=cat "
-        "EDITOR=true GIT_TERMINAL_PROMPT=0 LESS=-FRX"
+        "EDITOR=true GIT_TERMINAL_PROMPT=0 LESS=-FRX "
+        "DEBIAN_FRONTEND=noninteractive PIP_NO_INPUT=1 NONINTERACTIVE=1"
     )
 
 
