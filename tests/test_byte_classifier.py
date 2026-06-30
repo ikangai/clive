@@ -27,6 +27,27 @@ def test_detects_cmd_end_marker():
     assert any(e.kind == "cmd_end" for e in events)
 
 
+def test_cmd_end_event_carries_full_marker():
+    # The cmd_end event's match_bytes must carry the WHOLE marker, not just
+    # the common prefix. await_ready_events (completion.py) confirms a
+    # completion via `marker.encode() in evt.match_bytes`, where marker is
+    # wrap_command's full ___DONE_{subtask_id}_{nonce}___ token. A pattern
+    # that captured only the `EXIT:\d+ ___DONE_` prefix would make that check
+    # always fail (and would collide across subtasks, since the prefix is
+    # common to all of them).
+    from completion import wrap_command
+
+    _wrapped, marker = wrap_command("cmd", "sub42")
+    # The rendered output is what the echo prints once `$?` is expanded:
+    rendered = f"build output\nEXIT:0 {marker}\n".encode()
+
+    clf = ByteClassifier()
+    events = clf.feed(rendered)
+    cmd_end = [e for e in events if e.kind == "cmd_end"]
+    assert cmd_end, "expected a cmd_end event for the rendered marker"
+    assert marker.encode() in cmd_end[0].match_bytes
+
+
 # --- event-path intervention parity (gh#40 follow-up) --------------------
 # Bring three poll-path INTERVENTION_PATTERNS kinds to the byte stream so a
 # pane that hits them during streaming observation is surfaced, not stuck.

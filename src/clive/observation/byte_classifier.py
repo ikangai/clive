@@ -53,8 +53,13 @@ BYTE_PATTERNS: list[tuple[re.Pattern, str]] = [
     (re.compile(rb'\(END\)'),                           "pager_prompt"),
     # cmd_end: \d+ is intentional — prevents matching unexpanded echoes
     # like "EXIT:$? ___DONE_..." (which would be a command echo, not a
-    # real completion marker).
-    (re.compile(rb'EXIT:\d+ ___DONE_'),                 "cmd_end"),
+    # real completion marker). \S+ captures the rest of the marker token
+    # (the full ___DONE_{subtask_id}_{nonce}___ from wrap_command), so the
+    # emitted match_bytes carries the WHOLE marker — await_ready_events
+    # (completion.py) checks `marker.encode() in evt.match_bytes`, which
+    # the bare-prefix pattern always failed (and which collides across
+    # subtasks, since the prefix is common to every one).
+    (re.compile(rb'EXIT:\d+ ___DONE_\S+'),              "cmd_end"),
 ]
 
 
