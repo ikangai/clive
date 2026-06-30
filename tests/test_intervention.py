@@ -95,6 +95,28 @@ def test_lone_colon_not_triggered_by_inline_colon():
     assert "pager_prompt" not in _matched_types(text)
 
 
+def test_lines_footer_not_triggered_inline_mid_command():
+    # A bare "lines N-M" appearing INLINE mid-command (diff hunks,
+    # compiler errors like "lines 12-15", head/sed output) with more
+    # output after it is normal output, NOT a pager wedge. The unanchored
+    # pattern false-positived here and broke a running command; the
+    # anchored pattern (final screen line only) must not.
+    text = (
+        "@@ -10,7 +10,7 @@\n"
+        "error: problem near lines 12-34 in module\n"
+        "warning: continuing build\n"
+        "still compiling..."
+    )
+    assert "pager_prompt" not in _matched_types(text)
+
+
+def test_lines_footer_detected_only_on_bottom_screen_line():
+    # A genuine pager footer: "lines N-M" alone on the final screen line
+    # still surfaces as a pager wedge (with or without a trailing newline).
+    assert "pager_prompt" in _matched_types("alpha\nbeta\ngamma\nlines 1-24")
+    assert "pager_prompt" in _matched_types("alpha\nbeta\nlines 1-24\n")
+
+
 # --- sudo / ssh-passphrase prompt detection ------------------------------
 # The default sudo prompt puts the colon after the username
 # ("[sudo] password for <user>:") and the ssh key prompt asks for a
