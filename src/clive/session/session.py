@@ -352,6 +352,13 @@ def respawn_dead_panes(panes: dict[str, PaneInfo]) -> list[str]:
         if (lines[0].strip() if lines else "") != "1":
             continue
         info.pane.cmd("respawn-pane", "-k")
+        # ``respawn-pane -k`` replaces the pane's process, so any PaneStream is
+        # now bound to the killed process's pipe-pane->FIFO. Left attached, the
+        # default-on streaming observation path keeps consuming that dead stream
+        # and observes nothing -> burns max_turns. Tear it down so stream /
+        # pane_loop go None and observation falls back to the working poll path.
+        # (No-op when nothing was attached.)
+        detach_stream(info)
         info.pane.send_keys(agent_ready_prompt_setup(), enter=True)
         info.pane.send_keys(pager_safe_env_setup(), enter=True)
         # ``respawn-pane -k`` only restarts the *shell*; a pane originally

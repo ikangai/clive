@@ -64,15 +64,46 @@ class _FakePane:
         self.events.append(("send", text))
 
 
+class _FakeStream:
+    """Minimal PaneStream stand-in: ``detach_stream`` only reads ``.fifo_path``.
+
+    ``fifo_path=None`` makes the ``os.path.exists`` unlink branch a no-op so the
+    fake needs no real FIFO on disk.
+    """
+
+    def __init__(self):
+        self.fifo_path = None
+
+
+class _FakePaneLoop:
+    """Minimal PaneLoop stand-in for ``detach_stream``.
+
+    ``thread=None`` short-circuits the close-on-loop block (no asyncio needed);
+    ``stop`` is still called, so the test can confirm the loop was torn down.
+    """
+
+    def __init__(self):
+        self.thread = None
+        self.stopped = False
+
+    def stop(self):
+        self.stopped = True
+
+
 class _FakePaneInfo:
     # ``launch_cmd`` mirrors the real PaneInfo dataclass default ('').
+    # ``stream``/``pane_loop`` mirror the optional streaming-observation fields
+    # (None unless CLIVE_STREAMING_OBS attached a PaneStream); a respawn must
+    # tear a now-stale one down via detach_stream.
     def __init__(self, pane, app_type="shell", description="d", name="shell",
-                 launch_cmd=""):
+                 launch_cmd="", stream=None, pane_loop=None):
         self.pane = pane
         self.app_type = app_type
         self.description = description
         self.name = name
         self.launch_cmd = launch_cmd
+        self.stream = stream
+        self.pane_loop = pane_loop
 
 
 def test_respawn_dead_pane_restarts_and_resets_agent_ready():
@@ -178,3 +209,47 @@ def test_respawn_empty_launch_cmd_sends_no_extra_command():
         session.agent_ready_prompt_setup(),
         session.pager_safe_env_setup(),
     ]
+
+
+def test_respawn_detaches_stale_stream():
+    """A respawned DEAD pane has its now-stale observation stream torn down.
+
+    ``respawn-pane -k`` starts a new shell process, so the old PaneStream (bound
+    to the killed process's pipe-pane->FIFO) is dead. Left attached, the
+    default-on streaming observation path keeps consuming a dead stream and
+    observes nothing -> burns max_turns. respawn_dead_panes must call
+    ``detach_stream`` so stream/pane_loop are nulled and observation falls back
+    cleanly to the working poll path.
+    """
+    pane = _FakePane(dead=True)
+    stream = _FakeStream()
+    pane_loop = _FakePaneLoop()
+    info = _FakePaneInfo(pane, name="shell", stream=stream, pane_loop=pane_loop)
+
+    respawned = respawn_dead_panes({"shell": info})
+
+    assert respawned == ["shell"]
+    # The stale stream + loop were detached (nulled) and the loop stopped.
+    assert info.stream is None
+    assert info.pane_loop is None
+    assert pane_loop.stopped is True
+
+
+def test_respawn_leaves_live_pane_stream_untouched():
+    """A live pane is never respawned, so its observation stream is preserved.
+
+    detach_stream must run only on the recovery path; a healthy pane keeps its
+    working stream/pane_loop so streaming observation continues uninterrupted.
+    """
+    pane = _FakePane(dead=False)
+    stream = _FakeStream()
+    pane_loop = _FakePaneLoop()
+    info = _FakePaneInfo(pane, name="shell", stream=stream, pane_loop=pane_loop)
+
+    respawned = respawn_dead_panes({"shell": info})
+
+    assert respawned == []
+    # No respawn -> stream/pane_loop are left exactly as they were.
+    assert info.stream is stream
+    assert info.pane_loop is pane_loop
+    assert pane_loop.stopped is False
