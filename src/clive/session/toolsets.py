@@ -799,11 +799,56 @@ def build_tier0_summary(active_categories: list[str]) -> str:
     )
 
 
+# Tier-1 contract: each category line costs ~50 tokens. Using the ~4-chars/
+# token heuristic the registry token tests rely on, that's a ~200-char ceiling
+# per line. As the open "add tools" issues (#21-#38) pack categories past it,
+# overflowing lines are truncated to the names that fit plus a
+# "+N more (run: clive-tools list <cat>)" pointer, so the omitted tools stay
+# reachable via the existing expansion command without blowing the budget.
+TIER1_CATEGORY_TOKEN_BUDGET = 50
+_TIER1_CHARS_PER_TOKEN = 4
+
+
+def _tier1_category_line(cat: str, names: list[str], char_budget: int) -> str:
+    """Render one Tier-1 category line, capped at char_budget characters.
+
+    Returns the full ``cat: a, b, c`` line when it fits. On overflow, lists the
+    leading names that fit alongside a ``+N more (run: clive-tools list <cat>)``
+    pointer. At least one name is always shown — a lone over-budget tool is
+    emitted verbatim rather than dropped to a contentless pointer.
+    """
+    full = f"{cat}: {', '.join(names)}"
+    if len(full) <= char_budget:
+        return full
+    shown: list[str] = []
+    for name in names:
+        candidate = shown + [name]
+        omitted = len(names) - len(candidate)
+        pointer = (f", +{omitted} more (run: clive-tools list {cat})"
+                   if omitted else "")
+        line = f"{cat}: {', '.join(candidate)}{pointer}"
+        if len(line) > char_budget and shown:
+            break
+        shown = candidate
+    omitted = len(names) - len(shown)
+    if omitted:
+        return (f"{cat}: {', '.join(shown)}"
+                f", +{omitted} more (run: clive-tools list {cat})")
+    return f"{cat}: {', '.join(shown)}"
+
+
 def build_tier1_names(categories: list[str]) -> str:
     """Tier 1: tool names per category, no descriptions. ~50 tokens/category.
 
+    Each category line is capped at ~``TIER1_CATEGORY_TOKEN_BUDGET`` tokens; a
+    category whose tools overflow that budget lists only the leading names that
+    fit, followed by a ``+N more (run: clive-tools list <cat>)`` pointer so the
+    omitted tools stay discoverable. This keeps the Tier-1 invariant intact as
+    categories grow (gh#39).
+
     Duplicate categories produce duplicate lines; callers should dedupe.
     """
+    char_budget = TIER1_CATEGORY_TOKEN_BUDGET * _TIER1_CHARS_PER_TOKEN
     lines = []
     for cat in categories:
         cat_def = CATEGORIES.get(cat)
@@ -814,7 +859,7 @@ def build_tier1_names(categories: list[str]) -> str:
         names.extend(cat_def.get("commands", []))
         names.extend(cat_def.get("endpoints", []))
         if names:
-            lines.append(f"{cat}: {', '.join(names)}")
+            lines.append(_tier1_category_line(cat, names, char_budget))
     return "\n".join(lines)
 
 
