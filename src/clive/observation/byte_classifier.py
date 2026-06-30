@@ -26,6 +26,13 @@ BYTE_PATTERNS: list[tuple[re.Pattern, str]] = [
     (re.compile(rb'\x1b\[[0-9;]*4[13]m'),               "color_bg_alert"),
     (re.compile(rb'\x1b\[[0-9;]*5m'),                   "blink_attr"),
     (re.compile(rb'(?:^|[^\w])[Pp]assword\s*:'),        "password_prompt"),
+    # sudo's prompt ("[sudo] password for martin:") puts the colon after the
+    # username, and ssh key unlock ("Enter passphrase for key ...:") has no
+    # "password" token at all — both miss the bare rule above. Mirrors the
+    # poll-path INTERVENTION_PATTERNS fix (completion.py) so the default-on
+    # streaming observation path catches these auth prompts too.
+    (re.compile(rb'[Pp]assword for .+:'),               "password_prompt"),
+    (re.compile(rb'[Pp]assphrase'),                     "password_prompt"),
     (re.compile(rb'\[y/N\]|\[Y/n\]'),                   "confirm_prompt"),
     (re.compile(rb'Are you sure'),                      "confirm_prompt"),
     (re.compile(rb'Traceback|FATAL|panic:'),            "error_keyword"),
