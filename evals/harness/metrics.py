@@ -221,6 +221,8 @@ class EvalReport:
                 progress(f"         {r.detail}")
         progress(f"{'~' * 60}")
         progress(f"Turn efficiency: {self.avg_turn_efficiency:.0%}")
+        progress(f"Error recovery:  {self.error_recovery_rate:.0%}")
+        progress(f"False completion: {self.false_completion_rate:.0%}")
         if self.tool_results:
             progress(f"Tool accuracy:   {self.tool_accuracy:.0%}")
             progress(f"Flag accuracy:   {self.flag_accuracy:.0%}")
