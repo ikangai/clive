@@ -60,7 +60,16 @@ INTERVENTION_PATTERNS = [
     # intervention. Matched against the captured screen like the others.
     (re.compile(r'--More--'), "pager_prompt"),
     (re.compile(r'\(END\)'), "pager_prompt"),
-    (re.compile(r'lines \d+-\d+'), "pager_prompt"),
+    # A "lines N-M" pager ruler. Anchored to the final screen line the
+    # same way the lone-colon prompt below is (\A|\n ... \n?\Z), so it
+    # only matches when "lines N-M" is the bottom line. Bare "lines 12-34"
+    # appearing INLINE mid-command (diff/patch hunks, compiler errors like
+    # "lines 12-15", head/sed output) is normal output, not a pager wedge:
+    # the unanchored form false-positived there and disrupted a running
+    # command. This is why byte_classifier.py omits the pattern entirely on
+    # the always-on byte path; anchoring reconciles that poll/byte
+    # asymmetry while preserving genuine pager-footer detection.
+    (re.compile(r'(?:\A|\n)lines \d+-\d+[^\n]*\n?\Z'), "pager_prompt"),
     # A lone ":" alone on the bottom row (less mid-file prompt). Anchored
     # to the final line (\A|\n ... \Z) so an inline colon like "Note:"
     # does not false-positive.
