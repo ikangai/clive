@@ -343,14 +343,28 @@ def _expand_toolset(category: str, session_ctx: dict) -> bool:
     session = session_ctx.get("session")
     session_dir = session_ctx.get("session_dir")
 
-    # Add new panes
+    # Add new panes, then health-check just the ones we added instead of
+    # assuming they're ready. A runtime-expanded tool can fail to launch
+    # (an SSH remote that never connects, a TUI that crashes on startup); the
+    # initial setup_session path routes panes through check_health, so mirror
+    # that here. check_health also respawns DEAD panes, so the expansion path
+    # gains the same respawn-on-dead self-healing for free.
+    new_panes = {}
+    new_pane_defs_by_name = {}
     for pane_id in cat_def.get("panes", []):
         pane_def = PANES.get(pane_id)
         if pane_def and pane_def["name"] not in session_ctx["panes"]:
             pane_info = add_pane(session, pane_def, session_dir)
             session_ctx["panes"][pane_def["name"]] = pane_info
-            session_ctx["tool_status"][pane_def["name"]] = {
-                "status": "ready",
+            new_panes[pane_def["name"]] = pane_info
+            new_pane_defs_by_name[pane_def["name"]] = pane_def
+
+    if new_panes:
+        health = check_health(new_panes)
+        for name, pane_def in new_pane_defs_by_name.items():
+            status = health.get(name, {}).get("status", "ready")
+            session_ctx["tool_status"][name] = {
+                "status": status,
                 "app_type": pane_def["app_type"],
                 "description": pane_def["description"],
             }
