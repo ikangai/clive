@@ -142,7 +142,9 @@ def setup_session(
     poll = 0.01
     while pending and time.time() - start < 10.0:
         for name in list(pending):
-            lines = panes[name].pane.cmd("capture-pane", "-p", "-J").stdout
+            lines = _pane_cmd_with_retry(
+                panes[name].pane, "capture-pane", "-p", "-J"
+            ).stdout
             screen = "\n".join(lines) if lines else ""
             if setup_markers[name] in screen:
                 pending.discard(name)
@@ -185,7 +187,7 @@ def add_pane(session: libtmux.Session, tool: dict, session_dir: str | None = Non
     start = time.time()
     poll = 0.01
     while time.time() - start < 5.0:
-        lines = pane.cmd("capture-pane", "-p", "-J").stdout
+        lines = _pane_cmd_with_retry(pane, "capture-pane", "-p", "-J").stdout
         screen = "\n".join(lines) if lines else ""
         if marker in screen:
             break
