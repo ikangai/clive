@@ -161,7 +161,15 @@ def _wait_polling(
         if _cancel_event.is_set():
             return last_content or "", "cancelled"
 
-        lines = pane_info.pane.cmd("capture-pane", "-p", "-J").stdout
+        # Route this hot poll read through the bounded-retry helper so a
+        # single libtmux/subprocess glitch on the capture-pane doesn't
+        # propagate out of _send_agent_command and fail the whole subtask.
+        # Lazy import to avoid an import cycle (mirrors the lazy
+        # `from runtime import _cancel_event` above).
+        from session import _pane_cmd_with_retry
+        lines = _pane_cmd_with_retry(
+            pane_info.pane, "capture-pane", "-p", "-J"
+        ).stdout
         screen = "\n".join(lines) if lines else ""
 
         # Strategy 1: unique end marker
@@ -297,8 +305,15 @@ async def await_ready_events(
         # Otherwise keep waiting — non-target events don't stop us, and a
         # live stream past max_wait is treated as alive (activity-aware).
 
-    # Final screen capture (same shape as poll path).
-    lines = pane_info.pane.cmd("capture-pane", "-p", "-J").stdout
+    # Final screen capture (same shape as poll path). Route through the
+    # bounded-retry helper too — this runs once per command in the default
+    # streaming path, so a transient hiccup here would otherwise raise out of
+    # _send_agent_command and fail the subtask. Lazy import avoids an import
+    # cycle (mirrors the poll path / the lazy `from runtime import ...`).
+    from session import _pane_cmd_with_retry
+    lines = _pane_cmd_with_retry(
+        pane_info.pane, "capture-pane", "-p", "-J"
+    ).stdout
     screen = "\n".join(lines) if lines else ""
     return screen, method
 
