@@ -120,6 +120,10 @@ def setup_session(
             name=tool["name"],
             idle_timeout=tool.get("idle_timeout", 2.0),
             frame_nonce=tool.get("frame_nonce", ""),
+            # Mirror the send_keys launch above so respawn_dead_panes can replay
+            # the real launch: cmd wins (both branches); else ``ssh {host}`` for
+            # a remote pane; else '' for a bare local shell.
+            launch_cmd=tool.get("cmd") or (f"ssh {tool['host']}" if tool.get("host") else ""),
             agent_model=resolve_model_tier(driver_meta.get("agent_model")),
             observation_model=resolve_model_tier(driver_meta.get("observation_model")),
         )
@@ -202,6 +206,10 @@ def add_pane(session: libtmux.Session, tool: dict, session_dir: str | None = Non
         name=tool["name"],
         idle_timeout=tool.get("idle_timeout", 2.0),
         frame_nonce=tool.get("frame_nonce", ""),
+        # Mirror the send_keys launch above so respawn_dead_panes can replay
+        # the real launch: cmd wins (both branches); else ``ssh {host}`` for
+        # a remote pane; else '' for a bare local shell.
+        launch_cmd=tool.get("cmd") or (f"ssh {tool['host']}" if tool.get("host") else ""),
         agent_model=resolve_model_tier(driver_meta.get("agent_model")),
         observation_model=resolve_model_tier(driver_meta.get("observation_model")),
     )

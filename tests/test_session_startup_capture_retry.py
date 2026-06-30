@@ -75,6 +75,12 @@ def _local(name):
     return {"name": name, "app_type": "shell", "description": "d"}
 
 
+def _tool(name, **extra):
+    t = {"name": name, "app_type": "shell", "description": "d"}
+    t.update(extra)
+    return t
+
+
 def _no_sleep(_delay):
     """sleep_fn that returns instantly (keeps backoff out of the test)."""
 
@@ -123,3 +129,36 @@ def test_add_pane_survives_transient_capture_error(monkeypatch, tmp_path):
     assert info is not None
     assert info.name == "explore"
     assert info.pane.capture_calls >= 2
+
+
+def test_launch_cmd_populated_in_setup_session_and_add_pane(monkeypatch, tmp_path):
+    """launch_cmd is set at PaneInfo construction in BOTH setup_session and
+    add_pane, mirroring each function's own send_keys launch: cmd wins; else
+    ``ssh {host}`` for a remote pane; else '' for a plain local shell. So a
+    respawn can replay the real launch instead of a bare local shell."""
+    _patch_default_sleep(monkeypatch)
+    monkeypatch.setattr(session.libtmux, "Server", _FakeServer)
+    monkeypatch.setattr(session.time, "sleep", lambda *_a, **_k: None)
+    # Keep both surfaces scoped to construction: skip the optional stream attach.
+    monkeypatch.setenv("CLIVE_STREAMING_OBS", "0")
+
+    # (a) setup_session — all three branches of the rule.
+    _sess, panes, _name = session.setup_session(
+        [_tool("htop", cmd="htop"), _tool("remote", host="h"), _tool("plain")],
+        session_dir=str(tmp_path),
+    )
+    assert panes["htop"].launch_cmd == "htop"
+    assert panes["remote"].launch_cmd == "ssh h"
+    assert panes["plain"].launch_cmd == ""
+
+    # (b) add_pane — the same rule on the second surface.
+    sess = _FakeSession()
+    assert session.add_pane(
+        sess, _tool("htop2", cmd="htop"), session_dir=str(tmp_path)
+    ).launch_cmd == "htop"
+    assert session.add_pane(
+        sess, _tool("remote2", host="h"), session_dir=str(tmp_path)
+    ).launch_cmd == "ssh h"
+    assert session.add_pane(
+        sess, _tool("plain2"), session_dir=str(tmp_path)
+    ).launch_cmd == ""
