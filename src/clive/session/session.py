@@ -324,8 +324,44 @@ def detach_stream(pane_info: PaneInfo) -> None:
     pane_info.pane_loop = None
 
 
+def respawn_dead_panes(panes: dict[str, PaneInfo]) -> list[str]:
+    """Restart any pane whose process/shell has exited, in place.
+
+    ``setup_session`` sets tmux ``remain-on-exit on`` (so a crashed or
+    SSH-dropped pane is *held* in a DEAD state to preserve its output for
+    debugging) — but a DEAD pane can never run another command, so for the
+    rest of an autonomous run every subtask routed there fails or burns
+    max_turns. This gives each DEAD pane exactly one recovery attempt: read
+    ``#{pane_dead}`` and, for a dead pane, issue ``respawn-pane -k`` to restart
+    its shell in place, then re-install the AGENT_READY prompt and pager-safe
+    env so the pane looks identical to a freshly set-up one. Live panes are
+    left untouched. Returns the names of the panes that were respawned.
+    """
+    respawned: list[str] = []
+    for name, info in panes.items():
+        try:
+            lines = info.pane.cmd("display-message", "-p", "#{pane_dead}").stdout
+        except _TRANSIENT_PANE_ERRORS:
+            # A glitchy pane_dead read is no reason to abort the health check —
+            # nor to blindly ``respawn-pane -k`` a pane we can't confirm dead
+            # (that would kill a live process). Skip; the normal capture-pane
+            # path still reports on it.
+            continue
+        if (lines[0].strip() if lines else "") != "1":
+            continue
+        info.pane.cmd("respawn-pane", "-k")
+        info.pane.send_keys(agent_ready_prompt_setup(), enter=True)
+        info.pane.send_keys(pager_safe_env_setup(), enter=True)
+        respawned.append(name)
+    return respawned
+
+
 def check_health(panes: dict[str, PaneInfo]) -> dict[str, dict]:
     """Verify each pane shows [AGENT_READY]. Returns status dict."""
+    # A pane held DEAD by remain-on-exit (crash / SSH drop) can never go ready
+    # on its own; give it one recovery attempt before reporting on it so a
+    # crashed pane self-heals instead of being permanently unavailable.
+    respawn_dead_panes(panes)
     status = {}
     for name, info in panes.items():
         lines = _pane_cmd_with_retry(info.pane, "capture-pane", "-p").stdout
