@@ -30,6 +30,13 @@ BYTE_PATTERNS: list[tuple[re.Pattern, str]] = [
     (re.compile(rb'Are you sure'),                      "confirm_prompt"),
     (re.compile(rb'Traceback|FATAL|panic:'),            "error_keyword"),
     (re.compile(rb'Permission denied'),                 "permission_error"),
+    # Event-path parity (gh#40 follow-up) for three poll-path
+    # INTERVENTION_PATTERNS kinds (completion.py). These are literal
+    # patterns that translate cleanly to the byte stream; the pager case
+    # (a lone \A/\Z-anchored colon) does not and is left to the poll path.
+    (re.compile(rb'[Oo]verwrite.*\?'),                  "overwrite_prompt"),
+    (re.compile(rb'Press .* to continue'),              "continue_prompt"),
+    (re.compile(rb'No space left on device'),           "disk_error"),
     # cmd_end: \d+ is intentional — prevents matching unexpanded echoes
     # like "EXIT:$? ___DONE_..." (which would be a command echo, not a
     # real completion marker).
