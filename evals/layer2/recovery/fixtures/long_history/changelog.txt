@@ -1,0 +1,78 @@
+7f3a01c feat(parser): accept trailing commas in object literals
+b29d4e8 fix(parser): off-by-one in column tracking for tabs
+c84f1aa refactor(lexer): split tokenizer into its own module
+d10b7f2 docs: expand the contributing guide with setup steps
+e5527c9 test(parser): cover nested array edge cases
+a98c6d1 fix(runtime): guard against null env in worker boot
+f7240bb perf(cache): memoize compiled regexes per pattern
+0b13ee4 chore: bump dev dependencies to latest minor
+c6619af feat(cli): add --quiet flag to suppress progress bars
+92ad7c0 fix(cli): respect NO_COLOR when stdout is a tty
+4ab8d39 refactor(config): centralize default lookups
+1de90c5 test(config): add coverage for missing-file fallback
+8c2f6b7 docs(api): document the streaming response contract
+3e7a118 fix(stream): flush trailing chunk on early close
+55be902 feat(stream): backpressure-aware reader loop
+70cc4ad chore(ci): cache the build directory between jobs
+aa01f93 fix(ci): pin the linter to a reproducible version
+2b9e6c4 refactor(io): wrap file handles in a context manager
+6f0d271 test(io): exercise the partial-write recovery path
+9d44a8e feat(io): retry transient reads up to three times
+b1c7e50 fix(io): do not swallow EINTR on slow pipes
+34fa6db docs: add troubleshooting section for hung commands
+ef58a02 feat(observe): detect pager prompts in captured panes
+71b3c9d fix(observe): treat lone colon prompt as a wedge
+0a6e4f1 refactor(observe): extract the byte classifier
+5cd820b test(observe): add captured-screen pager fixtures
+c2119ae chore(release): tag v2.4.1
+83ba47f feat(retry): bounded transient-retry on pane reads
+49e0d3a fix(retry): cap total wait below the turn budget
+d6b8f10 refactor(session): pull max_wait into a constant
+fb27a5c test(session): assert recovery before max_wait
+17c4e92 docs(session): note the recovery-path eval coverage
+903ad7e feat(ledger): preserve failed-command ledger across compaction
+2ea6f08 fix(ledger): dedupe entries on context squash
+4c70b91 refactor(ledger): move serialization to its own helper
+e1d5a73 test(ledger): round-trip a compacted ledger
+b8f4029 chore: tidy up stale TODO comments
+72ac15e feat(prompt): shorten the system preamble for budget
+58de0c4 fix(prompt): escape braces in injected examples
+0fd9b22 refactor(prompt): build sections from a list
+6ab9e17 test(prompt): snapshot the rendered preamble
+93cd418 docs(prompt): explain the trusted-goal slot
+af20b65 feat(metrics): track false-completion rate
+1c7e904 fix(metrics): avoid divide-by-zero on empty runs
+d7b3a52 refactor(metrics): name the efficiency formula
+e0a6f31 test(metrics): cover the empty-report case
+84bf2d0 chore: regenerate the lockfile
+2f9d6ca feat(verify): add a deterministic shell verifier
+35ea71b fix(verify): bound the verifier subprocess timeout
+b6c0817 refactor(verify): cache llm verdicts by content hash
+901af4e test(verify): exercise the cache hit path
+4ce28d9 docs(verify): document the cache key composition
+ad5f712 feat(discovery): progressive-disclosure tool registry
+7e1b094 fix(discovery): do not count output lines as usage
+0c93f8a refactor(discovery): share the prompt marker constant
+59ad6e2 test(discovery): assert tier0 hides tool names
+b30f5c1 chore: drop the unused legacy shim
+48ce0a7 feat(shell): stream long output through a reader
+21fb9d3 fix(shell): handle commands that never return
+9c5e017 refactor(shell): isolate the pane lock acquisition
+6e2a0d8 test(shell): simulate a pager that waits for input
+d4b9106 docs(shell): list the supported recovery keystrokes
+12f7ba3 feat(fixtures): add the long-history changelog sample
+afe3071 fix(fixtures): normalize line endings on copy
+0bd1259 refactor(fixtures): one directory per scenario
+73c0a4f test(fixtures): assert the sample is non-empty
+5af1d20 chore: archive last quarter's benchmarks
+e7d4912 feat(report): summarize turn efficiency per tool
+1a9b6e3 fix(report): round percentages to three places
+9f2c068 refactor(report): separate the table renderer
+b4e1a70 test(report): cover the single-result summary
+36da817 docs: refresh the architecture overview diagram
+c1f8b94 feat(intervention): nudge the agent out of a wedge
+8ae3025 fix(intervention): only fire after an idle window
+2d7c659 refactor(intervention): table-drive the triggers
+f0b3a18 test(intervention): assert no false positives
+57e9c2b docs(intervention): catalogue the known wedge types
+e2c4a90 chore: final cleanup before the release cut

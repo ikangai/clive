@@ -46,6 +46,7 @@ def wrap_untrusted(label: str, content: str) -> str:
 DEFAULT_DRIVER = """You control this pane via shell commands.
 Read the screen output after each command to decide your next action.
 If a command fails, read the error and try a different approach.
+UNKNOWN TOOL? PROBE BEFORE USING: for an unfamiliar command, first run `<tool> --help`, `<tool> --version`, or `man <tool> | cat`, then read the help text to infer the right flags before you commit to an invocation. Never blind-launch interactive TUIs/editors (vim, less, top) or commands that prompt for credentials; pipe pager-y output through `| cat` or `| head` so it cannot wedge the pane.
 VERIFY BEFORE DONE: a clean exit code is not proof the goal was met. Before reporting the task complete, run a command that confirms the expected end-state actually holds — e.g. `test -s out.txt` (file exists and is non-empty), `grep -q "<expected>" out.txt` (content is present), `pgrep -f <proc>` (process is running), or re-read the output and check it matches what success looks like. If the check fails, the task is not done — fix it."""
 
 
@@ -417,6 +418,12 @@ Write a single self-contained script. Choose bash or Python — whichever fits b
 - Write output/results to {session_dir}/ (absolute paths)
 - Print a short preview of output + one-line summary as last line
 
+NON-INTERACTIVE — the script runs unobserved; nothing can answer a prompt for it. A command that blocks waiting for input (an install confirmation, an ssh host-key question, `rm -i`, a REPL/shell that holds the foreground) wedges the pane until timeout and burns the whole run. Make every command run to completion without a human:
+- Pass auto-confirm/non-interactive flags: `apt-get -y`, `pip install --no-input`, `pacman --noconfirm`, `npm --yes`, `ssh -o BatchMode=yes`, `git --no-pager`. Prefer `-y`/`--yes`/`--no-input`/`--batch`/`--noconfirm` over a bare command that stops on `[Y/n]`.
+- Neutralize app-level pagers and REPLs: append `| cat`, pass `--no-pager`, or run the tool's non-interactive subcommand. Never launch an interactive shell/REPL (`python` with no script, `mysql` with no `-e`, plain `psql`) — pass the work inline (`-c`/`-e`/a heredoc) instead.
+- When a command might still try to read stdin, redirect it from `/dev/null` (e.g. `some-cmd < /dev/null`) so it gets EOF instead of hanging.
+- Supply secrets/answers via flags, env vars, or piped stdin — never let the command stop to prompt for a password or value.
+
 Respond with ONLY the script in a fenced code block. No prose.
 """
 
@@ -458,9 +465,15 @@ The harness executes each step sequentially and checks its EXIT CODE: exit 0 = t
 
 - Each step has a "cmd" (shell command), "verify" (the success condition this step proves), and "on_fail" action.
 - on_fail options: "retry" (re-run the command once), "skip" (continue to next step), "abort" (stop execution).
-- Use "abort" for critical steps, "skip" for optional steps, "retry" for flaky operations.
 - Write output/results to {session_dir}/ (absolute paths).
 - Keep commands simple — one logical operation per step.
+
+FAILURE RECOVERY — choose on_fail DELIBERATELY so the plan degrades gracefully; never blanket-retry:
+- "abort" — CRITICAL steps that later steps depend on. A clear, early failure beats limping forward on bad state. This is the safe default when unsure.
+- "skip" — genuinely OPTIONAL steps whose absence does not invalidate the result.
+- "retry" — ONLY genuinely flaky/transient operations (a network fetch, a rate-limited API, a service still warming up). Do NOT put "retry" on deterministic steps that would just fail the same way twice, and do not slap it on every step.
+- BOUNDED RETRIES: the harness re-runs a "retry" step EXACTLY ONCE, then fails the subtask if it still errors. Plans must not assume unlimited attempts, and must never chain steps hoping repeated runs eventually pass — that loops on a dead end. If a critical step is likely to fail, prefer "abort" with a clear failure over silent looping.
+- IDEMPOTENT, NON-INTERACTIVE commands keep a re-run safe: pass non-interactive flags (curl -fsS, apt-get -y, yt-dlp --no-progress), write to a FIXED output path so a re-run overwrites rather than appends (avoid `>>`), and never use a command that blocks waiting for input. `mkdir -p`, `cp -f`, and "download to a fixed file" are safe to repeat; "append a line" or "confirm with y/N" are not.
 
 VERIFICATION — make "verify" MEANINGFUL, not decorative:
 - Trivial steps (mkdir, cd, echo, a command whose own exit code already proves it did the right thing) keep "verify": "exit_code == 0".

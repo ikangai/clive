@@ -1,0 +1,22 @@
+[
+  {
+    "id": "recovery_release_tag_extract_001",
+    "layer": 2,
+    "tool": "shell",
+    "mode": "interactive",
+    "task": "changelog.txt holds this project's commit history, one commit per line in `git log --oneline` format, newest first. Exactly one commit tags a release, with a message of the form 'chore(release): tag vX.Y.Z'. Write only that release's version string (for example v1.2.3) to release.txt in the current directory.",
+    "initial_state": {
+      "filesystem": "fixtures/long_history/"
+    },
+    "success_criteria": {
+      "type": "deterministic",
+      "check": "test \"$(cat release.txt 2>/dev/null | tr -d '[:space:]')\" = \"v2.4.1\""
+    },
+    "trap": "The obvious first try assumes the tag is punctuated with a colon ('tag: vX.Y.Z') and greps for 'tag:'. The real line reads 'chore(release): tag v2.4.1' (no colon after 'tag'), so that grep matches nothing, exits non-zero and leaves release.txt empty -- a visible, recoverable obstacle. An agent that notices the empty result retries with a version-shaped extraction and succeeds; one that emits DONE without re-reading its own output ships an empty file. Because the failed first attempt costs a turn, a recovering pass uses turns_used > min_turns and is recorded as error_recovered=True.",
+    "naive_command": "grep -oE 'tag: v[0-9]+\\.[0-9]+\\.[0-9]+' changelog.txt > release.txt",
+    "correct_command": "grep -oE 'v[0-9]+\\.[0-9]+\\.[0-9]+' changelog.txt | head -n1 > release.txt",
+    "min_turns": 1,
+    "max_turns": 6,
+    "timeout_seconds": 60
+  }
+]

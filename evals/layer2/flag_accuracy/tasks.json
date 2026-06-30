@@ -1,0 +1,71 @@
+[
+  {
+    "id": "l2_flag_jq_raw_001",
+    "layer": 2,
+    "tool": "shell",
+    "mode": "script",
+    "task": "From users.json, write each user's email address as raw unquoted text, one per line, to /tmp/clive/result.txt.",
+    "initial_state": {
+      "filesystem": "fixtures/users"
+    },
+    "success_criteria": {
+      "type": "deterministic",
+      "check": "test $(wc -l < /tmp/clive/result.txt | tr -d ' ') -eq 3 && grep -qx 'alice@example.com' /tmp/clive/result.txt && grep -qx 'charlie@example.com' /tmp/clive/result.txt"
+    },
+    "discovery_criteria": {
+      "expected_tool": "jq",
+      "expected_flags": {
+        "jq": ["-r"]
+      }
+    },
+    "min_turns": 1,
+    "max_turns": 3,
+    "timeout_seconds": 30
+  },
+  {
+    "id": "l2_flag_rg_icase_002",
+    "layer": 2,
+    "tool": "shell",
+    "mode": "script",
+    "task": "Count how many lines in app.log contain the word 'error' case-insensitively (matching ERROR, error and Error) and write just that number to /tmp/clive/result.txt.",
+    "initial_state": {
+      "filesystem": "fixtures/logs"
+    },
+    "success_criteria": {
+      "type": "deterministic",
+      "check": "test \"$(cat /tmp/clive/result.txt | tr -d '[:space:]')\" = \"3\""
+    },
+    "discovery_criteria": {
+      "expected_tool": "rg|grep",
+      "expected_flags": {
+        "rg|grep": ["-i"]
+      }
+    },
+    "min_turns": 1,
+    "max_turns": 3,
+    "timeout_seconds": 30
+  },
+  {
+    "id": "l2_flag_sort_numeric_003",
+    "layer": 2,
+    "tool": "shell",
+    "mode": "script",
+    "task": "Sort the numbers in values.txt in ascending numeric order, one per line, and write the result to /tmp/clive/result.txt.",
+    "initial_state": {
+      "filesystem": "fixtures/nums"
+    },
+    "success_criteria": {
+      "type": "deterministic",
+      "check": "head -1 /tmp/clive/result.txt | grep -qx '2' && tail -1 /tmp/clive/result.txt | grep -qx '100'"
+    },
+    "discovery_criteria": {
+      "expected_tool": "sort",
+      "expected_flags": {
+        "sort": ["-n"]
+      }
+    },
+    "min_turns": 1,
+    "max_turns": 3,
+    "timeout_seconds": 30
+  }
+]

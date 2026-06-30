@@ -2,6 +2,21 @@
 
 ## Unreleased
 
+### Added — Resilience: transient-retry, self-repairing plans, and an unstuck observation loop
+
+A graduation batch from the autonomous factory, all on already-modifiable surfaces (no frozen files touched):
+
+- **Bounded transient-retry on LLM calls** (`llm.py`) — exponential backoff retries transient (network / rate-limit) failures for non-streaming calls (`94ac90b`) and extends to streaming + the `claude-cli` / delegate paths (`c520056`).
+- **Transient-retry on pane reads** (`session.py`) — `capture-pane` reads retry on transient tmux failures instead of surfacing a one-off read error (`e0ff0fc`).
+- **Self-repairing plans** (`planning/`) — a validate-and-correct loop fixes malformed/invalid plans before execution (`6f67f98`); replan-retry broadens to leaf / single-subtask failures (`f63c494`); the planned planner prompt gains bounded failure-recovery guidance (`f452687`) and the default driver a bounded recovery protocol (`b02dd75`).
+- **Observation loop robustness** (`observation/`) — pager/interactive-wedge detection in the pane-wait loop (`1b8803f`); a no-progress circuit breaker in context compression (`d1fa3d9`); the failed-command ledger is preserved across context compression (`c4cd5e0`); `max_wait` is activity-aware — a still-changing pane is polled past the soft ceiling up to a hard backstop (`14c2cca`).
+- **Cross-session tool memos** (`discovery/tool_memo.py`, new) — learned tool-probe results persist to an atomic JSON cache and seed the Tier-2 tool card on reuse (`744dc67`, gh#41 slice 1/2); unknown tools are probed on the `DEFAULT_DRIVER` fallback (`0a9dde9`, #41).
+
+### Added — Recovery & false-completion eval scenarios
+
+- **Pager / hung-command recovery scenario** (`evals/layer2/recovery`) exercises the new wedge detection (`b77d731`).
+- **False-completion scenarios** (`evals/layer2/false_completion`) activate the previously-dead `false_completion` metric (`f6a47c3`, #40).
+
 ### Added — Verify-before-done driver step + meaningful planner verification
 
 Planned-mode execution checks a step's exit code, and the per-step `verify` field was a documented no-op (the planner prompt literally said it was "currently always exit_code == 0"). A clean exit is not proof a step met its goal — a download can write an empty or HTML-error file, a transform can produce the wrong output, all with exit 0. Two changes close that gap, both on the open prompt surface:

@@ -106,6 +106,33 @@ def _tool_in_command(name: str, cmd: str) -> bool:
     ) is not None
 
 
+def _flag_in_command(flag: str, cmd: str) -> bool:
+    """Whether a required flag was actually passed in a command line.
+
+    Matches against whitespace-split TOKENS, never as a raw substring of a
+    larger token — so a required short flag like ``-i`` is not falsely
+    credited by an unrelated long flag like ``--include`` (gh#40):
+
+    - a ``--long`` flag matches an exact token (or ``--long=value``);
+    - a short ``-x`` flag matches itself (or ``-x=value``) or appears inside
+      a single-dash cluster like ``-ri``, but never inside a ``--long`` token.
+    """
+    is_long = flag.startswith("--")
+    for tok in cmd.split():
+        if tok == flag or tok.startswith(flag + "="):
+            return True
+        if is_long:
+            continue
+        # Short flag: only a single-dash token can carry it (-i / -ri),
+        # never a --long token (--include must not credit -i).
+        if not tok.startswith("-") or tok.startswith("--"):
+            continue
+        # Single-letter short flags may cluster, e.g. -ri carries -i.
+        if len(flag) == 2 and flag[1] in tok[1:].split("=", 1)[0]:
+            return True
+    return False
+
+
 def _match_alternation(pattern: str, cmds: list[str]) -> str | None:
     """Return the first alternative from 'a|b|c' used in any command."""
     for name in pattern.split("|"):
@@ -142,6 +169,7 @@ def check_discovery_criteria(
         "tool_used": None,
         "tool_expected": criteria.get("expected_tool"),
         "tool_correct": True,
+        "flags_correct": True,
         "discovery_turns": sum(1 for c in cmds if _CLIVE_TOOLS_RE.search(c)),
         "fallback_used": False,
         "fallback_expected": "expected_fallback" in criteria,
@@ -174,6 +202,18 @@ def check_discovery_criteria(
                 if fields["tool_used"] is None:
                     fields["tool_used"] = used
         fields["pipeline_stages"] = matched
+
+    # expected_flags maps a tool token (same alternation form as expected_tool)
+    # to a list of flag strings that must appear on that tool's invocation(s).
+    # This measures the tool-USAGE half of gh#40: not just which tool, but
+    # whether it was called with the right flags. Absent -> flags_correct True.
+    for tool_pat, flags in criteria.get("expected_flags", {}).items():
+        used = _match_alternation(tool_pat, cmds)
+        matching = [c for c in cmds if used and _tool_in_command(used, c)]
+        for flag in flags:
+            if not any(_flag_in_command(flag, line) for line in matching):
+                problems.append(f"required flag not used: {flag}")
+                fields["flags_correct"] = False
 
     if "expected_fallback" in criteria:
         used = _match_alternation(criteria["expected_fallback"], cmds)

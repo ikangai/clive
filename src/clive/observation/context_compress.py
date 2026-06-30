@@ -6,8 +6,141 @@ while keeping the context window small.
 """
 
 import logging
+import re
 
 log = logging.getLogger(__name__)
+
+# Header pinned in front of a summary so the failed-command ledger survives
+# the next squash (extract_dead_ends re-parses it from the prior summary).
+DEAD_ENDS_HEADER = "DEAD ENDS - already tried and FAILED, do not retry:"
+
+# No-progress circuit breaker: when the SAME failed command recurs this many
+# times across the compressed history (the ledger only says "do not retry" —
+# a stuck model can ignore one flat line), escalate it to a distinct, stronger
+# marker pinned ABOVE the dead-ends list so it cannot be skimmed past.
+REPEAT_HALT = 3
+
+# Prefix used both to emit and (cheaply) to detect the escalation marker.
+NO_PROGRESS_MARKER = "NO PROGRESS"
+
+
+def _no_progress_line(cmd: str, count: int) -> str:
+    """The stronger, distinct marker for a command stuck in a retry loop."""
+    return (
+        f"{NO_PROGRESS_MARKER} - `{cmd}` failed {count}x with no progress; "
+        "STOP retrying it - change strategy or finish."
+    )
+
+
+# Recover (cmd, count) from a previously-pinned NO PROGRESS marker so the
+# escalation — and its running count — survives the next squash, exactly like
+# the DEAD ENDS ledger.
+_NO_PROGRESS_RE = re.compile(
+    re.escape(NO_PROGRESS_MARKER) + r" - `(?P<cmd>.+?)` failed (?P<count>\d+)x"
+)
+
+# Substrings (matched case-insensitively) that mark a screen as a failure.
+_FAILURE_SIGNALS = (
+    "command not found",
+    "no such file",
+    "returned non-zero exit status",
+    "traceback (most recent call",
+)
+
+
+def _screen_is_failure(content: str) -> bool:
+    """True when a screen observation looks like a failed command result."""
+    low = content.lower()
+    if any(sig in low for sig in _FAILURE_SIGNALS):
+        return True
+    # A line starting with "error:" or "fatal:" (git, compilers, ...).
+    for line in low.splitlines():
+        stripped = line.strip()
+        if stripped.startswith("error:") or stripped.startswith("fatal:"):
+            return True
+    return False
+
+
+def _parse_dead_ends_block(content: str) -> list[str]:
+    """Recover the commands listed under a DEAD ENDS header in a prior summary."""
+    cmds = []
+    in_block = False
+    for line in content.splitlines():
+        if not in_block:
+            if line.strip().startswith("DEAD ENDS"):
+                in_block = True
+            continue
+        stripped = line.strip()
+        if stripped.startswith("- "):
+            cmds.append(stripped[2:].strip())
+        else:
+            # A blank line or prose ends the pinned block.
+            break
+    return cmds
+
+
+def _parse_no_progress_block(content: str) -> dict[str, int]:
+    """Recover {command: failure_count} from prior NO PROGRESS markers."""
+    counts: dict[str, int] = {}
+    for m in _NO_PROGRESS_RE.finditer(content):
+        cmd = m.group("cmd").strip()
+        if cmd:
+            counts[cmd] = max(counts.get(cmd, 0), int(m.group("count")))
+    return counts
+
+
+def _count_failures(turns: list[dict]) -> dict[str, int]:
+    """Count how many times each failed-command fingerprint recurs.
+
+    Merges three sources, in conversation order, into an insertion-ordered
+    {command: count} map:
+      * A failing screen pins the immediately-preceding assistant command
+        (one failure each).
+      * A prior DEAD ENDS block re-parsed from an earlier summary (one each).
+      * A prior NO PROGRESS marker, which carries its own running count, so the
+        escalation accumulates across repeated squashes instead of resetting.
+    """
+    counts: dict[str, int] = {}
+
+    def _bump(cmd: str, n: int) -> None:
+        cmd = cmd.strip()
+        if cmd and n > 0:
+            counts[cmd] = counts.get(cmd, 0) + n
+
+    for i, msg in enumerate(turns):
+        if msg.get("role") != "user":
+            continue
+        content = msg.get("content", "")
+        # Re-mine a prior NO PROGRESS marker (carries its own count).
+        if NO_PROGRESS_MARKER in content:
+            for cmd, n in _parse_no_progress_block(content).items():
+                _bump(cmd, n)
+        # Recover dead ends already pinned in an earlier summary.
+        if DEAD_ENDS_HEADER[:9] in content:  # cheap "DEAD ENDS" guard
+            for cmd in _parse_dead_ends_block(content):
+                _bump(cmd, 1)
+        # A failing screen pins the command that preceded it.
+        if _screen_is_failure(content) and i > 0:
+            prev = turns[i - 1]
+            if prev.get("role") == "assistant":
+                _bump(prev.get("content", ""), 1)
+
+    return counts
+
+
+def extract_dead_ends(turns: list[dict], cap: int = 8) -> list[str]:
+    """Mine the list of commands that have already been tried and FAILED.
+
+    Two sources are merged, in conversation order:
+      * A failing screen observation pins the immediately-preceding assistant
+        command (the command that produced the failure).
+      * Any prior "[Earlier conversation summary]" turn that already carries a
+        DEAD ENDS block has its commands re-parsed, so the ledger ACCUMULATES
+        across repeated squashes instead of being lost.
+
+    Returns a compact, order-preserving, deduped list capped at ``cap`` entries.
+    """
+    return list(_count_failures(turns).keys())[:cap]
 
 
 def _format_turns_for_summary(turns: list[dict]) -> str:
@@ -80,6 +213,22 @@ def compress_context(
         log.warning("Context compression failed, falling back to trim")
         from interactive_runner import _trim_messages
         return _trim_messages(messages, max_user_turns=max_user_turns)
+
+    # Pin the failed-command ledger in front of the summary so it survives
+    # this squash AND the next one (re-mined from these blocks by _count_failures).
+    # Commands that have failed REPEAT_HALT+ times escalate to a distinct, stronger
+    # NO PROGRESS marker pinned ABOVE the plain dead-ends list; one-off failures
+    # keep the existing ledger behavior.
+    counts = _count_failures(old_turns)
+    blocks: list[str] = []
+    no_progress = [(c, n) for c, n in counts.items() if n >= REPEAT_HALT]
+    if no_progress:
+        blocks.append("\n".join(_no_progress_line(c, n) for c, n in no_progress))
+    dead_ends = [c for c, n in counts.items() if n < REPEAT_HALT][:8]
+    if dead_ends:
+        blocks.append(DEAD_ENDS_HEADER + "\n" + "\n".join(f"- {c}" for c in dead_ends))
+    if blocks:
+        summary = "\n\n".join(blocks) + "\n\n" + summary
 
     summary_msg = {
         "role": "user",

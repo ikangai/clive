@@ -113,6 +113,14 @@ class EvalReport:
         return sum(1 for r in trs if r.tool_correct) / len(trs)
 
     @property
+    def flag_accuracy(self) -> float:
+        """% of tool evals where the agent invoked the tool with the right flags."""
+        trs = self.tool_results
+        if not trs:
+            return 0.0
+        return sum(1 for r in trs if r.flags_correct) / len(trs)
+
+    @property
     def discovery_efficiency(self) -> float:
         """Average clive-tools turns to discover a tool (Layer 5 only).
 
@@ -167,6 +175,7 @@ class EvalReport:
         if self.tool_results:
             d["tool_metrics"] = {
                 "tool_accuracy": round(self.tool_accuracy, 3),
+                "flag_accuracy": round(self.flag_accuracy, 3),
                 "discovery_efficiency": round(self.discovery_efficiency, 3),
                 "pipeline_success_rate": round(self.pipeline_success_rate, 3),
                 "fallback_success_rate": round(self.fallback_success_rate, 3),
@@ -214,6 +223,7 @@ class EvalReport:
         progress(f"Turn efficiency: {self.avg_turn_efficiency:.0%}")
         if self.tool_results:
             progress(f"Tool accuracy:   {self.tool_accuracy:.0%}")
+            progress(f"Flag accuracy:   {self.flag_accuracy:.0%}")
             if any(r.layer == 5 for r in self.tool_results):
                 progress(f"Discovery turns: {self.discovery_efficiency:.1f} avg")
             if any(r.layer == 3 for r in self.tool_results):

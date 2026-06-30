@@ -80,6 +80,31 @@ def test_plan_validation_catches_missing_dependency():
     assert any("unknown subtask 99" in e for e in errors)
 
 
+def test_plan_validation_catches_duplicate_ids():
+    """A plan the LLM emits with two subtasks sharing an id must be rejected,
+    not silently dedup'd. Today the id-set and Kahn dicts are keyed by id, so a
+    duplicate is dropped from the DAG and never scheduled — the plan 'succeeds'
+    while a unit of work vanishes. The error routes into the planner's existing
+    repair-retry loop so the LLM gets a chance to fix it.
+    """
+    plan = Plan(task="test")
+    plan.subtasks.append(Subtask(id="1", description="a", pane="shell"))
+    plan.subtasks.append(Subtask(id="1", description="b", pane="shell"))
+    errors = plan.validate(valid_panes={"shell"})
+    assert any("duplicate" in e.lower() and "1" in e for e in errors)
+
+
+def test_plan_validation_allows_unique_ids():
+    """Regression: a plan with all-distinct ids must remain error-free — the
+    duplicate guard must not flag legitimate plans.
+    """
+    plan = Plan(task="test")
+    plan.subtasks.append(Subtask(id="1", description="a", pane="shell"))
+    plan.subtasks.append(Subtask(id="2", description="b", pane="shell", depends_on=["1"]))
+    errors = plan.validate(valid_panes={"shell"})
+    assert errors == []
+
+
 # ─── Mode dispatch logic ─────────────────────────────────────────────────────
 
 def test_mode_dispatch_script_vs_interactive():

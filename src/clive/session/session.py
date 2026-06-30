@@ -11,12 +11,42 @@ from output import progress
 from models import PaneInfo
 from prompts import load_driver_meta
 from runtime import resolve_model_tier
-from ps1_exit import agent_ready_prompt_setup
+from ps1_exit import agent_ready_prompt_setup, pager_safe_env_setup
 
 log = logging.getLogger(__name__)
 
 SESSION_NAME = "clive"
 SOCKET_NAME = "clive"  # Dedicated tmux server socket — isolates clive from user sessions
+
+# Errors from a single libtmux/subprocess hiccup that a brief retry can paper
+# over. Kept deliberately narrow so genuine programming errors still surface
+# fast. libtmux.exc.LibTmuxException is added when importable.
+_TRANSIENT_PANE_ERRORS: tuple[type[BaseException], ...] = (OSError, RuntimeError)
+try:  # pragma: no cover - libtmux is a hard dep; guard only for safety
+    from libtmux.exc import LibTmuxException as _LibTmuxException
+    _TRANSIENT_PANE_ERRORS = _TRANSIENT_PANE_ERRORS + (_LibTmuxException,)
+except Exception:
+    pass
+
+
+def _pane_cmd_with_retry(pane, *args, attempts=3, base_delay=0.1, sleep_fn=time.sleep):
+    """Run ``pane.cmd(*args)`` with bounded retry on transient hiccups.
+
+    A single libtmux/subprocess glitch on a capture-pane read would otherwise
+    propagate uncaught and abort the whole subtask. Retry up to ``attempts``
+    times with exponential backoff (``base_delay * 2**i``) between tries,
+    re-raising the last error if every attempt fails. ``sleep_fn`` is
+    injectable so tests run without real delays.
+    """
+    last_exc: BaseException | None = None
+    for i in range(attempts):
+        try:
+            return pane.cmd(*args)
+        except _TRANSIENT_PANE_ERRORS as e:
+            last_exc = e
+            if i < attempts - 1:
+                sleep_fn(base_delay * 2 ** i)
+    raise last_exc
 
 
 def generate_session_id() -> str:
@@ -61,6 +91,7 @@ def setup_session(
         if not is_remote:
             # Local tools: set up environment, then launch
             pane.send_keys(agent_ready_prompt_setup(), enter=True)
+            pane.send_keys(pager_safe_env_setup(), enter=True)
             pane.send_keys(
                 f'printf "\\033]2;{tool["app_type"]}\\033\\\\"',
                 enter=True,
@@ -75,6 +106,7 @@ def setup_session(
                 pane.send_keys(f"ssh {tool['host']}", enter=True)
             time.sleep(tool.get("connect_timeout", 3))
             pane.send_keys(agent_ready_prompt_setup(), enter=True)
+            pane.send_keys(pager_safe_env_setup(), enter=True)
             pane.send_keys(
                 f'printf "\\033]2;{tool["app_type"]}\\033\\\\"',
                 enter=True,
@@ -88,6 +120,10 @@ def setup_session(
             name=tool["name"],
             idle_timeout=tool.get("idle_timeout", 2.0),
             frame_nonce=tool.get("frame_nonce", ""),
+            # Mirror the send_keys launch above so respawn_dead_panes can replay
+            # the real launch: cmd wins (both branches); else ``ssh {host}`` for
+            # a remote pane; else '' for a bare local shell.
+            launch_cmd=tool.get("cmd") or (f"ssh {tool['host']}" if tool.get("host") else ""),
             agent_model=resolve_model_tier(driver_meta.get("agent_model")),
             observation_model=resolve_model_tier(driver_meta.get("observation_model")),
         )
@@ -110,7 +146,9 @@ def setup_session(
     poll = 0.01
     while pending and time.time() - start < 10.0:
         for name in list(pending):
-            lines = panes[name].pane.cmd("capture-pane", "-p", "-J").stdout
+            lines = _pane_cmd_with_retry(
+                panes[name].pane, "capture-pane", "-p", "-J"
+            ).stdout
             screen = "\n".join(lines) if lines else ""
             if setup_markers[name] in screen:
                 pending.discard(name)
@@ -130,6 +168,7 @@ def add_pane(session: libtmux.Session, tool: dict, session_dir: str | None = Non
 
     if not is_remote:
         pane.send_keys(agent_ready_prompt_setup(), enter=True)
+        pane.send_keys(pager_safe_env_setup(), enter=True)
         pane.send_keys(f'printf "\\033]2;{tool["app_type"]}\\033\\\\"', enter=True)
         if tool.get("cmd"):
             pane.send_keys(tool["cmd"], enter=True)
@@ -140,6 +179,7 @@ def add_pane(session: libtmux.Session, tool: dict, session_dir: str | None = Non
             pane.send_keys(f"ssh {tool['host']}", enter=True)
         time.sleep(tool.get("connect_timeout", 3))
         pane.send_keys(agent_ready_prompt_setup(), enter=True)
+        pane.send_keys(pager_safe_env_setup(), enter=True)
         pane.send_keys(f'printf "\\033]2;{tool["app_type"]}\\033\\\\"', enter=True)
 
     cwd = os.getcwd()
@@ -151,7 +191,7 @@ def add_pane(session: libtmux.Session, tool: dict, session_dir: str | None = Non
     start = time.time()
     poll = 0.01
     while time.time() - start < 5.0:
-        lines = pane.cmd("capture-pane", "-p", "-J").stdout
+        lines = _pane_cmd_with_retry(pane, "capture-pane", "-p", "-J").stdout
         screen = "\n".join(lines) if lines else ""
         if marker in screen:
             break
@@ -166,6 +206,10 @@ def add_pane(session: libtmux.Session, tool: dict, session_dir: str | None = Non
         name=tool["name"],
         idle_timeout=tool.get("idle_timeout", 2.0),
         frame_nonce=tool.get("frame_nonce", ""),
+        # Mirror the send_keys launch above so respawn_dead_panes can replay
+        # the real launch: cmd wins (both branches); else ``ssh {host}`` for
+        # a remote pane; else '' for a bare local shell.
+        launch_cmd=tool.get("cmd") or (f"ssh {tool['host']}" if tool.get("host") else ""),
         agent_model=resolve_model_tier(driver_meta.get("agent_model")),
         observation_model=resolve_model_tier(driver_meta.get("observation_model")),
     )
@@ -290,11 +334,60 @@ def detach_stream(pane_info: PaneInfo) -> None:
     pane_info.pane_loop = None
 
 
+def respawn_dead_panes(panes: dict[str, PaneInfo]) -> list[str]:
+    """Restart any pane whose process/shell has exited, in place.
+
+    ``setup_session`` sets tmux ``remain-on-exit on`` (so a crashed or
+    SSH-dropped pane is *held* in a DEAD state to preserve its output for
+    debugging) — but a DEAD pane can never run another command, so for the
+    rest of an autonomous run every subtask routed there fails or burns
+    max_turns. This gives each DEAD pane exactly one recovery attempt: read
+    ``#{pane_dead}`` and, for a dead pane, issue ``respawn-pane -k`` to restart
+    its shell in place, then re-install the AGENT_READY prompt and pager-safe
+    env so the pane looks identical to a freshly set-up one. Live panes are
+    left untouched. Returns the names of the panes that were respawned.
+    """
+    respawned: list[str] = []
+    for name, info in panes.items():
+        try:
+            lines = info.pane.cmd("display-message", "-p", "#{pane_dead}").stdout
+        except _TRANSIENT_PANE_ERRORS:
+            # A glitchy pane_dead read is no reason to abort the health check —
+            # nor to blindly ``respawn-pane -k`` a pane we can't confirm dead
+            # (that would kill a live process). Skip; the normal capture-pane
+            # path still reports on it.
+            continue
+        if (lines[0].strip() if lines else "") != "1":
+            continue
+        info.pane.cmd("respawn-pane", "-k")
+        # ``respawn-pane -k`` replaces the pane's process, so any PaneStream is
+        # now bound to the killed process's pipe-pane->FIFO. Left attached, the
+        # default-on streaming observation path keeps consuming that dead stream
+        # and observes nothing -> burns max_turns. Tear it down so stream /
+        # pane_loop go None and observation falls back to the working poll path.
+        # (No-op when nothing was attached.)
+        detach_stream(info)
+        info.pane.send_keys(agent_ready_prompt_setup(), enter=True)
+        info.pane.send_keys(pager_safe_env_setup(), enter=True)
+        # ``respawn-pane -k`` only restarts the *shell*; a pane originally
+        # launched as something else (``ssh host`` for a REMOTE pane, an
+        # app/REPL ``cmd``) must replay that command or it silently comes back
+        # as a bare local shell — a correctness AND safety hazard.
+        if info.launch_cmd:
+            info.pane.send_keys(info.launch_cmd, enter=True)
+        respawned.append(name)
+    return respawned
+
+
 def check_health(panes: dict[str, PaneInfo]) -> dict[str, dict]:
     """Verify each pane shows [AGENT_READY]. Returns status dict."""
+    # A pane held DEAD by remain-on-exit (crash / SSH drop) can never go ready
+    # on its own; give it one recovery attempt before reporting on it so a
+    # crashed pane self-heals instead of being permanently unavailable.
+    respawn_dead_panes(panes)
     status = {}
     for name, info in panes.items():
-        lines = info.pane.cmd("capture-pane", "-p").stdout
+        lines = _pane_cmd_with_retry(info.pane, "capture-pane", "-p").stdout
         screen = "\n".join(lines) if lines else ""
         ready = "[AGENT_READY]" in screen
         status[name] = {
@@ -313,8 +406,8 @@ def capture_pane(pane_info: PaneInfo, scrollback: int = 50) -> str:
     as multiple screen lines) and -S to include recent scrollback.
     Strips leading/trailing blank lines to reduce noise and token waste.
     """
-    lines = pane_info.pane.cmd(
-        "capture-pane", "-p", "-J", f"-S-{scrollback}"
+    lines = _pane_cmd_with_retry(
+        pane_info.pane, "capture-pane", "-p", "-J", f"-S-{scrollback}"
     ).stdout
     if not lines:
         return ""

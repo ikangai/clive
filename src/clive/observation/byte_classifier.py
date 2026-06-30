@@ -26,10 +26,31 @@ BYTE_PATTERNS: list[tuple[re.Pattern, str]] = [
     (re.compile(rb'\x1b\[[0-9;]*4[13]m'),               "color_bg_alert"),
     (re.compile(rb'\x1b\[[0-9;]*5m'),                   "blink_attr"),
     (re.compile(rb'(?:^|[^\w])[Pp]assword\s*:'),        "password_prompt"),
-    (re.compile(rb'\[y/N\]|\[Y/n\]'),                   "confirm_prompt"),
+    # sudo's prompt ("[sudo] password for martin:") puts the colon after the
+    # username, and ssh key unlock ("Enter passphrase for key ...:") has no
+    # "password" token at all — both miss the bare rule above. Mirrors the
+    # poll-path INTERVENTION_PATTERNS fix (completion.py) so the default-on
+    # streaming observation path catches these auth prompts too.
+    (re.compile(rb'[Pp]assword for .+:'),               "password_prompt"),
+    (re.compile(rb'[Pp]assphrase'),                     "password_prompt"),
+    (re.compile(rb'\[y/N\]|\[Y/n\]|\(yes/no\)'),        "confirm_prompt"),
     (re.compile(rb'Are you sure'),                      "confirm_prompt"),
     (re.compile(rb'Traceback|FATAL|panic:'),            "error_keyword"),
     (re.compile(rb'Permission denied'),                 "permission_error"),
+    # Event-path parity (gh#40 follow-up) for poll-path
+    # INTERVENTION_PATTERNS kinds (completion.py). These are literal
+    # patterns that translate cleanly to the byte stream. The pager
+    # footers --More-- and (END) are clean literal substrings too, so they
+    # come over as well (new 'pager_prompt' kind). The remaining poll-path
+    # pager cases stay poll-only: the lone-colon prompt is \A/\Z-anchored
+    # (doesn't translate to a streaming byte scan), and 'lines \d+-\d+'
+    # would false-positive on normal output like 'lines 1-24' on the
+    # always-on byte path.
+    (re.compile(rb'[Oo]verwrite.*\?'),                  "overwrite_prompt"),
+    (re.compile(rb'Press .* to continue'),              "continue_prompt"),
+    (re.compile(rb'No space left on device'),           "disk_error"),
+    (re.compile(rb'--More--'),                          "pager_prompt"),
+    (re.compile(rb'\(END\)'),                           "pager_prompt"),
     # cmd_end: \d+ is intentional — prevents matching unexpanded echoes
     # like "EXIT:$? ___DONE_..." (which would be a command echo, not a
     # real completion marker).

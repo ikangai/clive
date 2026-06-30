@@ -25,6 +25,7 @@ Public API:
 
 import os
 import subprocess
+from concurrent.futures import ThreadPoolExecutor
 
 # ── Pane definitions ─────────────────────────────────────────────────────────
 # Each creates a tmux window — a conversation channel the agent controls.
@@ -669,30 +670,48 @@ def resolve_toolset(spec: str) -> dict:
     }
 
 
+# Upper bound on concurrent tool probes. Probes are independent and
+# subprocess/IO-bound, so the realistic toolset (~30 today, growing with
+# gh#22-38) fits in a single wave: wall-time stays ~one `timeout` instead of
+# growing linearly with the number of tools. Bounded so we never spawn a
+# thread-per-tool unboundedly.
+_CHECK_MAX_WORKERS = 32
+
+
 def check_commands(commands: list[dict]) -> tuple[list[dict], list[dict]]:
     """Check which command-line tools are installed.
 
-    Runs the 'check' command for each tool (e.g. 'command -v jq').
-    Returns (available, missing).
+    Runs the 'check' command for each tool (e.g. 'command -v jq') on a bounded
+    thread pool so startup tool-detection doesn't stall as the toolset grows —
+    the probes are independent and subprocess-bound, so wall-time is bounded by
+    roughly one ``timeout`` regardless of how many tools are checked.
+    Returns (available, missing), preserving input order in each list.
     """
-    available = []
-    missing = []
-
-    for cmd in commands:
+    def _is_available(cmd: dict) -> bool:
         check = cmd.get("check", "")
         if not check:
-            available.append(cmd)
-            continue
+            return True
         try:
             result = subprocess.run(
                 check, shell=True, capture_output=True, timeout=2,
             )
-            if result.returncode == 0:
-                available.append(cmd)
-            else:
-                missing.append(cmd)
+            return result.returncode == 0
         except (subprocess.TimeoutExpired, OSError):
-            missing.append(cmd)
+            return False
+
+    if not commands:
+        return [], []
+
+    max_workers = min(len(commands), _CHECK_MAX_WORKERS)
+    with ThreadPoolExecutor(max_workers=max_workers) as executor:
+        # executor.map preserves input order, so the partition below is
+        # identical (membership and order) to the old sequential loop.
+        results = list(executor.map(_is_available, commands))
+
+    available = []
+    missing = []
+    for cmd, ok in zip(commands, results):
+        (available if ok else missing).append(cmd)
 
     return available, missing
 
@@ -799,11 +818,56 @@ def build_tier0_summary(active_categories: list[str]) -> str:
     )
 
 
+# Tier-1 contract: each category line costs ~50 tokens. Using the ~4-chars/
+# token heuristic the registry token tests rely on, that's a ~200-char ceiling
+# per line. As the open "add tools" issues (#21-#38) pack categories past it,
+# overflowing lines are truncated to the names that fit plus a
+# "+N more (run: clive-tools list <cat>)" pointer, so the omitted tools stay
+# reachable via the existing expansion command without blowing the budget.
+TIER1_CATEGORY_TOKEN_BUDGET = 50
+_TIER1_CHARS_PER_TOKEN = 4
+
+
+def _tier1_category_line(cat: str, names: list[str], char_budget: int) -> str:
+    """Render one Tier-1 category line, capped at char_budget characters.
+
+    Returns the full ``cat: a, b, c`` line when it fits. On overflow, lists the
+    leading names that fit alongside a ``+N more (run: clive-tools list <cat>)``
+    pointer. At least one name is always shown — a lone over-budget tool is
+    emitted verbatim rather than dropped to a contentless pointer.
+    """
+    full = f"{cat}: {', '.join(names)}"
+    if len(full) <= char_budget:
+        return full
+    shown: list[str] = []
+    for name in names:
+        candidate = shown + [name]
+        omitted = len(names) - len(candidate)
+        pointer = (f", +{omitted} more (run: clive-tools list {cat})"
+                   if omitted else "")
+        line = f"{cat}: {', '.join(candidate)}{pointer}"
+        if len(line) > char_budget and shown:
+            break
+        shown = candidate
+    omitted = len(names) - len(shown)
+    if omitted:
+        return (f"{cat}: {', '.join(shown)}"
+                f", +{omitted} more (run: clive-tools list {cat})")
+    return f"{cat}: {', '.join(shown)}"
+
+
 def build_tier1_names(categories: list[str]) -> str:
     """Tier 1: tool names per category, no descriptions. ~50 tokens/category.
 
+    Each category line is capped at ~``TIER1_CATEGORY_TOKEN_BUDGET`` tokens; a
+    category whose tools overflow that budget lists only the leading names that
+    fit, followed by a ``+N more (run: clive-tools list <cat>)`` pointer so the
+    omitted tools stay discoverable. This keeps the Tier-1 invariant intact as
+    categories grow (gh#39).
+
     Duplicate categories produce duplicate lines; callers should dedupe.
     """
+    char_budget = TIER1_CATEGORY_TOKEN_BUDGET * _TIER1_CHARS_PER_TOKEN
     lines = []
     for cat in categories:
         cat_def = CATEGORIES.get(cat)
@@ -814,7 +878,7 @@ def build_tier1_names(categories: list[str]) -> str:
         names.extend(cat_def.get("commands", []))
         names.extend(cat_def.get("endpoints", []))
         if names:
-            lines.append(f"{cat}: {', '.join(names)}")
+            lines.append(_tier1_category_line(cat, names, char_budget))
     return "\n".join(lines)
 
 
@@ -830,7 +894,10 @@ def build_tier2_card(name: str) -> str | None:
     if canonical in PANES:
         pane = PANES[canonical]
         return f"[{canonical}] {pane.get('description', '').strip()}"
-    return None
+    # Neither a COMMAND nor a PANE: a learned/unknown tool — fall back to any
+    # persisted memo from a prior run's probe (gh#41 self-learning).
+    from discovery import tool_memo
+    return tool_memo.memo_card(canonical)
 
 
 def list_toolsets() -> dict[str, list[str]]:

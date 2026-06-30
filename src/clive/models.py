@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 import re
+from collections import Counter
 from dataclasses import dataclass, field
 from enum import Enum
 from typing import TYPE_CHECKING, Optional
@@ -71,6 +72,12 @@ class Plan:
             errors.append("Plan has no subtasks")
             return errors
         ids = {s.id for s in self.subtasks}
+        if len(ids) != len(self.subtasks):
+            dups = sorted(sid for sid, n in Counter(s.id for s in self.subtasks).items() if n > 1)
+            errors.append(
+                f"Duplicate subtask id(s): {', '.join(dups)}. "
+                f"Each subtask must have a unique id; merge or rename the repeats."
+            )
 
         for s in self.subtasks:
             for dep in s.depends_on:
@@ -146,6 +153,11 @@ class PaneInfo:
     # empty string for everything else (shell, data, media, etc.).
     # See protocol.py and remote.render_agent_screen.
     frame_nonce: str = ""
+    # How this pane was originally launched (e.g. ``ssh host`` for a REMOTE
+    # pane, an app/REPL ``cmd`` for a tool pane); empty for a plain local
+    # shell. respawn_dead_panes replays it after ``respawn-pane -k`` so a
+    # respawned pane comes back as what it was, not a bare local shell.
+    launch_cmd: str = ""
     # Per-pane model overrides from driver frontmatter.
     # When set, runners use these instead of the global MODEL/SCRIPT_MODEL.
     agent_model: Optional[str] = None

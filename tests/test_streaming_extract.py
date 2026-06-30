@@ -53,3 +53,36 @@ def test_empty_input():
     d = EarlyDoneDetector()
     d.feed("")
     assert not d.done_detected
+
+
+def test_done_inside_closed_fence_ignored():
+    """A DONE: line inside a finished code block must not abort streaming."""
+    d = EarlyDoneDetector()
+    d.feed("```bash\necho 'DONE: noise'\n```")
+    assert not d.done_detected
+    assert not d.should_stop()
+
+
+def test_done_inside_open_fence_ignored_midstream():
+    """Mid-stream, an unclosed fence whose body starts with DONE: must not abort.
+
+    Otherwise streaming aborts mid-command and the command is truncated.
+    """
+    d = EarlyDoneDetector()
+    d.feed("I'll write a marker.\n```bash\nDONE: leftover line")
+    assert not d.done_detected
+    assert not d.should_stop()
+
+
+def test_done_in_heredoc_body_ignored():
+    d = EarlyDoneDetector()
+    d.feed("```bash\ncat <<EOF\nDONE: data not signal\nEOF\n```")
+    assert not d.done_detected
+
+
+def test_genuine_done_after_closed_fence_still_detected():
+    """Real top-level DONE: outside the fence still aborts streaming."""
+    d = EarlyDoneDetector()
+    d.feed("```bash\necho 'DONE: noise'\n```\nDONE: real summary")
+    assert d.done_detected
+    assert d.should_stop()

@@ -64,6 +64,45 @@ def agent_ready_prompt_setup(with_exit: bool | None = None) -> str:
     return 'if [ -n "$ZSH_VERSION" ]; then ' + zsh + '; else ' + bash + '; fi'
 
 
+def pager_safe_env_setup() -> str:
+    """Return the export line that disables pagers/editors for a fresh pane.
+
+    Pager avoidance is otherwise only *advisory* (drivers/default.md and
+    ``llm.prompts`` tell the model to pipe pager-y output through ``| cat`` and
+    use ``git --no-pager``). Any common command that invokes a pager — ``git
+    log``/``diff``/``branch``, ``man``, ``systemctl status``, ``docker logs`` —
+    opens an interactive pager that wedges the pane; the streaming/event path
+    doesn't detect it at all and the poll path only flags it as an
+    intervention, forcing the agent to escape it and burning turns.
+
+    Sent deterministically at pane setup (alongside the PS1 install), this is
+    the environment-level backstop that realizes clive's "shell where judgment
+    isn't required" principle:
+
+    - ``PAGER``/``GIT_PAGER``/``MANPAGER=cat`` route pager output straight to
+      the pane, and ``LESS=-FRX`` makes any stray ``less`` quit on a short page
+      instead of waiting for a keypress.
+    - ``EDITOR=true`` makes commands that would drop into ``$EDITOR`` (e.g. a
+      missing ``-m`` on ``git commit``) no-op instead of opening ``vi``.
+    - ``GIT_TERMINAL_PROMPT=0`` fails git auth prompts fast rather than
+      blocking the pane on interactive input.
+    - ``DEBIAN_FRONTEND=noninteractive``/``PIP_NO_INPUT=1``/``NONINTERACTIVE=1``
+      stop the package managers from blocking the pane on an interactive prompt
+      — apt's "Configuring tzdata" dialog (the most common autonomous-agent
+      wedge), pip keyring prompts, and Homebrew confirmations. All three are
+      well-established and side-effect-free for non-interactive use. ``CI=1`` is
+      deliberately *not* set: it changes tool behavior, not just prompting.
+
+    A single side-effect-free ``export`` line so it composes with the existing
+    ``send_keys`` setup sequence.
+    """
+    return (
+        "export PAGER=cat GIT_PAGER=cat MANPAGER=cat "
+        "EDITOR=true GIT_TERMINAL_PROMPT=0 LESS=-FRX "
+        "DEBIAN_FRONTEND=noninteractive PIP_NO_INPUT=1 NONINTERACTIVE=1"
+    )
+
+
 def parse_ps1_exit(line: str | None) -> int | None:
     """Extract the exit code from a rendered exit-bearing prompt line.
 

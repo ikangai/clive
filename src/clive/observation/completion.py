@@ -29,31 +29,74 @@ from .ps1_exit import PS1_EXIT_RE  # gh#8: recognize exit-bearing prompt form
 
 DEFAULT_IDLE_TIMEOUT = 2.0
 MAX_WAIT = 30.0
+# Absolute backstop for the poll path. The soft `max_wait` ceiling is
+# activity-aware (see _wait_polling): a slow-but-live command that keeps
+# repainting the pane past `max_wait` is treated as alive and kept polling.
+# MAX_WAIT_HARD bounds that grace period so a pane that changes forever
+# (e.g. a spinner that never finishes) is still eventually abandoned.
+MAX_WAIT_HARD = 180.0
 
 # Patterns that indicate the agent should intervene during execution
 INTERVENTION_PATTERNS = [
     (re.compile(r'\[y/N\]|\[Y/n\]|\(yes/no\)'), "confirmation_prompt"),
     (re.compile(r'[Pp]assword:'), "password_prompt"),
+    # The default sudo prompt is "[sudo] password for <user>:" — the colon
+    # follows the username, not "password", so the bare `[Pp]assword:`
+    # pattern above misses it. The ssh key prompt asks for a "passphrase"
+    # ("Enter passphrase for key '...':") and has no "password" at all.
+    # Both wedge an interactive subtask on the poll path undetected, so map
+    # them to password_prompt too.
+    (re.compile(r'[Pp]assword for .+:'), "password_prompt"),
+    (re.compile(r'[Pp]assphrase'), "password_prompt"),
     (re.compile(r'Are you sure'), "confirmation_prompt"),
     (re.compile(r'[Oo]verwrite.*\?'), "overwrite_prompt"),
     (re.compile(r'Press .* to continue'), "continue_prompt"),
     (re.compile(r'FATAL:|panic:'), "fatal_error"),
     (re.compile(r'Permission denied'), "permission_error"),
     (re.compile(r'No space left on device'), "disk_error"),
+    # Pager / interactive-wedge (gh#40): a `less`/`more` screen leaves the
+    # command blocked on keystrokes. The poll loop otherwise reads the
+    # static pager screen as "idle" forever, so surface it as an
+    # intervention. Matched against the captured screen like the others.
+    (re.compile(r'--More--'), "pager_prompt"),
+    (re.compile(r'\(END\)'), "pager_prompt"),
+    # A "lines N-M" pager ruler. Anchored to the final screen line the
+    # same way the lone-colon prompt below is (\A|\n ... \n?\Z), so it
+    # only matches when "lines N-M" is the bottom line. Bare "lines 12-34"
+    # appearing INLINE mid-command (diff/patch hunks, compiler errors like
+    # "lines 12-15", head/sed output) is normal output, not a pager wedge:
+    # the unanchored form false-positived there and disrupted a running
+    # command. This is why byte_classifier.py omits the pattern entirely on
+    # the always-on byte path; anchoring reconciles that poll/byte
+    # asymmetry while preserving genuine pager-footer detection.
+    (re.compile(r'(?:\A|\n)lines \d+-\d+[^\n]*\n?\Z'), "pager_prompt"),
+    # A lone ":" alone on the bottom row (less mid-file prompt). Anchored
+    # to the final line (\A|\n ... \Z) so an inline colon like "Note:"
+    # does not false-positive.
+    (re.compile(r'(?:\A|\n):[ \t]*\n?\Z'), "pager_prompt"),
 ]
 
 # Map ByteEvent kinds (from observation.byte_classifier.BYTE_PATTERNS) to the
-# intervention:<type> strings produced by the poll path. Four kinds are
+# intervention:<type> strings produced by the poll path. Eight kinds are
 # mapped today: password_prompt, confirm_prompt, permission_error, and
 # error_keyword (Traceback|FATAL|panic: -> fatal_error, matching the poll
-# path's FATAL:|panic: pattern). The remaining poll-path kinds —
-# "overwrite_prompt", "continue_prompt", "disk_error" — are event-path-
-# unreachable because the L2 byte classifier has no patterns for them.
+# path's FATAL:|panic: pattern), plus the literal-pattern kinds
+# overwrite_prompt / continue_prompt / disk_error and the pager footers
+# (--More--, (END) -> pager_prompt) (gh#40 follow-up: the L2 byte classifier
+# now carries patterns for them, so they are reachable from the event path at
+# parity with the poll path). The remaining pager cases stay poll-only: the
+# lone-colon prompt is \A/\Z-anchored (doesn't translate cleanly to a byte
+# stream) and 'lines \d+-\d+' would false-positive on normal output (e.g.
+# 'lines 1-24') on the always-on byte path.
 _INTERVENTION_KIND_MAP = {
     "password_prompt": "password_prompt",
     "confirm_prompt":  "confirmation_prompt",
     "permission_error": "permission_error",
     "error_keyword": "fatal_error",
+    "overwrite_prompt": "overwrite_prompt",
+    "continue_prompt": "continue_prompt",
+    "disk_error": "disk_error",
+    "pager_prompt": "pager_prompt",
 }
 
 
@@ -138,7 +181,15 @@ def _wait_polling(
         if _cancel_event.is_set():
             return last_content or "", "cancelled"
 
-        lines = pane_info.pane.cmd("capture-pane", "-p", "-J").stdout
+        # Route this hot poll read through the bounded-retry helper so a
+        # single libtmux/subprocess glitch on the capture-pane doesn't
+        # propagate out of _send_agent_command and fail the whole subtask.
+        # Lazy import to avoid an import cycle (mirrors the lazy
+        # `from runtime import _cancel_event` above).
+        from session import _pane_cmd_with_retry
+        lines = _pane_cmd_with_retry(
+            pane_info.pane, "capture-pane", "-p", "-J"
+        ).stdout
         screen = "\n".join(lines) if lines else ""
 
         # Strategy 1: unique end marker
@@ -173,9 +224,18 @@ def _wait_polling(
         elif not marker and time.time() - last_change > idle_timeout:
             return screen, "idle"
 
-        # Absolute ceiling
-        if time.time() - start > max_wait:
-            return screen, "max_wait"
+        # Absolute ceiling (activity-aware). Once the soft `max_wait`
+        # elapses, only abandon the command if it has actually gone quiet
+        # (no change for idle_timeout) OR the hard backstop is exceeded. A
+        # slow-but-live command (make / npm install / large download) that
+        # keeps repainting the pane is treated as alive and polled until it
+        # finishes (marker/prompt), stalls (idle), or trips MAX_WAIT_HARD —
+        # so interactive_runner never types the next command into a still-
+        # running pane.
+        elapsed = time.time() - start
+        if elapsed > max_wait:
+            if time.time() - last_change > idle_timeout or elapsed > MAX_WAIT_HARD:
+                return screen, "max_wait"
 
         time.sleep(poll_interval)
         poll_interval = min(poll_interval * 2, 0.5)  # exponential backoff
@@ -204,28 +264,44 @@ async def await_ready_events(
     """
     idle = timeout or pane_info.idle_timeout or DEFAULT_IDLE_TIMEOUT
     start = time.time()
+    last_event_time = start
+    received_any = False
     method = "max_wait"
 
     while True:
         remaining = max_wait - (time.time() - start)
-        if remaining <= 0:
-            method = "max_wait"
-            break
-
-        # Cap per-event wait at the smaller of idle and remaining — we
-        # want to treat "no events for idle seconds" as idle even if
-        # max_wait hasn't fired yet.
-        wait_slice = min(idle, remaining)
+        # Cap the per-event wait. Before the soft ceiling, use the smaller
+        # of idle and the time left so both idle and max_wait fire
+        # promptly. Past the soft ceiling, wait up to the idle window for
+        # the next event so a stream that goes quiet is detected promptly
+        # while a still-live stream keeps us waiting (activity-aware).
+        wait_slice = min(idle, remaining) if remaining > 0 else idle
         try:
             evt = await asyncio.wait_for(event_source.get(), timeout=wait_slice)
         except asyncio.TimeoutError:
-            # If max_wait already elapsed, the next loop iteration would
-            # return max_wait; prefer idle when there's headroom.
-            if max_wait - (time.time() - start) <= 0:
-                method = "max_wait"
+            elapsed = time.time() - start
+            if elapsed >= max_wait:
+                # Past the soft ceiling. Mirror _wait_polling: the ceiling
+                # is activity-aware — only finalize "max_wait" once the
+                # stream has actually gone idle. A never-active stream is
+                # idle by definition (so test_max_wait_enforced and
+                # test_idle_timeout_when_no_events still return promptly),
+                # and an active stream counts as idle after the idle window
+                # passes with no event. A still-live stream (a recent
+                # event, e.g. the per-slice wait was clipped by `remaining`
+                # right at the boundary) is kept waiting.
+                if not received_any or time.time() - last_event_time >= idle:
+                    method = "max_wait"
+                    break
             else:
+                # Idle window elapsed before the soft ceiling -> idle.
                 method = "idle"
-            break
+                break
+            continue
+
+        # An event arrived -> the command is alive.
+        received_any = True
+        last_event_time = time.time()
 
         # cmd_end with marker match -> "marker"
         if marker and evt.kind == "cmd_end":
@@ -238,10 +314,26 @@ async def await_ready_events(
             method = f"intervention:{_INTERVENTION_KIND_MAP[evt.kind]}"
             break
 
-        # Otherwise keep waiting — non-target events don't stop us.
+        # Activity-aware hard backstop: a stream that floods events forever
+        # past max_wait (a spinner that never finishes) is still eventually
+        # abandoned once MAX_WAIT_HARD is exceeded — the same bound the poll
+        # path applies, reusing the module-level constant.
+        if time.time() - start > MAX_WAIT_HARD:
+            method = "max_wait"
+            break
 
-    # Final screen capture (same shape as poll path).
-    lines = pane_info.pane.cmd("capture-pane", "-p", "-J").stdout
+        # Otherwise keep waiting — non-target events don't stop us, and a
+        # live stream past max_wait is treated as alive (activity-aware).
+
+    # Final screen capture (same shape as poll path). Route through the
+    # bounded-retry helper too — this runs once per command in the default
+    # streaming path, so a transient hiccup here would otherwise raise out of
+    # _send_agent_command and fail the subtask. Lazy import avoids an import
+    # cycle (mirrors the poll path / the lazy `from runtime import ...`).
+    from session import _pane_cmd_with_retry
+    lines = _pane_cmd_with_retry(
+        pane_info.pane, "capture-pane", "-p", "-J"
+    ).stdout
     screen = "\n".join(lines) if lines else ""
     return screen, method
 

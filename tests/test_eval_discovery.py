@@ -174,6 +174,70 @@ def test_empty_criteria_passes_trivially():
     assert fields["discovery_turns"] == 0
 
 
+def test_expected_flags_satisfied_sets_flags_correct():
+    """A required flag present on the tool's invocation -> flags_correct True."""
+    scrollback = f"{PROMPT_MARKER} jq -r '.[].email' users.json\n"
+    ok, fields, detail = check_discovery_criteria(
+        {"expected_flags": {"jq": ["-r"]}}, scrollback
+    )
+    assert ok, detail
+    assert fields["flags_correct"] is True
+
+
+def test_expected_flags_missing_flag_fails_with_detail():
+    """A required flag absent from the tool's invocation -> flags_correct False,
+    ok False, and the detail names the missing flag."""
+    scrollback = f"{PROMPT_MARKER} jq '.[].email' users.json\n"
+    ok, fields, detail = check_discovery_criteria(
+        {"expected_flags": {"jq": ["-r"]}}, scrollback
+    )
+    assert not ok
+    assert fields["flags_correct"] is False
+    assert "-r" in detail
+
+
+def test_expected_flags_token_boundary():
+    """A required flag must match a whitespace-split command TOKEN, never a
+    raw substring of an unrelated long flag (gh#40 false-positive guard).
+
+    ``-i`` is a substring of ``--include``, so a naive ``flag in line`` test
+    falsely credits a command that never used ``-i``. Tokenized matching must:
+      - reject ``-i`` hidden inside ``--include`` (flags_correct=False),
+      - accept ``-i`` clustered in a single-dash group like ``-ri`` (True),
+      - accept a long-form required flag matched as an exact token (True).
+    """
+    # -i must NOT be credited by the unrelated long flag --include.
+    _, fields, detail = check_discovery_criteria(
+        {"expected_flags": {"rg": ["-i"]}},
+        f"{PROMPT_MARKER} rg --include='*.py' error\n",
+    )
+    assert fields["flags_correct"] is False, detail
+    assert "-i" in detail
+
+    # -i clustered inside a single-dash group (-ri) counts as used.
+    _, fields, detail = check_discovery_criteria(
+        {"expected_flags": {"rg": ["-i"]}},
+        f"{PROMPT_MARKER} rg -ri error\n",
+    )
+    assert fields["flags_correct"] is True, detail
+
+    # A long-form required flag matches its exact token.
+    _, fields, detail = check_discovery_criteria(
+        {"expected_flags": {"grep": ["--ignore-case"]}},
+        f"{PROMPT_MARKER} grep --ignore-case 'foo' app.log\n",
+    )
+    assert fields["flags_correct"] is True, detail
+
+
+def test_no_expected_flags_keeps_flags_correct_true():
+    """Back-compat: criteria without expected_flags leaves flags_correct True."""
+    ok, fields, _ = check_discovery_criteria(
+        {"expected_tool": "jq"}, SCROLLBACK_JQ
+    )
+    assert ok
+    assert fields["flags_correct"] is True
+
+
 # ---------------------------------------------------------------------------
 # ToolEvalResult
 # ---------------------------------------------------------------------------
@@ -289,9 +353,10 @@ def test_report_tool_metrics():
     from evals.harness.metrics import EvalReport
     results = [
         _tr(task_id="a", tool_expected="jq", tool_used="jq",
-            tool_correct=True, discovery_turns=2),
+            tool_correct=True, discovery_turns=2, flags_correct=True),
         _tr(task_id="b", tool_expected="rg", tool_used="grep",
-            tool_correct=False, passed=False, discovery_turns=4),
+            tool_correct=False, passed=False, discovery_turns=4,
+            flags_correct=False),
         _tr(task_id="c", layer=3, tool="pipeline", pipeline_stages=3),
         _tr(task_id="d", fallback_expected=True, fallback_used=True),
         EvalResult(task_id="plain", layer=2, tool="shell", passed=True,
@@ -300,6 +365,8 @@ def test_report_tool_metrics():
     ]
     report = EvalReport(results)
     assert report.tool_accuracy == pytest.approx(3 / 4)
+    # c and d default flags_correct=True; only b is False -> 3 of 4 tool results.
+    assert report.flag_accuracy == pytest.approx(3 / 4)
     assert report.discovery_efficiency == pytest.approx((2 + 4) / 2)
     assert report.pipeline_success_rate == pytest.approx(1.0)
     assert report.fallback_success_rate == pytest.approx(1.0)

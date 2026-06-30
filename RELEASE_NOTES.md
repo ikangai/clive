@@ -4,6 +4,16 @@ User-facing summary of notable changes. The dev-grade audit trail with one parag
 
 ## Unreleased
 
+### Resilient under flaky tools and transient failures
+
+A batch of hardening so a single hiccup — a network blip, a tool that pages, a model that returns a malformed plan — no longer sinks a whole task:
+
+- **Transient-retry everywhere the outside world is flaky** — bounded exponential backoff now wraps non-streaming *and* streaming LLM calls (including the `claude-cli` / delegate paths) and `tmux capture-pane` reads. A momentary rate-limit or a dropped read is retried instead of failing the subtask.
+- **Plans repair themselves** — the planner runs a validate-and-correct loop over malformed/invalid plans rather than aborting, and replan-on-failure now also covers leaf and single-subtask failures. The default driver carries a bounded failure-recovery protocol so a worker attempts a recovery step before giving up.
+- **The observation loop doesn't get stuck** — clive now detects a pager or interactive wedge in the pane-wait loop (instead of hanging until timeout), a no-progress circuit breaker trips when context compression stops making headway, and `max_wait` is activity-aware: a pane that is still visibly changing keeps being polled past the soft ceiling (up to a hard backstop) instead of being abandoned at 30 s.
+- **Failure memory survives compression** — the ledger of failed commands is now preserved across context compression, so the agent doesn't forget what it already tried and repeat it.
+- **Cross-session tool learning (gh#41, slice 1/2)** — tool-probe results learned during discovery are persisted to a small JSON memo and reused to seed the Tier-2 tool card on the next run, so clive doesn't re-probe a tool it has already met. Unknown tools are also probed on the `DEFAULT_DRIVER` fallback.
+
 ### Plans that verify their own work, not just their exit codes
 
 Planned mode now treats each step's success condition as a real check, not a rubber stamp. Before, a step "passed" if its command exited 0 — but a download that writes an empty file, or a transform that produces the wrong output, both exit 0 and looked done. Now the planner emits a meaningful `verify` where correctness depends on it — file presence (`test -s`), content match (`grep -q`), a record count, valid JSON (`jq -e`) — materialized as a command whose exit code reflects the check (the harness makes no LLM calls mid-execution, so the check has to *be* a command). Trivial steps (`mkdir`, `cd`) still just check the exit code. And the default driver now carries a standing **verify-before-done** rule: a clean exit code is not proof the goal was met — confirm the expected end-state before reporting complete. The net effect is fewer silent "successes" that didn't actually do the thing.

@@ -40,6 +40,16 @@ log = logging.getLogger(__name__)
 
 
 _attempted_explorations: set[str] = set()
+# Per-tool count of *failed* explorations. A single flaky exploration (an LLM
+# hiccup, a tmux glitch, a generate_driver validation ValueError) must not trap
+# a tool as permanently undiscovered: ``_explore_async`` releases the tool from
+# ``_attempted_explorations`` on failure so a later subtask can re-queue it.
+# This cap bounds that retry — once a tool has failed ``_MAX_EXPLORE_ATTEMPTS``
+# times it stays trapped, so a genuinely-broken tool can't thrash the
+# exploration pane for the life of the process (gh#41 — "throw any CLI tool at
+# clive" turns a transient miss into a recoverable one, not a permanent one).
+_explore_attempts: dict[str, int] = {}
+_MAX_EXPLORE_ATTEMPTS = 2
 _attempted_lock = threading.Lock()
 
 
@@ -76,6 +86,69 @@ def write_generated_driver(*args, **kwargs):  # noqa: D401 — trampoline
     return fn(*args, **kwargs)
 
 
+def _first_nonempty_line(text: str) -> str:
+    """First non-empty stripped line of ``text`` (the driver synopsis), or ''."""
+    for line in (text or "").splitlines():
+        stripped = line.strip()
+        if stripped:
+            return stripped
+    return ""
+
+
+def _is_help_only(cmd: str) -> bool:
+    """True when ``cmd`` is a help/version-only invocation (e.g. ``jq --help``).
+
+    A probe is help-only when it has at least one token after the tool name and
+    *every* such token is in ``explorer._HELP_FLAGS``. A bare tool name (no
+    trailing tokens) is NOT help-only — it's a legitimate real invocation (cf.
+    ``record_tool_memo("fzf", "fzf", ...)``), so the vacuous-truth case must
+    stay a real usage.
+    """
+    # Reuse the explorer's canonical help/version flag set (single source of
+    # truth) rather than copying the tuple. Imported lazily to keep importing
+    # ``discovery.auto`` cheap — ``.explorer`` pulls in libtmux + the runtime,
+    # which the module docstring deliberately defers (see ``_lazy_import_discovery``).
+    from .explorer import _HELP_FLAGS
+
+    rest = cmd.split()[1:]  # tokens after the tool name as it appears in cmd
+    return bool(rest) and all(tok in _HELP_FLAGS for tok in rest)
+
+
+def _derive_memo_fields(tool_name: str, result, driver_text: str) -> tuple[str, str]:
+    """Derive ``(invocation, usage)`` for the learned-tool memo.
+
+    ``invocation`` is the command of the first *real-usage* successful
+    (``exit_code == 0``) probe observed during exploration. ``build_exploration_goal``
+    tells the agent to run ``<tool> --help`` first, so the first success is
+    almost always a help/version probe — recording that would teach the next run
+    to re-run ``jq --help`` instead of a real usage like ``jq -r '.x'``,
+    defeating the experiential-reuse goal (gh#41). We therefore prefer the first
+    successful probe that is NOT help/version-only, falling back to the first
+    success only when every success is help-only — never regressing to ``""``
+    when a real success existed.
+
+    ``invocation`` is ``""`` only when no probe succeeded; that empty value is
+    the "nothing learned" signal: ``record_tool_memo`` skips the write so a
+    failed re-exploration cannot clobber a previously-learned known-good memo
+    with a bare-name fallback (gh#41). ``usage`` is always the driver's synopsis
+    (its first non-empty stripped line).
+    """
+    first_success = ""
+    invocation = ""
+    for probe in getattr(result, "probes", None) or []:
+        if getattr(probe, "success", False):
+            cmd = (getattr(probe, "command", "") or "").strip()
+            if not cmd:
+                continue
+            if not first_success:
+                first_success = cmd
+            if not _is_help_only(cmd):
+                invocation = cmd
+                break
+    invocation = invocation or first_success
+    return invocation, _first_nonempty_line(driver_text)
+
+
 def _explore_async(tool_name: str, drivers_dir: Optional[str]) -> None:
     """Background exploration — fire-and-forget. Logs + swallows any failure."""
     try:
@@ -90,8 +163,29 @@ def _explore_async(tool_name: str, drivers_dir: Optional[str]) -> None:
             "`clive --promote-driver %s`",
             tool_name, path, tool_name,
         )
+        # Persist what we learned so the next run's Tier-2 card can reuse the
+        # known-good invocation (gh#41 slice 2/2). Best-effort: record_tool_memo
+        # never raises, and the whole block is inside the auto-explore try/except
+        # so any derivation slip is logged + swallowed like the rest. When no
+        # probe succeeded, _derive_memo_fields yields an empty invocation and
+        # record_tool_memo no-ops — a failed re-exploration must not clobber a
+        # previously-learned good memo with a bare-name fallback (gh#41).
+        from .tool_memo import record_tool_memo
+        invocation, usage = _derive_memo_fields(tool_name, result, driver_text)
+        record_tool_memo(tool_name, invocation, usage)
     except Exception as exc:
         log.warning("[auto-explore] failed for %r: %s", tool_name, exc)
+        # Release the tool so a later subtask can re-queue it — a transient
+        # failure must not permanently block re-discovery (gh#41). The per-tool
+        # cap bounds the retry: only release while we're still under the cap, so
+        # a genuinely-broken tool stops re-queuing instead of thrashing. The
+        # increment + discard share ``_attempted_lock`` so the gate in
+        # ``auto_explore_unknown_tool`` reads a consistent set.
+        with _attempted_lock:
+            failures = _explore_attempts.get(tool_name, 0) + 1
+            _explore_attempts[tool_name] = failures
+            if failures < _MAX_EXPLORE_ATTEMPTS:
+                _attempted_explorations.discard(tool_name)
 
 
 def auto_explore_unknown_tool(
@@ -100,9 +194,16 @@ def auto_explore_unknown_tool(
 ) -> bool:
     """Queue a background exploration of ``tool_name``.
 
+    A tool stays in ``_attempted_explorations`` while its exploration is
+    in-flight or has succeeded, so a re-queue is refused. If the exploration
+    *fails*, ``_explore_async`` releases the tool (up to ``_MAX_EXPLORE_ATTEMPTS``
+    failures) so a later subtask can re-queue it — a transient miss no longer
+    traps the tool forever (gh#41).
+
     Returns:
-        True if a thread was queued. False if the feature is disabled or
-        the tool was already attempted in this process.
+        True if a thread was queued. False if the feature is disabled, the
+        tool's exploration is already in-flight / succeeded, or it has hit the
+        per-tool failure cap.
     """
     if not is_auto_explore_enabled():
         return False

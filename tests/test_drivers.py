@@ -28,6 +28,93 @@ def test_default_driver_constant_instructs_verify_before_done():
     assert "exit code" in low
 
 
+# ─── Bounded recovery — the default driver must give concrete, bounded ──────
+# recovery guidance instead of the vague "try a different approach": detect
+# stuck/hung commands and interrupt them, cap retries at a small fixed number
+# then stop and report, and prefer non-interactive invocations that never
+# block waiting on a pager or prompt.
+
+def test_default_driver_instructs_bounded_recovery():
+    """load_driver('default') must carry concrete, bounded recovery steps."""
+    import prompts as prompts_mod
+    prompts_mod._driver_cache.clear()
+    prompts_mod._driver_meta_cache.clear()
+    body = load_driver("default").lower()
+    # (1) Detect a stuck/hung command and interrupt rather than wait forever.
+    assert "stuck" in body or "hung" in body
+    assert "ctrl-c" in body or "interrupt" in body
+    # (2) Bound retries to a small fixed number, then stop and report.
+    assert "retr" in body  # retry / retries / retried
+    assert "at most" in body or "twice" in body or "two" in body
+    assert "report" in body
+    # (3) Prefer non-interactive invocations to avoid pagers/prompts.
+    assert "non-interactive" in body or "--no-pager" in body
+
+
+# ─── Unknown-tool probing — the DEFAULT_DRIVER fallback (the "throw any CLI ──
+# tool at clive" case, gh#41) must teach the agent to DISCOVER an unfamiliar
+# tool before using it: probe with `--help`/`--version`/`man <tool> | cat`,
+# infer flags from the help text, never blind-launch interactive TUIs/editors
+# or credential-prompting commands, and pipe pager-y output through cat/head.
+# This is the discovery-on-the-fly path — distinct from the bounded RECOVERY
+# protocol (stuck/hung/retries/non-interactive) that the driver also carries.
+
+def test_default_driver_constant_instructs_unknown_tool_probing():
+    """The DEFAULT_DRIVER fallback constant must carry unknown-tool probing."""
+    low = DEFAULT_DRIVER.lower()
+    # (1) Probe an unfamiliar tool before using it.
+    assert "probe" in low
+    assert "--help" in low and "--version" in low
+    assert "man <tool>" in low
+    # (2) Infer flags from the help text.
+    assert "flag" in low
+    assert "help text" in low
+    # (3) Never blind-launch interactive TUIs/editors or credential prompts.
+    assert "interactive" in low
+    assert "credential" in low
+    # (4) Pipe pager-y output through cat/head.
+    assert "| cat" in low or "| head" in low
+
+
+def test_fallback_path_emits_probing_for_unknown_app_type(tmp_path):
+    """load_driver for an app_type with NO driver file falls back to
+    DEFAULT_DRIVER, which must carry the unknown-tool probing guidance."""
+    import prompts as prompts_mod
+    prompts_mod._driver_cache.clear()
+    prompts_mod._driver_meta_cache.clear()
+    body = load_driver("some_unknown_cli_tool", drivers_dir=str(tmp_path)).lower()
+    assert "probe" in body
+    assert "--help" in body
+    assert "credential" in body
+
+
+def test_default_md_driver_instructs_unknown_tool_probing():
+    """load_driver('default') (drivers/default.md, the unknown-tool driver)
+    must also carry the probing guidance."""
+    import prompts as prompts_mod
+    prompts_mod._driver_cache.clear()
+    prompts_mod._driver_meta_cache.clear()
+    body = load_driver("default").lower()
+    assert "probe" in body
+    assert "--help" in body and "--version" in body
+    assert "credential" in body
+
+
+def test_known_driver_unaffected_by_probing_block(tmp_path):
+    """A known driver (its own .md file) is returned verbatim — the
+    unknown-tool probing block is NOT grafted onto a real driver."""
+    import prompts as prompts_mod
+    prompts_mod._driver_cache.clear()
+    prompts_mod._driver_meta_cache.clear()
+    driver_file = tmp_path / "mytool.md"
+    driver_file.write_text("# My tool driver\nDo the specific thing.")
+    result = load_driver("mytool", drivers_dir=str(tmp_path))
+    assert "My tool driver" in result
+    # The fallback probing block must not leak into a real driver.
+    assert "probe" not in result.lower()
+    assert "--help" not in result
+
+
 def test_load_existing_driver(tmp_path):
     driver_file = tmp_path / "shell.md"
     driver_file.write_text("# Shell driver\nKEYS: ctrl-c=interrupt")

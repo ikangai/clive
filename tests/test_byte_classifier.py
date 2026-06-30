@@ -27,6 +27,80 @@ def test_detects_cmd_end_marker():
     assert any(e.kind == "cmd_end" for e in events)
 
 
+# --- event-path intervention parity (gh#40 follow-up) --------------------
+# Bring three poll-path INTERVENTION_PATTERNS kinds to the byte stream so a
+# pane that hits them during streaming observation is surfaced, not stuck.
+
+
+def test_detects_overwrite_prompt():
+    clf = ByteClassifier()
+    events = clf.feed(b"File exists. Overwrite? ")
+    assert any(e.kind == "overwrite_prompt" for e in events)
+
+
+def test_detects_continue_prompt():
+    clf = ByteClassifier()
+    events = clf.feed(b"Press any key to continue")
+    assert any(e.kind == "continue_prompt" for e in events)
+
+
+def test_detects_disk_error():
+    clf = ByteClassifier()
+    events = clf.feed(b"write failed: No space left on device")
+    assert any(e.kind == "disk_error" for e in events)
+
+
+def test_detects_sudo_password_prompt():
+    # sudo's prompt puts the colon after the username, not "password",
+    # so the bare `[Pp]assword\s*:` rule misses it.
+    clf = ByteClassifier()
+    events = clf.feed(b"[sudo] password for martin: ")
+    assert any(e.kind == "password_prompt" for e in events)
+
+
+def test_detects_ssh_passphrase_prompt():
+    # ssh key unlock has no "password" token at all.
+    clf = ByteClassifier()
+    events = clf.feed(b"Enter passphrase for key '/home/u/.ssh/id_ed25519': ")
+    assert any(e.kind == "password_prompt" for e in events)
+
+
+# --- pager footer + (yes/no) confirm parity (gh#40 follow-up) ------------
+# The poll path (completion.py INTERVENTION_PATTERNS) catches pager footers
+# (--More--, (END)) and the (yes/no) confirm form. Both are clean literal
+# byte substrings, so mirror them onto the default-on byte path. ('lines
+# N-N' stays poll-only: on the always-on byte path it would false-positive
+# on normal output like 'lines 1-24'.)
+
+
+def test_detects_pager_more():
+    # `more` footer leaves the command wedged on keystrokes.
+    clf = ByteClassifier()
+    events = clf.feed(b"line one\nline two\n--More--(40%)")
+    assert any(e.kind == "pager_prompt" for e in events)
+
+
+def test_detects_pager_end():
+    # `less` at end-of-file shows "(END)".
+    clf = ByteClassifier()
+    events = clf.feed(b"log a\nlog b\n(END)")
+    assert any(e.kind == "pager_prompt" for e in events)
+
+
+def test_detects_yesno_confirm():
+    # The "(yes/no)" confirm form (e.g. ssh host-key prompt) is caught by
+    # the poll path but was missing from the byte confirm pattern.
+    clf = ByteClassifier()
+    events = clf.feed(b"Continue? (yes/no) ")
+    assert any(e.kind == "confirm_prompt" for e in events)
+
+
+def test_pager_kind_maps_to_pager_intervention():
+    # The new byte kind routes to the poll path's intervention type.
+    from completion import _INTERVENTION_KIND_MAP
+    assert _INTERVENTION_KIND_MAP["pager_prompt"] == "pager_prompt"
+
+
 def test_multiple_pattern_kinds_same_chunk():
     """Regression: don't let an earlier pattern's match suppress a later
     pattern's match at a lower offset."""
