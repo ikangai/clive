@@ -50,6 +50,21 @@ def test_detects_disk_error():
     assert any(e.kind == "disk_error" for e in events)
 
 
+def test_detects_sudo_password_prompt():
+    # sudo's prompt puts the colon after the username, not "password",
+    # so the bare `[Pp]assword\s*:` rule misses it.
+    clf = ByteClassifier()
+    events = clf.feed(b"[sudo] password for martin: ")
+    assert any(e.kind == "password_prompt" for e in events)
+
+
+def test_detects_ssh_passphrase_prompt():
+    # ssh key unlock has no "password" token at all.
+    clf = ByteClassifier()
+    events = clf.feed(b"Enter passphrase for key '/home/u/.ssh/id_ed25519': ")
+    assert any(e.kind == "password_prompt" for e in events)
+
+
 def test_multiple_pattern_kinds_same_chunk():
     """Regression: don't let an earlier pattern's match suppress a later
     pattern's match at a lower offset."""
