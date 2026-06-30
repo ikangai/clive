@@ -40,6 +40,16 @@ log = logging.getLogger(__name__)
 
 
 _attempted_explorations: set[str] = set()
+# Per-tool count of *failed* explorations. A single flaky exploration (an LLM
+# hiccup, a tmux glitch, a generate_driver validation ValueError) must not trap
+# a tool as permanently undiscovered: ``_explore_async`` releases the tool from
+# ``_attempted_explorations`` on failure so a later subtask can re-queue it.
+# This cap bounds that retry — once a tool has failed ``_MAX_EXPLORE_ATTEMPTS``
+# times it stays trapped, so a genuinely-broken tool can't thrash the
+# exploration pane for the life of the process (gh#41 — "throw any CLI tool at
+# clive" turns a transient miss into a recoverable one, not a permanent one).
+_explore_attempts: dict[str, int] = {}
+_MAX_EXPLORE_ATTEMPTS = 2
 _attempted_lock = threading.Lock()
 
 
@@ -165,6 +175,17 @@ def _explore_async(tool_name: str, drivers_dir: Optional[str]) -> None:
         record_tool_memo(tool_name, invocation, usage)
     except Exception as exc:
         log.warning("[auto-explore] failed for %r: %s", tool_name, exc)
+        # Release the tool so a later subtask can re-queue it — a transient
+        # failure must not permanently block re-discovery (gh#41). The per-tool
+        # cap bounds the retry: only release while we're still under the cap, so
+        # a genuinely-broken tool stops re-queuing instead of thrashing. The
+        # increment + discard share ``_attempted_lock`` so the gate in
+        # ``auto_explore_unknown_tool`` reads a consistent set.
+        with _attempted_lock:
+            failures = _explore_attempts.get(tool_name, 0) + 1
+            _explore_attempts[tool_name] = failures
+            if failures < _MAX_EXPLORE_ATTEMPTS:
+                _attempted_explorations.discard(tool_name)
 
 
 def auto_explore_unknown_tool(
@@ -173,9 +194,16 @@ def auto_explore_unknown_tool(
 ) -> bool:
     """Queue a background exploration of ``tool_name``.
 
+    A tool stays in ``_attempted_explorations`` while its exploration is
+    in-flight or has succeeded, so a re-queue is refused. If the exploration
+    *fails*, ``_explore_async`` releases the tool (up to ``_MAX_EXPLORE_ATTEMPTS``
+    failures) so a later subtask can re-queue it — a transient miss no longer
+    traps the tool forever (gh#41).
+
     Returns:
-        True if a thread was queued. False if the feature is disabled or
-        the tool was already attempted in this process.
+        True if a thread was queued. False if the feature is disabled, the
+        tool's exploration is already in-flight / succeeded, or it has hit the
+        per-tool failure cap.
     """
     if not is_auto_explore_enabled():
         return False
