@@ -447,6 +447,7 @@ def ensure_agent_pane(
         name=pane_name,
         idle_timeout=config.get("idle_timeout", 5.0),
         frame_nonce=config.get("frame_nonce", ""),
+        launch_cmd=cmd,
     )
     panes[pane_name] = pane_info
 
