@@ -15,7 +15,7 @@ def test_encode_produces_expected_shape():
 
 def test_decode_single_frame():
     screen = "random output\n" + encode("turn", {"state": "thinking"}) + "\nmore output\n"
-    frames = decode_all(screen)
+    frames = decode_all(screen, allow_unauthenticated=True)
     assert len(frames) == 1
     assert frames[0] == Frame(kind="turn", payload={"state": "thinking"})
 
@@ -27,7 +27,7 @@ def test_decode_multiple_frames_preserves_order():
         encode("context", {"result": "ok"}),
         encode("turn", {"state": "done"}),
     ])
-    frames = decode_all(screen)
+    frames = decode_all(screen, allow_unauthenticated=True)
     assert [f.kind for f in frames] == ["turn", "context", "turn"]
     assert frames[-1].payload == {"state": "done"}
 
@@ -58,17 +58,36 @@ def test_decode_drops_b64_that_parses_to_non_object_json():
     assert frames == []
 
 
-def test_nonceless_frame_is_still_parsable_by_default():
-    # Framed messages carry a nonce slot; empty nonce is still a valid
-    # frame, just unauthenticated. Production wires inject a real nonce
-    # via env; tests and dev paths default to "".
+def test_nonceless_frame_is_dropped_by_default():
+    """An unauthenticated frame must NOT be trusted (gh#46).
+
+    This previously asserted the opposite. The wire format is not a
+    secret, so a frame with an empty nonce is exactly what untrusted
+    screen text — a file, command output, a fetched page — can produce
+    for free. Accepting it let any such text forge remote state.
+    """
     out = encode("turn", {"state": "done"}, nonce="")
-    assert ":" in out
     # Shape: <<<CLIVE:turn::b64>>> — two consecutive colons = empty nonce
     assert "<<<CLIVE:turn::" in out
-    frames = decode_all(out)  # default nonce=""
+    assert decode_all(out) == []          # default: fail closed
+    assert decode_all(out, nonce="") == []  # explicit empty: same
+
+
+def test_nonceless_frame_parses_only_when_explicitly_allowed():
+    """The unauthenticated round trip stays reachable for parser tests."""
+    out = encode("turn", {"state": "done"}, nonce="")
+    frames = decode_all(out, allow_unauthenticated=True)
     assert len(frames) == 1
     assert frames[0].payload == {"state": "done"}
+
+
+def test_real_nonce_still_authenticates():
+    """The opt-out must not weaken the normal authenticated path."""
+    out = encode("turn", {"state": "done"}, nonce="realnonce")
+    assert len(decode_all(out, nonce="realnonce")) == 1
+    assert decode_all(out, nonce="othernonce") == []
+    # An unauthenticated reader must not pick up a real-nonce frame either.
+    assert decode_all(out) == []
 
 
 def test_encode_embeds_nonce_in_frame():
@@ -135,7 +154,7 @@ def test_decode_tolerates_partial_frame_at_start():
     # Simulates tmux scrollback truncation mid-frame.
     partial = "CLIVE:turn:" + "eyJzdGF0ZSI6ImRvbmUifQ==" + ">>>"
     good = encode("turn", {"state": "done"})
-    frames = decode_all(partial + "\n" + good)
+    frames = decode_all(partial + "\n" + good, allow_unauthenticated=True)
     assert len(frames) == 1
     assert frames[0].payload == {"state": "done"}
 

@@ -40,7 +40,7 @@ def test_chat_completion_round_trip():
     )
 
     # Outgoing frame should be an llm_request with id=test-001
-    frames = decode_all(out_buf.getvalue())
+    frames = decode_all(out_buf.getvalue(), allow_unauthenticated=True)
     req = [f for f in frames if f.kind == "llm_request"]
     assert len(req) == 1
     assert req[0].payload["id"] == "test-001"

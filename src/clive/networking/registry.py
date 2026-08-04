@@ -57,7 +57,8 @@ def register(name: str, pid: int, tmux_session: str, tmux_socket: str,
              toolset: str, task: str, conversational: bool, session_dir: str,
              registry_dir: Path | None = None,
              role: str | None = None,
-             socket_path: str | None = None) -> Path:
+             socket_path: str | None = None,
+             frame_nonce: str | None = None) -> Path:
     d = registry_dir or DEFAULT_REGISTRY_DIR
     _secure_dir(d)
     entry = {
@@ -77,6 +78,12 @@ def register(name: str, pid: int, tmux_session: str, tmux_socket: str,
         entry["role"] = role
     if socket_path is not None:
         entry["socket_path"] = socket_path
+    # The session nonce another clive needs to authenticate this instance's
+    # frames over a local `clive@<name>` conversation. There is no SSH hop
+    # to inject one, so the instance publishes its own here — which is why
+    # the entry is written 0600 (gh#46, gh#48).
+    if frame_nonce is not None:
+        entry["frame_nonce"] = frame_nonce
     p = d / f"{name}.json"
     _write_private(p, json.dumps(entry, indent=2))
     return p

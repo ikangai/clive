@@ -25,7 +25,7 @@ def test_outer_answers_llm_request_via_send_keys(monkeypatch):
         "model": "delegate",
         "messages": [{"role": "user", "content": "hello"}],
         "max_tokens": 16,
-    }, nonce="")
+    }, nonce="testnonce")
 
     calls = {}
     def fake_chat(client, messages, max_tokens=1024, model=None, temperature=None):
@@ -37,7 +37,7 @@ def test_outer_answers_llm_request_via_send_keys(monkeypatch):
     monkeypatch.setattr("llm.chat", fake_chat)
     monkeypatch.setattr("llm.get_client", lambda: object())
 
-    handled = handle_agent_pane_frame(fake_pane, request_frame, nonce="")
+    handled = handle_agent_pane_frame(fake_pane, request_frame, nonce="testnonce")
     assert handled is True
 
     assert calls["messages"] == [{"role": "user", "content": "hello"}]
@@ -45,7 +45,7 @@ def test_outer_answers_llm_request_via_send_keys(monkeypatch):
 
     assert fake_pane.send_keys.called
     typed = fake_pane.send_keys.call_args[0][0]
-    frames = decode_all(typed)
+    frames = decode_all(typed, nonce="testnonce")
     assert len(frames) == 1
     assert frames[0].kind == "llm_response"
     assert frames[0].payload["id"] == "req-abc"
@@ -61,7 +61,7 @@ def test_outer_sends_llm_error_on_chat_failure(monkeypatch):
     request_frame = encode("llm_request", {
         "id": "req-err", "model": "delegate",
         "messages": [], "max_tokens": 8,
-    }, nonce="")
+    }, nonce="testnonce")
 
     def failing_chat(*args, **kwargs):
         raise RuntimeError("LMStudio unreachable")
@@ -69,11 +69,11 @@ def test_outer_sends_llm_error_on_chat_failure(monkeypatch):
     monkeypatch.setattr("llm.chat", failing_chat)
     monkeypatch.setattr("llm.get_client", lambda: object())
 
-    handled = handle_agent_pane_frame(fake_pane, request_frame, nonce="")
+    handled = handle_agent_pane_frame(fake_pane, request_frame, nonce="testnonce")
     assert handled is True
 
     typed = fake_pane.send_keys.call_args[0][0]
-    frames = decode_all(typed)
+    frames = decode_all(typed, nonce="testnonce")
     assert frames[0].kind == "llm_error"
     assert frames[0].payload["id"] == "req-err"
     assert "LMStudio unreachable" in frames[0].payload["error"]
@@ -82,8 +82,10 @@ def test_outer_sends_llm_error_on_chat_failure(monkeypatch):
 def test_non_llm_request_frame_returns_false():
     from executor import handle_agent_pane_frame
     pane = MagicMock()
-    turn_frame = encode("turn", {"state": "thinking"}, nonce="")
-    assert handle_agent_pane_frame(pane, turn_frame, nonce="") is False
+    turn_frame = encode("turn", {"state": "thinking"}, nonce="testnonce")
+    # Matching nonce, so the frame IS decoded — the False must come from
+    # it not being an llm_request, not from it being dropped unread.
+    assert handle_agent_pane_frame(pane, turn_frame, nonce="testnonce") is False
     pane.send_keys.assert_not_called()
 
 
@@ -95,11 +97,11 @@ def test_already_answered_request_is_skipped(monkeypatch):
     request = encode("llm_request", {
         "id": "req-dedup", "model": "delegate",
         "messages": [], "max_tokens": 8,
-    }, nonce="")
+    }, nonce="testnonce")
     stale_response = encode("llm_response", {
         "id": "req-dedup", "content": "already handled",
         "prompt_tokens": 0, "completion_tokens": 0,
-    }, nonce="")
+    }, nonce="testnonce")
     screen = request + "\n" + stale_response
 
     call_count = [0]
@@ -110,7 +112,9 @@ def test_already_answered_request_is_skipped(monkeypatch):
     monkeypatch.setattr("llm.get_client", lambda: object())
 
     pane = MagicMock()
-    handled = handle_agent_pane_frame(pane, screen, nonce="")
+    # Matching nonce so both frames decode — otherwise this passes because
+    # nothing was read at all, and the dedup path is never exercised.
+    handled = handle_agent_pane_frame(pane, screen, nonce="testnonce")
     assert handled is False
     assert call_count[0] == 0
     pane.send_keys.assert_not_called()

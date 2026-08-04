@@ -127,7 +127,18 @@ class DelegateClient:
                 # encode() would have used, so we only accept our own
                 # authenticated frames. Reading from env at call time
                 # so tests can monkeypatch between calls.
-                frames = decode_all(buf, nonce=os.environ.get("CLIVE_FRAME_NONCE", ""))
+                #
+                # allow_unauthenticated: this reads our OWN stdin pipe from
+                # the parent process, not a screen. When no nonce is
+                # configured (local delegate, no SSH hop) there is nothing
+                # to authenticate against and the pipe itself is the trust
+                # boundary — unlike the pane path, which fails closed
+                # because untrusted text can appear there (gh#46).
+                frames = decode_all(
+                    buf,
+                    nonce=os.environ.get("CLIVE_FRAME_NONCE", ""),
+                    allow_unauthenticated=True,
+                )
                 for f in frames:
                     if f.kind == "llm_error" and f.payload.get("id") == rid:
                         raise RuntimeError(f.payload.get("error", "delegate error"))

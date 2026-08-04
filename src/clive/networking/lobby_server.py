@@ -323,7 +323,14 @@ class LobbyServer:
             if not line:
                 continue
             text = line.decode("utf-8", errors="replace")
-            frames = decode_all(text, nonce=conn.nonce)
+            # allow_unauthenticated: the lobby speaks over an AF_UNIX socket
+            # created 0600 in a 0700 dir, so the OS already restricts peers
+            # to this uid, and conn.nonce is a client-declared framing tag
+            # rather than a credential. Clients that never set
+            # CLIVE_FRAME_NONCE legitimately present an empty one. The pane
+            # path fails closed instead, because untrusted text reaches it
+            # (gh#46).
+            frames = decode_all(text, nonce=conn.nonce, allow_unauthenticated=True)
             for frame in frames:
                 self._dispatch(conn, frame)
                 if conn.closed:
