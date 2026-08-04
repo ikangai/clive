@@ -25,7 +25,8 @@ import re
 from typing import Optional
 
 from llm import chat, get_client
-from prompts import _DRIVERS_DIR
+from prompts import (_DRIVERS_DIR, _RESERVED_DRIVER_NAMES, home_drivers_dir,
+                     invalidate_driver_cache)
 
 from .models import ExplorationResult
 from .prompts import build_generation_prompt
@@ -34,7 +35,21 @@ from .prompts import build_generation_prompt
 # only looks at drivers/<name>.md, so drivers landed here are NOT loadable
 # by panes until promoted. The escape hatch CLIVE_TRUST_UNREVIEWED=1 (in
 # llm.prompts.load_driver) lets evals opt in without manual promotion.
-_UNREVIEWED_DRIVERS_DIR = os.path.join(_DRIVERS_DIR, ".unreviewed")
+#
+# These resolve under the agent's HOME, not the installation: /opt/clive is
+# root-owned and read-only in any real deployment, and what the agent learns
+# is a property of this host and this agent, not of the checkout. Computed
+# via functions (not module constants) so $CLIVE_HOME is read at call time.
+
+
+def learned_drivers_dir() -> str:
+    """Where promoted, agent-learned drivers live."""
+    return home_drivers_dir()
+
+
+def unreviewed_drivers_dir() -> str:
+    """Quarantine for freshly generated, unreviewed drivers."""
+    return os.path.join(home_drivers_dir(), ".unreviewed")
 
 log = logging.getLogger(__name__)
 
@@ -181,12 +196,10 @@ _SAFE_NAME = re.compile(r"\A[a-z][a-z0-9_\-]*\Z")
 # ``overwrite=True`` (gh#41 debug Bug 5). Most notably, ``explore`` is the
 # meta-driver that drives exploration itself — overwriting it would brick
 # all future ``--explore`` invocations.
-RESERVED_NAMES = frozenset({
-    "explore",
-    "shell", "browser", "data", "docs",
-    "default", "email", "email_cli", "agent",
-    "media", "room",
-})
+# Single source of truth lives in llm.prompts, which also pins these names
+# to the installation in load_driver — the "cannot generate it" rule and the
+# "cannot shadow it from $CLIVE_HOME" rule must not be able to drift apart.
+RESERVED_NAMES = _RESERVED_DRIVER_NAMES
 
 
 def _check_tool_name(tool_name: str) -> None:
@@ -216,7 +229,7 @@ def write_generated_driver(
     """Write a generated driver to ``drivers_dir/<tool>.md``.
 
     When ``drivers_dir`` is None (production default), writes to the
-    quarantine subdir ``_UNREVIEWED_DRIVERS_DIR`` — gh#41 scenario #50.
+    quarantine subdir ``unreviewed_drivers_dir()`` — gh#41 scenario #50.
     The driver does not become loadable by panes until ``promote_driver``
     moves it to the canonical location. Test fixtures that pass
     ``drivers_dir=str(tmp_path)`` write directly to that path, bypassing
@@ -227,7 +240,7 @@ def write_generated_driver(
     ``_check_tool_name`` (regex + reserved-names guard).
     """
     _check_tool_name(tool_name)
-    base = drivers_dir if drivers_dir is not None else _UNREVIEWED_DRIVERS_DIR
+    base = drivers_dir if drivers_dir is not None else unreviewed_drivers_dir()
     os.makedirs(base, exist_ok=True)
     path = os.path.join(base, f"{tool_name}.md")
     # Atomic write — fixes the TOCTOU race between os.path.exists() and
@@ -284,11 +297,24 @@ def promote_driver(
       - ``ValueError`` if the unreviewed content fails validation
     """
     _check_tool_name(tool_name)
-    base = drivers_dir if drivers_dir is not None else _DRIVERS_DIR
-    src_base = unreviewed_dir if unreviewed_dir is not None else _UNREVIEWED_DRIVERS_DIR
+    base = drivers_dir if drivers_dir is not None else learned_drivers_dir()
+    src_base = unreviewed_dir if unreviewed_dir is not None else unreviewed_drivers_dir()
 
     src = os.path.join(src_base, f"{tool_name}.md")
     dst = os.path.join(base, f"{tool_name}.md")
+
+    if not os.path.exists(src) and unreviewed_dir is None:
+        # Migration: drivers quarantined before learning moved to
+        # $CLIVE_HOME still sit in the install tree, where load_driver can
+        # still see them under CLIVE_TRUST_UNREVIEWED but promote_driver
+        # otherwise could not reach them — leaving them permanently
+        # un-promotable. Fall back to that legacy location, promoting INTO
+        # the home so the result lands in the new layout.
+        legacy = os.path.join(_DRIVERS_DIR, ".unreviewed", f"{tool_name}.md")
+        if os.path.exists(legacy):
+            log.info("promoting %s from the legacy install quarantine (%s)",
+                     tool_name, legacy)
+            src = legacy
 
     if not os.path.exists(src):
         raise FileNotFoundError(
@@ -307,4 +333,9 @@ def promote_driver(
 
     os.makedirs(base, exist_ok=True)
     os.replace(src, dst)
+    # A prior lookup for this tool cached DEFAULT_DRIVER (it was not
+    # loadable while quarantined). Without this, a driver promoted mid
+    # session stays invisible until restart — and learn-then-use in one
+    # session is the whole point of home-local learning.
+    invalidate_driver_cache(tool_name)
     return dst

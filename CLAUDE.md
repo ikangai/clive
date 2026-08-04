@@ -130,7 +130,19 @@ Key dataclasses live in `src/clive/models.py` (`Subtask`, `Plan`, `SubtaskResult
 
 ## Remote / agent-to-agent
 
-SSH is the inter-habitat protocol. `clive@host` addressing (`networking/agents.py`) auto-resolves a host, opens an SSH pane with `ControlMaster=auto` (sockets under `~/.clive/ssh/`), and routes tasks. The remote runs in conversational mode emitting **framed, nonce-authenticated** turn-state messages (`networking/protocol.py`). Never bypass the frame authentication — it's what stops a compromised remote LLM from forging completion.
+SSH is the inter-habitat protocol. `clive@host` addressing (`networking/agents.py`) auto-resolves a host, opens an SSH pane with `ControlMaster=auto` (sockets under `~/.clive/ssh/`), and routes tasks. The remote runs in conversational mode emitting **framed, nonce-authenticated** turn-state messages (`networking/protocol.py`). `decode_all` **fails closed on an empty nonce** — a frame that carries none is exactly what untrusted screen text can produce for free. Channels the OS already restricts (the delegate's own stdin pipe, the 0600 AF_UNIX lobby socket) pass `allow_unauthenticated=True` explicitly at the call site.
+
+### Agent identity: act AS the agent, ON BEHALF OF the human
+
+The unit of identity is the **principal**, and it should be a POSIX account. Connecting as the local human is `su` semantics — the remote audit trail names the person, the agent can't be revoked without revoking them, and since ControlMaster sockets live in one `$HOME`, every agent under that account can ride the others' live SSH connections to third hosts. A dedicated `clive-<principal>` account is `sudo` semantics: the actor is the agent, and `CLIVE_PRINCIPAL` (forwarded on the remote command) records who it works for.
+
+The layering, in short: **accounts = principals, groups = roles, named instances = concurrency, sandbox = per-task blast radius.**
+
+`resolve_agent_user()` order: `user:` in the agents.yaml host entry → `CLIVE_AGENT_USER` → `CLIVE_AGENT_USER_PREFIX` + local principal (`clive-` ⇒ `clive-martin`). **Default is unchanged** (inherit the local username), so this is opt-in. The username is validated against a portable POSIX pattern because it lands in an ssh destination.
+
+### `$CLIVE_HOME` — the agent's habitat
+
+`clive_home()` (`llm/prompts.py`, default `~/.clive`) is where per-agent, per-host state lives. Self-learned drivers write to `$CLIVE_HOME/drivers/.unreviewed/` and promote to `$CLIVE_HOME/drivers/` — **not** the installation, which is root-owned and read-only in a real deployment and shared across agent accounts. `load_driver` layers home over install (XDG-style), so knowledge learned about *this* host beats the shipped card. Exception: `_RESERVED_DRIVER_NAMES` (shell, browser, agent, …) are pinned to the install and can never be shadowed from a writable home — a driver is a pane's instructions. That set lives in `llm/prompts.py` and `discovery/generator.RESERVED_NAMES` re-exports it so the "cannot generate" and "cannot shadow" rules can't drift.
 
 **BYOLLM**: cloud provider keys forward via SSH `SendEnv`; local providers (LMStudio/Ollama) switch the remote to `LLM_PROVIDER=delegate` and round-trip every inference back over the SSH channel via `llm/delegate_client.py`. See `docs/byollm-delegate.md`.
 

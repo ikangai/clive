@@ -35,9 +35,10 @@ import os
 from typing import Optional
 
 from llm import chat, get_client
-from prompts import UNTRUSTED_CONTENT_RULE, _DRIVERS_DIR
+from prompts import UNTRUSTED_CONTENT_RULE
 
-from .generator import _UNREVIEWED_DRIVERS_DIR, _check_tool_name, _validate_driver_text
+from .generator import (_check_tool_name, _validate_driver_text,
+                        learned_drivers_dir, unreviewed_drivers_dir)
 from .models import RefinementSignal
 from .prompts import build_refinement_prompt
 
@@ -53,8 +54,8 @@ def _load_current_driver(
     unreviewed_dir: Optional[str],
 ) -> str:
     """Load the driver to refine — canonical location wins over quarantine."""
-    base = drivers_dir if drivers_dir is not None else _DRIVERS_DIR
-    quarantine = unreviewed_dir if unreviewed_dir is not None else _UNREVIEWED_DRIVERS_DIR
+    base = drivers_dir if drivers_dir is not None else learned_drivers_dir()
+    quarantine = unreviewed_dir if unreviewed_dir is not None else unreviewed_drivers_dir()
     for candidate in (
         os.path.join(base, f"{tool_name}.md"),
         os.path.join(quarantine, f"{tool_name}.md"),

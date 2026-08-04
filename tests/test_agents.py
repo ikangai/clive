@@ -478,3 +478,117 @@ def test_local_instance_without_nonce_fails_closed(tmp_path):
 
     forged = encode("turn", {"state": "done"}, nonce="")
     assert decode_all(forged, nonce=pane["frame_nonce"]) == []
+
+
+# ─── Agent identity: act AS the agent, ON BEHALF OF the human ─────────
+
+def test_default_identity_is_unchanged(monkeypatch):
+    """Opt-in: existing deployments must keep inheriting the local user."""
+    import agents
+    monkeypatch.delenv("CLIVE_AGENT_USER", raising=False)
+    monkeypatch.delenv("CLIVE_AGENT_USER_PREFIX", raising=False)
+    assert agents.resolve_agent_user({}) is None
+    cmd = agents.build_agent_ssh_cmd("myhost", {})
+    assert " myhost " in cmd and "@myhost" not in cmd
+
+
+def test_explicit_user_in_host_config(monkeypatch):
+    import agents
+    monkeypatch.delenv("CLIVE_AGENT_USER", raising=False)
+    assert agents.resolve_agent_user({"user": "clive-ops"}) == "clive-ops"
+    assert "clive-ops@myhost" in agents.build_agent_ssh_cmd("myhost", {"user": "clive-ops"})
+
+
+def test_env_override_and_prefix_derivation(monkeypatch):
+    import agents
+    monkeypatch.setenv("CLIVE_AGENT_USER", "clive-svc")
+    assert agents.resolve_agent_user({}) == "clive-svc"
+
+    monkeypatch.delenv("CLIVE_AGENT_USER")
+    monkeypatch.setenv("CLIVE_AGENT_USER_PREFIX", "clive-")
+    monkeypatch.setenv("CLIVE_PRINCIPAL_OVERRIDE", "martin")
+    assert agents.resolve_agent_user({}) == "clive-martin"
+
+
+def test_host_config_beats_env(monkeypatch):
+    import agents
+    monkeypatch.setenv("CLIVE_AGENT_USER", "clive-global")
+    assert agents.resolve_agent_user({"user": "clive-specific"}) == "clive-specific"
+
+
+def test_agent_user_rejects_ssh_flag_injection(monkeypatch):
+    """The value is interpolated into an ssh destination."""
+    import agents
+    monkeypatch.delenv("CLIVE_AGENT_USER", raising=False)
+    for bad in ("-oProxyCommand=evil", "root@evil", "a b", "x;touch /tmp/pwn", "-"):
+        with pytest.raises(ValueError):
+            agents.resolve_agent_user({"user": bad})
+
+
+def test_principal_is_forwarded_for_attribution(monkeypatch):
+    """The remote must be able to log who the work is for.
+
+    Actor (the ssh account) and principal (the human) are different
+    things; carrying both is the difference between sudo and su.
+    """
+    import agents
+    monkeypatch.setenv("CLIVE_PRINCIPAL_OVERRIDE", "martin")
+    cmd = agents.build_agent_ssh_cmd("myhost", {"user": "clive-martin"})
+    assert "clive-martin@myhost" in cmd      # actor
+    assert "CLIVE_PRINCIPAL=martin" in cmd   # principal
+
+
+def test_address_parsing_rejects_leading_dash_host():
+    """clive@-Fevil would reach ssh as an OPTION, not a destination.
+
+    Task text is attacker-influenceable, so it must not inject flags.
+    """
+    from agents import parse_agent_addresses
+    assert parse_agent_addresses("ask clive@-Fevil_conf to run") == []
+    assert parse_agent_addresses("ask clive@prod.example.com to run")[0][0] == "prod.example.com"
+
+
+# ─── Review follow-ups on the identity work ───────────────────────────
+
+def test_principal_cannot_break_the_remote_command(monkeypatch):
+    """The principal lands inside single quotes that the LOCAL shell parses.
+
+    shlex.quote() is wrong there: it guards one shell layer and its own
+    quotes terminate the outer ones, so a quote made the command
+    unparseable and a ';' escaped to the local shell. Validate instead.
+    """
+    import shlex
+    import agents
+    for hostile in ("martin o'brien", "martin smith", "martin; touch /tmp/pwn",
+                    "$(id)", "`id`", "a\nb"):
+        monkeypatch.setenv("CLIVE_PRINCIPAL_OVERRIDE", hostile)
+        cmd = agents.build_agent_ssh_cmd("myhost", {})
+        argv = shlex.split(cmd)  # must not raise
+        remote = [a for a in argv if "CLIVE_FRAME_NONCE" in a]
+        assert len(remote) == 1, f"remote command split apart for {hostile!r}: {argv}"
+        assert "touch" not in cmd and "$(" not in cmd and "`" not in cmd
+        assert "CLIVE_PRINCIPAL=unknown" in cmd
+
+
+def test_wellformed_principal_is_preserved(monkeypatch):
+    import agents
+    monkeypatch.setenv("CLIVE_PRINCIPAL_OVERRIDE", "martin.treiber-1")
+    assert agents.local_principal() == "martin.treiber-1"
+
+
+def test_empty_agent_user_means_inherit(monkeypatch):
+    """CLIVE_AGENT_USER="" is the shell/CI idiom for "disabled"."""
+    import agents
+    monkeypatch.setenv("CLIVE_AGENT_USER", "")
+    monkeypatch.delenv("CLIVE_AGENT_USER_PREFIX", raising=False)
+    assert agents.resolve_agent_user({}) is None
+    assert agents.resolve_agent_user({"user": ""}) is None
+
+
+def test_derived_user_is_lowercased(monkeypatch):
+    """_USER_RE is lowercase-only; a capitalized $USER must still work."""
+    import agents
+    monkeypatch.delenv("CLIVE_AGENT_USER", raising=False)
+    monkeypatch.setenv("CLIVE_AGENT_USER_PREFIX", "clive-")
+    monkeypatch.setenv("CLIVE_PRINCIPAL_OVERRIDE", "Martin")
+    assert agents.resolve_agent_user({}) == "clive-martin"
