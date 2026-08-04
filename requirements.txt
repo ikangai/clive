@@ -18,3 +18,12 @@ libtmux>=0.53,<1.0
 openai>=2.24,<3
 python-dotenv>=1.0,<2
 textual>=8.0,<9
+
+# Used by networking/agents.py (the ~/.clive/agents.yaml registry behind
+# clive@host) and networking/dashboard.py. It was never declared: both
+# call sites import it inside a try/except that swallows ImportError, so
+# on a clean install the YAML registry silently did nothing and clive@host
+# fell through to auto-resolve. It only worked because PyYAML happened to
+# be present in the maintainer's environment. Caught the first time CI
+# actually ran the suite (gh#50).
+PyYAML>=6.0,<7

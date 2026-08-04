@@ -36,5 +36,13 @@ jobs:
       - name: Run unit tests
         env:
           PYTHONPATH: src/clive
+          # Several tests reach llm.get_client(), which constructs a real
+          # SDK client object (no network — llm.chat is mocked). The
+          # OpenAI SDK raises if api_key is None, so give it a dummy.
+          # These passed locally only because the maintainer's shell had a
+          # provider configured; CI has no ambient config, which is the
+          # point of running here.
+          LLM_PROVIDER: openrouter
+          OPENROUTER_API_KEY: dummy-key-for-client-construction-only
         run: |
           python -m pytest tests/ -v --tb=short --timeout=120
