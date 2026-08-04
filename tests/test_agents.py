@@ -546,3 +546,49 @@ def test_address_parsing_rejects_leading_dash_host():
     from agents import parse_agent_addresses
     assert parse_agent_addresses("ask clive@-Fevil_conf to run") == []
     assert parse_agent_addresses("ask clive@prod.example.com to run")[0][0] == "prod.example.com"
+
+
+# ─── Review follow-ups on the identity work ───────────────────────────
+
+def test_principal_cannot_break_the_remote_command(monkeypatch):
+    """The principal lands inside single quotes that the LOCAL shell parses.
+
+    shlex.quote() is wrong there: it guards one shell layer and its own
+    quotes terminate the outer ones, so a quote made the command
+    unparseable and a ';' escaped to the local shell. Validate instead.
+    """
+    import shlex
+    import agents
+    for hostile in ("martin o'brien", "martin smith", "martin; touch /tmp/pwn",
+                    "$(id)", "`id`", "a\nb"):
+        monkeypatch.setenv("CLIVE_PRINCIPAL_OVERRIDE", hostile)
+        cmd = agents.build_agent_ssh_cmd("myhost", {})
+        argv = shlex.split(cmd)  # must not raise
+        remote = [a for a in argv if "CLIVE_FRAME_NONCE" in a]
+        assert len(remote) == 1, f"remote command split apart for {hostile!r}: {argv}"
+        assert "touch" not in cmd and "$(" not in cmd and "`" not in cmd
+        assert "CLIVE_PRINCIPAL=unknown" in cmd
+
+
+def test_wellformed_principal_is_preserved(monkeypatch):
+    import agents
+    monkeypatch.setenv("CLIVE_PRINCIPAL_OVERRIDE", "martin.treiber-1")
+    assert agents.local_principal() == "martin.treiber-1"
+
+
+def test_empty_agent_user_means_inherit(monkeypatch):
+    """CLIVE_AGENT_USER="" is the shell/CI idiom for "disabled"."""
+    import agents
+    monkeypatch.setenv("CLIVE_AGENT_USER", "")
+    monkeypatch.delenv("CLIVE_AGENT_USER_PREFIX", raising=False)
+    assert agents.resolve_agent_user({}) is None
+    assert agents.resolve_agent_user({"user": ""}) is None
+
+
+def test_derived_user_is_lowercased(monkeypatch):
+    """_USER_RE is lowercase-only; a capitalized $USER must still work."""
+    import agents
+    monkeypatch.delenv("CLIVE_AGENT_USER", raising=False)
+    monkeypatch.setenv("CLIVE_AGENT_USER_PREFIX", "clive-")
+    monkeypatch.setenv("CLIVE_PRINCIPAL_OVERRIDE", "Martin")
+    assert agents.resolve_agent_user({}) == "clive-martin"

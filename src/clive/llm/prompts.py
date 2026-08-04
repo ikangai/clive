@@ -33,6 +33,30 @@ def home_drivers_dir() -> str:
 # installation so nothing in a writable $CLIVE_HOME can shadow one.
 # Defined here rather than in the generator because prompts is the lower
 # layer — generator already imports from it, so the reverse would cycle.
+def driver_cache_key(app_type: str, drivers_dir: str | None = None) -> str:
+    """Cache key for a resolved driver.
+
+    Includes the agent home: resolution now depends on $CLIVE_HOME, so a
+    key without it would serve one home's drivers to another. That is not
+    hypothetical — a process can be re-homed, and the tests do exactly
+    that. (The need to hand-clear the cache in a test is the tell.)
+    """
+    return f"{app_type}:{drivers_dir or 'default'}:{clive_home()}"
+
+
+def invalidate_driver_cache(app_type: str) -> None:
+    """Drop cached entries for ``app_type`` across every home/dir key.
+
+    Needed because learn-then-use within one session is now a first-class
+    flow: promote_driver() makes a driver loadable, but a previous miss
+    for that app_type has already cached DEFAULT_DRIVER against it.
+    """
+    stale = [k for k in _driver_cache if k.split(":", 1)[0] == app_type]
+    for k in stale:
+        _driver_cache.pop(k, None)
+        _driver_meta_cache.pop(k, None)
+
+
 _RESERVED_DRIVER_NAMES = frozenset({
     "explore",
     "shell", "browser", "data", "docs",
@@ -125,7 +149,7 @@ def load_driver(app_type: str, drivers_dir: str | None = None) -> str:
         with open(override, "r") as f:
             return f.read().strip()
 
-    cache_key = f"{app_type}:{drivers_dir or 'default'}"
+    cache_key = driver_cache_key(app_type, drivers_dir)
     if cache_key in _driver_cache:
         return _driver_cache[cache_key]
 
@@ -182,7 +206,7 @@ def load_driver_meta(app_type: str, drivers_dir: str | None = None) -> dict:
 
     Calls load_driver() first to ensure cache is populated.
     """
-    cache_key = f"{app_type}:{drivers_dir or 'default'}"
+    cache_key = driver_cache_key(app_type, drivers_dir)
     if cache_key not in _driver_meta_cache:
         load_driver(app_type, drivers_dir)
     return _driver_meta_cache.get(cache_key, {})

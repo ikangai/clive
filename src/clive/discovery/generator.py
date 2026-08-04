@@ -25,7 +25,8 @@ import re
 from typing import Optional
 
 from llm import chat, get_client
-from prompts import _DRIVERS_DIR, _RESERVED_DRIVER_NAMES, home_drivers_dir
+from prompts import (_DRIVERS_DIR, _RESERVED_DRIVER_NAMES, home_drivers_dir,
+                     invalidate_driver_cache)
 
 from .models import ExplorationResult
 from .prompts import build_generation_prompt
@@ -302,6 +303,19 @@ def promote_driver(
     src = os.path.join(src_base, f"{tool_name}.md")
     dst = os.path.join(base, f"{tool_name}.md")
 
+    if not os.path.exists(src) and unreviewed_dir is None:
+        # Migration: drivers quarantined before learning moved to
+        # $CLIVE_HOME still sit in the install tree, where load_driver can
+        # still see them under CLIVE_TRUST_UNREVIEWED but promote_driver
+        # otherwise could not reach them — leaving them permanently
+        # un-promotable. Fall back to that legacy location, promoting INTO
+        # the home so the result lands in the new layout.
+        legacy = os.path.join(_DRIVERS_DIR, ".unreviewed", f"{tool_name}.md")
+        if os.path.exists(legacy):
+            log.info("promoting %s from the legacy install quarantine (%s)",
+                     tool_name, legacy)
+            src = legacy
+
     if not os.path.exists(src):
         raise FileNotFoundError(
             f"no unreviewed driver to promote at {src}"
@@ -319,4 +333,9 @@ def promote_driver(
 
     os.makedirs(base, exist_ok=True)
     os.replace(src, dst)
+    # A prior lookup for this tool cached DEFAULT_DRIVER (it was not
+    # loadable while quarantined). Without this, a driver promoted mid
+    # session stays invisible until restart — and learn-then-use in one
+    # session is the whole point of home-local learning.
+    invalidate_driver_cache(tool_name)
     return dst

@@ -289,3 +289,69 @@ def test_overwrite_uses_atomic_rename(tmp_path, monkeypatch):
         % call_count["n"]
     )
     assert (tmp_path / "rg.md").read_text() == "---\nnew\n---\n"
+
+
+# ─── Review follow-ups: cache + migration ─────────────────────────────
+
+def test_promote_invalidates_the_driver_cache(tmp_path, monkeypatch):
+    """Learn-then-use in ONE session is the point of home-local learning.
+
+    A lookup before promotion caches DEFAULT_DRIVER for that app_type;
+    without invalidation the promoted driver stays invisible until the
+    process restarts.
+    """
+    import prompts
+    from discovery.generator import promote_driver, write_generated_driver
+
+    monkeypatch.setenv("CLIVE_HOME", str(tmp_path))
+    prompts._driver_cache.clear()
+    prompts._driver_meta_cache.clear()
+
+    body = "---\n---\nENVIRONMENT\nPRIMARY TOOLS\nPATTERNS\nPITFALLS\nRESPONSE FORMAT\nCOMPLETION\n"
+    write_generated_driver("mytool", body)
+
+    # Miss first — quarantined drivers are not loadable.
+    assert prompts.load_driver("mytool") == prompts.DEFAULT_DRIVER
+    promote_driver("mytool")
+    # Must now be visible without a restart.
+    assert prompts.load_driver("mytool") != prompts.DEFAULT_DRIVER
+
+    prompts._driver_cache.clear()
+    prompts._driver_meta_cache.clear()
+
+
+def test_cache_key_is_scoped_to_the_agent_home(tmp_path):
+    """Resolution depends on $CLIVE_HOME, so the key must too."""
+    import os
+    import prompts
+    a = prompts.driver_cache_key("x")
+    old = os.environ.get("CLIVE_HOME")
+    os.environ["CLIVE_HOME"] = str(tmp_path / "other")
+    try:
+        assert prompts.driver_cache_key("x") != a
+    finally:
+        if old is None:
+            os.environ.pop("CLIVE_HOME", None)
+        else:
+            os.environ["CLIVE_HOME"] = old
+
+
+def test_legacy_install_quarantine_is_still_promotable(tmp_path, monkeypatch):
+    """Drivers quarantined before learning moved to $CLIVE_HOME must not
+    become permanently un-promotable."""
+    import prompts
+    from discovery.generator import promote_driver
+
+    legacy_install = tmp_path / "install_drivers"
+    (legacy_install / ".unreviewed").mkdir(parents=True)
+    body = "---\n---\nENVIRONMENT\nPRIMARY TOOLS\nPATTERNS\nPITFALLS\nRESPONSE FORMAT\nCOMPLETION\n"
+    (legacy_install / ".unreviewed" / "oldtool.md").write_text(body)
+
+    monkeypatch.setenv("CLIVE_HOME", str(tmp_path / "home"))
+    monkeypatch.setattr("discovery.generator._DRIVERS_DIR", str(legacy_install))
+
+    dst = promote_driver("oldtool")
+    # Promoted INTO the home, i.e. migrated to the new layout.
+    assert dst == str(tmp_path / "home" / "drivers" / "oldtool.md")
+    assert not (legacy_install / ".unreviewed" / "oldtool.md").exists()
+    prompts._driver_cache.clear()
