@@ -18,6 +18,7 @@ fabricates a fake protocol frame" attack surface.
 import logging
 import os
 import re
+import shlex
 from pathlib import Path
 
 from protocol import generate_nonce
@@ -121,8 +122,12 @@ def _check_local_registry(name: str, instance_registry_dir: Path | None = None) 
     inst = get_instance(name, registry_dir=instance_registry_dir)
     if inst is None or not inst.get("conversational"):
         return None
-    tmux_session = inst["tmux_session"]
-    tmux_socket = inst["tmux_socket"]
+    # These come from a file on disk and are interpolated into a command
+    # that is typed into a shell by send_keys, so quote them. Without this
+    # a writable registry entry is arbitrary command execution in the
+    # outer's pane the next time the user addresses this instance (gh#48).
+    tmux_session = shlex.quote(str(inst["tmux_session"]))
+    tmux_socket = shlex.quote(str(inst["tmux_socket"]))
     return {
         "name": f"agent-{name}",
         "cmd": f"tmux -L {tmux_socket} attach -t {tmux_session}:conversational",

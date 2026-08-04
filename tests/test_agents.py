@@ -382,3 +382,56 @@ def test_resolve_agent_ensures_ssh_control_dir(tmp_path, monkeypatch):
     # And because the dir now exists, build_agent_ssh_cmd emitted
     # the ControlMaster options.
     assert "ControlMaster=auto" in pane_def["cmd"]
+
+
+# ─── gh#48: registry fields must not reach the shell unquoted ──────────
+
+def test_local_instance_fields_are_shell_quoted(tmp_path):
+    """The pane cmd is typed into a shell by send_keys.
+
+    A registry entry is a plain file on disk; if its tmux_socket lands in
+    that command unquoted, writing one is arbitrary command execution in
+    the outer's pane the next time the user addresses the instance.
+    """
+    import json
+    from registry import register
+    import agents
+
+    d = tmp_path / "instances"
+    register(
+        "evil", pid=os.getpid(),
+        tmux_session="s; touch /tmp/clive_pwned_session; #",
+        tmux_socket="x; touch /tmp/clive_pwned_socket; #",
+        toolset="minimal", task="t", conversational=True,
+        session_dir="/tmp/clive/evil", registry_dir=d,
+    )
+    pane = agents._check_local_registry("evil", instance_registry_dir=d)
+    assert pane is not None
+    cmd = pane["cmd"]
+
+    # Parse the command the way a shell would. The payload must come back
+    # as inert argument text, never as separate words the shell would run.
+    import shlex
+    argv = shlex.split(cmd)
+    assert argv[:2] == ["tmux", "-L"], argv
+    assert argv[2] == "x; touch /tmp/clive_pwned_socket; #", argv
+    assert argv[3] == "attach"
+    assert argv[4] == "-t"
+    assert argv[5] == "s; touch /tmp/clive_pwned_session; #:conversational", argv
+    assert len(argv) == 6, f"payload split into extra words: {argv}"
+    assert "touch" not in argv[0]
+
+
+def test_local_instance_ordinary_names_still_work(tmp_path):
+    """Quoting must not corrupt the normal session:window target."""
+    from registry import register
+    import agents
+
+    d = tmp_path / "instances"
+    register(
+        "good", pid=os.getpid(), tmux_session="clive-abc", tmux_socket="clive",
+        toolset="minimal", task="t", conversational=True,
+        session_dir="/tmp/clive/good", registry_dir=d,
+    )
+    pane = agents._check_local_registry("good", instance_registry_dir=d)
+    assert pane["cmd"] == "tmux -L clive attach -t clive-abc:conversational"

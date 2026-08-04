@@ -24,6 +24,11 @@ import re
 import time
 from pathlib import Path
 
+# Snapshots carry the same tmux socket/session fields as a registry entry
+# (and those are interpolated into a shell command downstream), so they get
+# the same owner-only treatment — gh#48.
+from registry import _secure_dir, _write_private
+
 log = logging.getLogger(__name__)
 
 DEFAULT_PERSIST_DIR = Path.home() / ".clive" / "persist"
@@ -57,7 +62,7 @@ def save_snapshot(name: str, toolset: str, session_dir: str,
     """
     _check_name(name)
     d = persist_dir or DEFAULT_PERSIST_DIR
-    d.mkdir(parents=True, exist_ok=True)
+    _secure_dir(d)
     entry = {
         "schema": SCHEMA_VERSION,
         "name": name,
@@ -72,7 +77,9 @@ def save_snapshot(name: str, toolset: str, session_dir: str,
     }
     p = d / f"{name}.json"
     tmp = d / f"{name}.json.part"
-    tmp.write_text(json.dumps(entry, indent=2))
+    # Write the temp file private; replace() preserves its mode, so the
+    # snapshot is never briefly world-readable.
+    _write_private(tmp, json.dumps(entry, indent=2))
     tmp.replace(p)
     return p
 

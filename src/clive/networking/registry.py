@@ -11,6 +11,40 @@ from pathlib import Path
 DEFAULT_REGISTRY_DIR = Path.home() / ".clive" / "instances"
 
 
+def _secure_dir(d: Path) -> None:
+    """Create (or tighten) a registry dir to 0700.
+
+    Entries carry the instance's frame nonce and a tmux socket path that
+    is later interpolated into a shell command, so they are private to the
+    owning user. ``mkdir(mode=...)`` only applies on creation and is masked
+    by umask, so chmod an existing directory too (gh#48).
+    """
+    d.mkdir(parents=True, exist_ok=True, mode=0o700)
+    try:
+        if (d.stat().st_mode & 0o777) != 0o700:
+            d.chmod(0o700)
+    except OSError:
+        pass  # best-effort: a non-owned dir shouldn't crash registration
+
+
+def _write_private(p: Path, text: str) -> None:
+    """Write a registry entry readable only by its owner (0600)."""
+    # Open with the restrictive mode up front so the contents are never
+    # briefly world-readable between create and chmod.
+    fd = os.open(p, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    try:
+        fh = os.fdopen(fd, "w")  # takes ownership of fd from here on
+    except BaseException:
+        os.close(fd)
+        raise
+    with fh:
+        fh.write(text)
+    try:
+        p.chmod(0o600)  # tighten a pre-existing looser file
+    except OSError:
+        pass
+
+
 def _pid_alive(pid: int) -> bool:
     try:
         os.kill(pid, 0)
@@ -25,7 +59,7 @@ def register(name: str, pid: int, tmux_session: str, tmux_socket: str,
              role: str | None = None,
              socket_path: str | None = None) -> Path:
     d = registry_dir or DEFAULT_REGISTRY_DIR
-    d.mkdir(parents=True, exist_ok=True)
+    _secure_dir(d)
     entry = {
         "name": name,
         "pid": pid,
@@ -44,7 +78,7 @@ def register(name: str, pid: int, tmux_session: str, tmux_socket: str,
     if socket_path is not None:
         entry["socket_path"] = socket_path
     p = d / f"{name}.json"
-    p.write_text(json.dumps(entry, indent=2))
+    _write_private(p, json.dumps(entry, indent=2))
     return p
 
 
