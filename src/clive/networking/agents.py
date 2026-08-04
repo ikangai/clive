@@ -77,7 +77,70 @@ _FORWARD_ENVS = [
 # inner routes inference back through the conversational channel.
 _LOCAL_PROVIDERS = frozenset({"lmstudio", "ollama"})
 
-_ADDR_RE = re.compile(r"clive@([\w.\-]+)")
+# Host must START alphanumeric. Without the anchor a task containing
+# "clive@-Fevil_config" yields a "host" beginning with '-', which ssh
+# parses as an OPTION rather than a destination — the task text is
+# attacker-influenced, so it must not be able to inject ssh flags.
+_ADDR_RE = re.compile(r"clive@([A-Za-z0-9][\w.\-]*)")
+
+# ─── Agent identity ─────────────────────────────────────────────────────────
+#
+# clive acts ON BEHALF OF a person, and the two should not be the same
+# POSIX principal. Logging in as the human is `su` semantics: the remote
+# audit trail says the human did it, there is no way to revoke the agent
+# without revoking the person, and every agent sharing one account can
+# ride the others' ControlMaster sockets (they live in a single $HOME).
+#
+# Logging in as a dedicated account is `sudo` semantics — the actor is
+# clive-<someone>, and CLIVE_PRINCIPAL records for whom. That makes
+# attribution, revocation and least privilege expressible with plain
+# users, groups and sudoers instead of application code.
+#
+# Default behavior is UNCHANGED (inherit the local username) so existing
+# deployments keep working; opt in per host or globally.
+
+AGENT_USER_ENV = "CLIVE_AGENT_USER"
+AGENT_USER_PREFIX_ENV = "CLIVE_AGENT_USER_PREFIX"
+PRINCIPAL_ENV = "CLIVE_PRINCIPAL"
+
+# Portable POSIX username (see useradd(8) NAME_REGEX). Deliberately strict:
+# this value is interpolated into an ssh destination.
+_USER_RE = re.compile(r"^[a-z_][a-z0-9_-]{0,31}$")
+
+
+def local_principal() -> str:
+    """The local human this agent is acting on behalf of."""
+    return (
+        os.environ.get("CLIVE_PRINCIPAL_OVERRIDE")
+        or os.environ.get("USER")
+        or os.environ.get("LOGNAME")
+        or "unknown"
+    )
+
+
+def resolve_agent_user(config: dict | None = None) -> str | None:
+    """Resolve the remote POSIX account to log in as, or None to inherit.
+
+    Order: explicit ``user:`` in the host's agents.yaml entry, then
+    ``CLIVE_AGENT_USER``, then ``CLIVE_AGENT_USER_PREFIX`` + the local
+    principal (so ``clive-`` yields ``clive-martin``). None means "use
+    ssh's default", which is the pre-existing behavior.
+    """
+    config = config or {}
+    user = config.get("user") or os.environ.get(AGENT_USER_ENV)
+    if not user:
+        prefix = os.environ.get(AGENT_USER_PREFIX_ENV)
+        if prefix:
+            user = f"{prefix}{local_principal()}"
+    if user is None:
+        return None
+    user = str(user)
+    if not _USER_RE.match(user):
+        raise ValueError(
+            f"invalid agent user {user!r}: must match {_USER_RE.pattern} "
+            f"(it is interpolated into an ssh destination)"
+        )
+    return user
 
 
 def parse_agent_addresses(task: str) -> list[tuple[str, str]]:
@@ -243,8 +306,10 @@ def build_agent_ssh_cmd(host: str, config: dict, nonce: str | None = None) -> st
             "-o ControlPersist=60s",
         ])
 
-    # Host
-    parts.append(host)
+    # Destination. With an agent account this is clive-<principal>@host,
+    # so the remote's auth.log names the agent rather than the human.
+    agent_user = resolve_agent_user(config)
+    parts.append(f"{agent_user}@{host}" if agent_user else host)
 
     # Remote command. Env-var assignments are prefixed on the remote
     # command itself (not SSH SendEnv / AcceptEnv) so we do not depend
@@ -260,6 +325,13 @@ def build_agent_ssh_cmd(host: str, config: dict, nonce: str | None = None) -> st
     clive_path = config.get("path", DEFAULT_CLIVE_PATH)
     toolset = config.get("toolset")
     remote_parts = [f"CLIVE_FRAME_NONCE={nonce}"]
+
+    # Delegation with attribution: the ACTOR is the agent account, the
+    # PRINCIPAL is the person it works for. Carrying it lets the remote
+    # log "clive-martin, on behalf of martin" rather than losing the
+    # human at the door. Not a credential — it asserts nothing on its
+    # own, and sshd already authenticated the actor.
+    remote_parts.append(f"{PRINCIPAL_ENV}={shlex.quote(local_principal())}")
 
     outer_provider = os.environ.get("LLM_PROVIDER", "").lower()
     if outer_provider in _LOCAL_PROVIDERS:
