@@ -150,3 +150,23 @@ def test_wait_for_ready_still_detects_plain_prompt():
     info = PaneInfo(pane=pane, app_type="shell", description="", name="shell")
     screen, method = wait_for_ready(info, marker=None, max_wait=2.0)
     assert method == "prompt"
+
+
+def test_wait_for_ready_tolerates_non_str_last_line():
+    """A non-str last line must fall through, not raise.
+
+    PS1_EXIT_RE.search() raises TypeError on a non-str where the plain
+    `in` check tolerates anything implementing __contains__, so the gh#8
+    prompt check narrowed the type contract on capture-pane output.
+    """
+    from unittest.mock import MagicMock
+    from completion import wait_for_ready
+    from models import PaneInfo
+    # A bare MagicMock stdout is the shape a mocked pane actually produces:
+    # truthy, iterates empty (so the "\n".join above yields ""), but
+    # subscriptable — so lines[-1] is a MagicMock, not a str.
+    pane = MagicMock()
+    pane.cmd.return_value.stdout = MagicMock()
+    info = PaneInfo(pane=pane, app_type="shell", description="", name="shell")
+    screen, method = wait_for_ready(info, marker=None, max_wait=1.0)
+    assert method == "idle"  # fell through cleanly instead of raising
