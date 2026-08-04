@@ -6,6 +6,41 @@ import os
 _DRIVERS_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "drivers")
 
 
+def clive_home() -> str:
+    """The agent's home: ``$CLIVE_HOME`` else ``~/.clive``.
+
+    Read at call time (not import time) so a process can be re-homed and
+    so tests can point it at a tmp dir. Matches discovery.tool_memo.
+    """
+    return os.environ.get("CLIVE_HOME") or os.path.expanduser("~/.clive")
+
+
+def home_drivers_dir() -> str:
+    """Where THIS agent's learned drivers live, on THIS host.
+
+    Learning belongs in the agent's home rather than in the installation:
+    the install may be root-owned and read-only (/opt/clive), it is shared
+    by every agent account on the box, and what a driver captures — which
+    tools exist here and how they behave — is a property of the host, not
+    of the checkout. Putting it in $HOME makes the knowledge per-agent and
+    per-host by construction, and it travels with the identity.
+    """
+    return os.path.join(clive_home(), "drivers")
+
+
+# Core hand-written personas. discovery.generator refuses to GENERATE these
+# (its RESERVED_NAMES re-exports this set), and load_driver pins them to the
+# installation so nothing in a writable $CLIVE_HOME can shadow one.
+# Defined here rather than in the generator because prompts is the lower
+# layer — generator already imports from it, so the reverse would cycle.
+_RESERVED_DRIVER_NAMES = frozenset({
+    "explore",
+    "shell", "browser", "data", "docs",
+    "default", "email", "email_cli", "agent",
+    "media", "room",
+})
+
+
 # ---------------------------------------------------------------------------
 # Untrusted-content wrapping (Audit H19/H20, 2026-05-27)
 # ---------------------------------------------------------------------------
@@ -94,20 +129,42 @@ def load_driver(app_type: str, drivers_dir: str | None = None) -> str:
     if cache_key in _driver_cache:
         return _driver_cache[cache_key]
 
-    base = drivers_dir or _DRIVERS_DIR
-    path = os.path.join(base, f"{app_type}.md")
+    # Search order. An explicit drivers_dir (tests, evals) pins the lookup
+    # to exactly that directory — unchanged behavior. Otherwise the agent's
+    # home is consulted BEFORE the installation, so knowledge learned about
+    # THIS host beats the generic shipped card.
+    #
+    # Exception: RESERVED_NAMES (shell, browser, ...) always come from the
+    # install. Those are the curated, hand-written drivers, and the
+    # generator already refuses to create them — pinning them here means a
+    # stray file in $CLIVE_HOME cannot shadow a core persona.
+    if drivers_dir is not None:
+        search = [drivers_dir]
+    elif app_type in _RESERVED_DRIVER_NAMES:
+        search = [_DRIVERS_DIR]
+    else:
+        search = [home_drivers_dir(), _DRIVERS_DIR]
+
+    path = None
+    for base in search:
+        candidate = os.path.join(base, f"{app_type}.md")
+        if os.path.exists(candidate):
+            path = candidate
+            break
     # Reviewed driver wins unconditionally (including over the unreviewed
     # copy when CLIVE_TRUST_UNREVIEWED=1 is set). This preserves the
     # invariant that hand-written drivers are authoritative.
-    if not os.path.exists(path) and os.environ.get("CLIVE_TRUST_UNREVIEWED") == "1":
+    if path is None and os.environ.get("CLIVE_TRUST_UNREVIEWED") == "1":
         # Escape hatch (gh#41 scenario #50): evals and CI can opt into
         # loading unreviewed auto-gen drivers without manually promoting.
         # Off by default — load_driver returns DEFAULT_DRIVER for any tool
         # whose only driver lives in drivers/.unreviewed/.
-        unreviewed_path = os.path.join(base, ".unreviewed", f"{app_type}.md")
-        if os.path.exists(unreviewed_path):
-            path = unreviewed_path
-    if os.path.exists(path):
+        for base in search:
+            unreviewed_path = os.path.join(base, ".unreviewed", f"{app_type}.md")
+            if os.path.exists(unreviewed_path):
+                path = unreviewed_path
+                break
+    if path is not None and os.path.exists(path):
         with open(path, "r") as f:
             raw = f.read().strip()
         body, meta = _parse_driver_frontmatter(raw)

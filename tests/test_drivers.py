@@ -194,3 +194,73 @@ def test_load_driver_reviewed_takes_precedence_over_unreviewed(tmp_path, monkeyp
     result = load_driver("baz", drivers_dir=str(tmp_path))
     assert "REVIEWED" in result
     assert "UNREVIEWED" not in result
+
+
+# ─── Learning lives in the agent's home, not the installation ─────────
+
+_DRIVER_BODY = "---\npreferred_mode: interactive\n---\nENVIRONMENT\nlearned-here\n"
+
+
+def _clear_driver_cache():
+    import prompts
+    prompts._driver_cache.clear()
+    prompts._driver_meta_cache.clear()
+
+
+def test_learned_driver_in_home_is_loaded(tmp_path, monkeypatch):
+    """A driver learned on THIS host must be reachable without touching
+    the installation, which is root-owned and read-only in a real deploy."""
+    import prompts
+    monkeypatch.setenv("CLIVE_HOME", str(tmp_path))
+    _clear_driver_cache()
+    d = tmp_path / "drivers"
+    d.mkdir(parents=True)
+    (d / "ripgrep.md").write_text(_DRIVER_BODY)
+
+    assert "learned-here" in prompts.load_driver("ripgrep")
+
+
+def test_home_driver_beats_installed_one(tmp_path, monkeypatch):
+    """Host-specific knowledge is more specific than the shipped card."""
+    import prompts
+    monkeypatch.setenv("CLIVE_HOME", str(tmp_path))
+    _clear_driver_cache()
+    d = tmp_path / "drivers"
+    d.mkdir(parents=True)
+    # 'lynx' ships in the install tree; the home copy must win.
+    (d / "lynx.md").write_text(_DRIVER_BODY)
+
+    assert "learned-here" in prompts.load_driver("lynx")
+
+
+def test_core_personas_cannot_be_shadowed_from_home(tmp_path, monkeypatch):
+    """RESERVED_NAMES are pinned to the installation.
+
+    The generator refuses to create these, but $CLIVE_HOME is writable —
+    a stray or planted shell.md must not be able to replace the curated
+    shell persona, since a driver IS the pane's instructions.
+    """
+    import prompts
+    monkeypatch.setenv("CLIVE_HOME", str(tmp_path))
+    _clear_driver_cache()
+    d = tmp_path / "drivers"
+    d.mkdir(parents=True)
+    (d / "shell.md").write_text("---\n---\nENVIRONMENT\nPWNED\n")
+
+    body = prompts.load_driver("shell")
+    assert "PWNED" not in body
+    assert body  # still the real, installed shell driver
+
+
+def test_reserved_set_is_shared_with_the_generator():
+    """The 'cannot generate' and 'cannot shadow' rules must not drift."""
+    from discovery.generator import RESERVED_NAMES
+    from prompts import _RESERVED_DRIVER_NAMES
+    assert RESERVED_NAMES is _RESERVED_DRIVER_NAMES
+
+
+def test_unknown_tool_still_falls_back_to_default(tmp_path, monkeypatch):
+    import prompts
+    monkeypatch.setenv("CLIVE_HOME", str(tmp_path))
+    _clear_driver_cache()
+    assert prompts.load_driver("no_such_tool_anywhere") == prompts.DEFAULT_DRIVER

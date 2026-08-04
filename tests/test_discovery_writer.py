@@ -70,16 +70,15 @@ def test_uses_default_unreviewed_dir_when_none(tmp_path, monkeypatch):
     # quarantined ``drivers/.unreviewed/`` subdir, NOT the canonical
     # ``drivers/``. Auto-gen drivers don't land in the active driver set
     # until promoted via clive --promote-driver.
-    monkeypatch.setattr("discovery.generator._DRIVERS_DIR", str(tmp_path))
-    monkeypatch.setattr(
-        "discovery.generator._UNREVIEWED_DRIVERS_DIR",
-        str(tmp_path / ".unreviewed"),
-    )
+    # The destination now derives from $CLIVE_HOME rather than the install
+    # dir, so re-home the process instead of patching module constants.
+    monkeypatch.setenv("CLIVE_HOME", str(tmp_path))
+    drivers = tmp_path / "drivers"
     path = write_generated_driver("rg2", "---\nx\n---\n")
-    assert path == str(tmp_path / ".unreviewed" / "rg2.md")
-    assert (tmp_path / ".unreviewed" / "rg2.md").exists()
+    assert path == str(drivers / ".unreviewed" / "rg2.md")
+    assert (drivers / ".unreviewed" / "rg2.md").exists()
     # And critically NOT in the reviewed location:
-    assert not (tmp_path / "rg2.md").exists()
+    assert not (drivers / "rg2.md").exists()
 
 
 # ─── Driver quarantine (gh#41 scenario #50) ─────────────────────────────────
