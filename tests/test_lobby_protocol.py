@@ -31,26 +31,26 @@ def test_all_room_kinds_registered():
 
 def test_session_hello_round_trip():
     out = encode("session_hello", {"client_kind": "clive", "name": "alice"})
-    frames = decode_all(out)
+    frames = decode_all(out, allow_unauthenticated=True)
     assert frames == [Frame(kind="session_hello",
                             payload={"client_kind": "clive", "name": "alice"})]
 
 
 def test_session_ack_round_trip():
     out = encode("session_ack", {"name": "alice", "accepted": True})
-    frames = decode_all(out)
+    frames = decode_all(out, allow_unauthenticated=True)
     assert frames[0].payload == {"name": "alice", "accepted": True}
 
 
 def test_session_ack_rejection_round_trip():
     out = encode("session_ack",
                  {"name": "alice", "accepted": False, "reason": "name_in_use"})
-    frames = decode_all(out)
+    frames = decode_all(out, allow_unauthenticated=True)
     assert frames[0].payload["reason"] == "name_in_use"
 
 
 def test_join_room_round_trip():
-    assert decode_all(encode("join_room", {"room": "general"}))[0].payload == {"room": "general"}
+    assert decode_all(encode("join_room", {"room": "general"}), allow_unauthenticated=True)[0].payload == {"room": "general"}
 
 
 def test_open_thread_round_trip():
@@ -60,36 +60,36 @@ def test_open_thread_round_trip():
         "private": False,
         "prompt": "what's 2+2?",
     }
-    assert decode_all(encode("open_thread", payload))[0].payload == payload
+    assert decode_all(encode("open_thread", payload), allow_unauthenticated=True)[0].payload == payload
 
 
 def test_thread_opened_round_trip():
     payload = {"thread_id": "general-t007"}
-    assert decode_all(encode("thread_opened", payload))[0].payload == payload
+    assert decode_all(encode("thread_opened", payload), allow_unauthenticated=True)[0].payload == payload
 
 
 def test_close_thread_round_trip():
     payload = {"thread_id": "general-t007", "summary": "discussed pricing"}
-    assert decode_all(encode("close_thread", payload))[0].payload == payload
+    assert decode_all(encode("close_thread", payload), allow_unauthenticated=True)[0].payload == payload
 
 
 def test_close_thread_without_summary():
     payload = {"thread_id": "general-t007"}
-    assert decode_all(encode("close_thread", payload))[0].payload == payload
+    assert decode_all(encode("close_thread", payload), allow_unauthenticated=True)[0].payload == payload
 
 
 def test_join_thread_round_trip():
     payload = {"thread_id": "general-t001"}
-    assert decode_all(encode("join_thread", payload))[0].payload == payload
+    assert decode_all(encode("join_thread", payload), allow_unauthenticated=True)[0].payload == payload
 
 
 def test_leave_thread_round_trip():
     payload = {"thread_id": "general-t001"}
-    assert decode_all(encode("leave_thread", payload))[0].payload == payload
+    assert decode_all(encode("leave_thread", payload), allow_unauthenticated=True)[0].payload == payload
 
 
 def test_list_threads_round_trip():
-    assert decode_all(encode("list_threads", {"room": "general"}))[0].payload == {"room": "general"}
+    assert decode_all(encode("list_threads", {"room": "general"}), allow_unauthenticated=True)[0].payload == {"room": "general"}
 
 
 def test_threads_response_round_trip():
@@ -101,7 +101,7 @@ def test_threads_response_round_trip():
              "message_count": 3, "private": False},
         ],
     }
-    assert decode_all(encode("threads", payload))[0].payload == payload
+    assert decode_all(encode("threads", payload), allow_unauthenticated=True)[0].payload == payload
 
 
 def test_your_turn_carries_structured_context():
@@ -117,7 +117,7 @@ def test_your_turn_carries_structured_context():
             {"from": "charlie", "kind": "pass"},
         ],
     }
-    assert decode_all(encode("your_turn", payload))[0].payload == payload
+    assert decode_all(encode("your_turn", payload), allow_unauthenticated=True)[0].payload == payload
 
 
 def test_your_turn_with_summary():
@@ -130,22 +130,22 @@ def test_your_turn_with_summary():
         "summary": "Earlier: discussed pricing tiers.",
         "recent": [{"from": "bob", "kind": "say", "body": "any objections?"}],
     }
-    assert decode_all(encode("your_turn", payload))[0].payload["summary"].startswith("Earlier:")
+    assert decode_all(encode("your_turn", payload), allow_unauthenticated=True)[0].payload["summary"].startswith("Earlier:")
 
 
 def test_say_round_trip():
     payload = {"thread_id": "general-t001", "body": "I propose option B."}
-    assert decode_all(encode("say", payload))[0].payload == payload
+    assert decode_all(encode("say", payload), allow_unauthenticated=True)[0].payload == payload
 
 
 def test_pass_round_trip():
     payload = {"thread_id": "general-t001"}
-    assert decode_all(encode("pass", payload))[0].payload == payload
+    assert decode_all(encode("pass", payload), allow_unauthenticated=True)[0].payload == payload
 
 
 def test_nack_round_trip():
     payload = {"reason": "not_your_turn", "ref_kind": "say"}
-    assert decode_all(encode("nack", payload))[0].payload == payload
+    assert decode_all(encode("nack", payload), allow_unauthenticated=True)[0].payload == payload
 
 
 # ─── Rendering ───────────────────────────────────────────────────────────────

@@ -51,6 +51,76 @@ from dag_scheduler import (  # noqa: E402
 )
 
 
+# Delegate request limits (gh#47). The remote authors this payload, so it
+# is untrusted input even on an authenticated channel.
+DELEGATE_MAX_TOKENS_CEILING = 8192
+DELEGATE_MAX_MESSAGES = 200
+DELEGATE_MAX_CONTENT_CHARS = 200_000
+# `system` is excluded deliberately: llm.chat lifts a system-role message
+# into the provider's top-level system parameter, so accepting one would
+# hand the remote control of the outer's system prompt.
+DELEGATE_ALLOWED_ROLES = {"user", "assistant"}
+
+
+def _clamp_delegate_max_tokens(raw) -> int:
+    """Coerce and bound a remote-supplied max_tokens.
+
+    Uncapped, the remote picks how much the outer spends per request;
+    uncoerced, a non-numeric value raises out of the handler and kills
+    the outer's subtask.
+    """
+    try:
+        n = int(raw)
+    except (TypeError, ValueError):
+        return 1024
+    if n <= 0:
+        return 1024
+    return min(n, DELEGATE_MAX_TOKENS_CEILING)
+
+
+def _validate_delegate_messages(raw) -> list:
+    """Return a sanitized message list, or raise ValueError.
+
+    Rejects anything that is not a list of {role, content} dicts with an
+    allowed role, and bounds both the count and the total size.
+    """
+    if not isinstance(raw, list):
+        raise ValueError("delegate request: messages must be a list")
+    if not raw:
+        raise ValueError("delegate request: messages must not be empty")
+    if len(raw) > DELEGATE_MAX_MESSAGES:
+        raise ValueError(
+            f"delegate request: too many messages ({len(raw)} > "
+            f"{DELEGATE_MAX_MESSAGES})"
+        )
+    total = 0
+    clean = []
+    for i, m in enumerate(raw):
+        if not isinstance(m, dict):
+            raise ValueError(f"delegate request: message {i} is not an object")
+        role = m.get("role")
+        content = m.get("content")
+        if role not in DELEGATE_ALLOWED_ROLES:
+            raise ValueError(
+                f"delegate request: message {i} has disallowed role {role!r} "
+                f"(allowed: {sorted(DELEGATE_ALLOWED_ROLES)})"
+            )
+        if not isinstance(content, str):
+            raise ValueError(
+                f"delegate request: message {i} content must be a string"
+            )
+        total += len(content)
+        if total > DELEGATE_MAX_CONTENT_CHARS:
+            raise ValueError(
+                f"delegate request: content exceeds "
+                f"{DELEGATE_MAX_CONTENT_CHARS} chars"
+            )
+        # Drop any extra keys the remote tacked on rather than forwarding
+        # them into the provider call.
+        clean.append({"role": role, "content": content})
+    return clean
+
+
 def handle_agent_pane_frame(pane, screen_blob: str, nonce: str) -> bool:
     """Answer an unanswered llm_request frame on an agent pane.
 
@@ -66,9 +136,16 @@ def handle_agent_pane_frame(pane, screen_blob: str, nonce: str) -> bool:
     should sleep briefly and continue without consuming a turn).
 
     ``nonce`` is the session nonce the outer injected into the inner
-    via CLIVE_FRAME_NONCE. Forged frames carrying any other nonce are
-    silently dropped — a compromised LLM inside the inner cannot make
-    the outer burn inference tokens by fabricating a request.
+    via CLIVE_FRAME_NONCE. Frames carrying any other nonce — or none at
+    all — are dropped by decode_all (gh#46).
+
+    The frame payload is still remote-authored input even when the
+    channel authenticates, so every field is validated before it
+    reaches the outer's paid client (gh#47): messages must be
+    well-formed and may not carry a `system` role (llm.chat lifts that
+    into the provider's top-level system parameter, i.e. it would let
+    the remote set the outer's system prompt), max_tokens is clamped,
+    and the remote does not get to choose the outer's model.
     """
     from protocol import decode_all, encode, latest
     import llm
@@ -85,19 +162,19 @@ def handle_agent_pane_frame(pane, screen_blob: str, nonce: str) -> bool:
         return False
 
     rid = req.payload.get("id", "unknown")
-    messages = req.payload.get("messages", [])
-    max_tokens = int(req.payload.get("max_tokens", 1024))
-    model = req.payload.get("model")
 
     try:
+        messages = _validate_delegate_messages(req.payload.get("messages"))
+        max_tokens = _clamp_delegate_max_tokens(req.payload.get("max_tokens"))
         client = llm.get_client()
         content, pt, ct = llm.chat(
             client,
             messages,
             max_tokens=max_tokens,
-            # When the inner asked for model="delegate" (its placeholder),
-            # let the outer fall back to its own configured model.
-            model=model if model and model != "delegate" else None,
+            # The remote does not choose the outer's model — that would let
+            # it pick the outer's tier and therefore the outer's bill. Always
+            # use the outer's own configured model.
+            model=None,
         )
         out = encode("llm_response", {
             "id": rid,

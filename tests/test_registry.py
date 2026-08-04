@@ -118,3 +118,25 @@ def test_name_available_after_pid_dies(tmp_path):
 
 def test_name_available_when_no_entry(tmp_path):
     assert is_name_available("newbot", registry_dir=tmp_path)
+
+
+# ─── gh#48: registry entries are private and shell-safe ────────────────
+
+def test_registry_dir_and_entry_are_owner_only(tmp_path):
+    """Entries carry a frame nonce and a shell-interpolated socket path.
+
+    They must not be group/world readable. mkdir(mode=) is masked by
+    umask and only applies on creation, so a pre-existing loose dir must
+    be tightened too.
+    """
+    d = tmp_path / "instances"
+    d.mkdir(mode=0o755)  # pre-existing, deliberately loose
+    p = register("permbot", registry_dir=d, **REGISTRY_KWARGS)
+    assert (d.stat().st_mode & 0o777) == 0o700, "registry dir must be 0700"
+    assert (p.stat().st_mode & 0o777) == 0o600, "registry entry must be 0600"
+
+
+def test_registry_dir_created_private(tmp_path):
+    d = tmp_path / "fresh"
+    register("permbot2", registry_dir=d, **REGISTRY_KWARGS)
+    assert (d.stat().st_mode & 0o777) == 0o700

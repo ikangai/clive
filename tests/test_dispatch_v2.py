@@ -15,7 +15,14 @@ def test_interactive_tries_toolcall_first():
         pane=MagicMock(), app_type="shell", description="Bash", name="shell"
     )
 
-    with patch("toolcall_runner.run_subtask_toolcall") as mock_tc:
+    # Pin the provider: run_subtask only reaches the tool-calling runner when
+    # PROVIDER_NAME is in executor._toolcall_providers. Left to the ambient
+    # env this test silently skips the branch it claims to cover (and then
+    # runs the real interactive runner against the mock pane).
+    with (
+        patch("llm.PROVIDER_NAME", "openrouter"),
+        patch("toolcall_runner.run_subtask_toolcall") as mock_tc,
+    ):
         mock_tc.return_value = MagicMock(status=SubtaskStatus.COMPLETED)
         from executor import run_subtask
         run_subtask(subtask=subtask, pane_info=pane_info, dep_context="")
@@ -30,6 +37,7 @@ def test_interactive_falls_back_on_toolcall_failure():
     )
 
     with (
+        patch("llm.PROVIDER_NAME", "openrouter"),
         patch("toolcall_runner.run_subtask_toolcall", side_effect=RuntimeError("unsupported")),
         patch("executor.run_subtask_interactive") as mock_v2,
     ):

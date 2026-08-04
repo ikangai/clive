@@ -251,7 +251,11 @@ def scp_file(host: str, remote_path: str, local_dir: str, key: str | None = None
     cmd = ["scp"]
     if key:
         cmd.extend(["-i", key])
-    cmd.extend(["-o", "StrictHostKeyChecking=no", "-o", "BatchMode=yes"])
+    # No StrictHostKeyChecking override: inherit the user's ssh config so
+    # this fails closed on an unknown or changed host key, matching
+    # build_agent_ssh_cmd. Forcing =no here disabled TOFU and made the
+    # transfer trivially MITM-able (gh#49).
+    cmd.extend(["-o", "BatchMode=yes"])
     cmd.extend([f"{host}:{remote_path}", local_path])
 
     try:

@@ -1,5 +1,29 @@
-anthropic
-libtmux
-openai
-python-dotenv
-textual
+# Runtime dependencies.
+#
+# Bounded, not floating (gh#53). These were bare names, so every CI run
+# resolved whatever was newest and a green run did not reproduce the next
+# day. anthropic and openai are fast-moving SDKs, and textual has broken
+# across majors before — the Screen.task workaround noted in CLAUDE.md is
+# a scar from one such change.
+#
+# Lower bounds are versions this repo is known to run against; upper
+# bounds exclude the next major, where the breakage lives. anthropic and
+# libtmux are pre-1.0, so for them the minor bump is the breaking one and
+# the cap is <1.0 accordingly.
+#
+# Dev/test deps (pytest, pytest-timeout) live in requirements-dev.txt.
+
+anthropic>=0.84,<1.0
+libtmux>=0.53,<1.0
+openai>=2.24,<3
+python-dotenv>=1.0,<2
+textual>=8.0,<9
+
+# Used by networking/agents.py (the ~/.clive/agents.yaml registry behind
+# clive@host) and networking/dashboard.py. It was never declared: both
+# call sites import it inside a try/except that swallows ImportError, so
+# on a clean install the YAML registry silently did nothing and clive@host
+# fell through to auto-resolve. It only worked because PyYAML happened to
+# be present in the maintainer's environment. Caught the first time CI
+# actually ran the suite (gh#50).
+PyYAML>=6.0,<7

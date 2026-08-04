@@ -17,12 +17,40 @@ jobs:
         with:
           python-version: '3.12'
 
+      # A handful of tests drive a real tmux server (test_session_fixture.py).
+      #
+      # Deliberately NOT installing bubblewrap: GitHub runners restrict
+      # unprivileged user namespaces, so bwrap is present-but-broken there
+      # ("bwrap: setting up uid map: Permission denied"), which is worse
+      # than absent — run.sh would exec it and fail rather than take its
+      # refusal path. The Linux sandbox therefore cannot be exercised in
+      # this environment; the sandbox tests skip when no working mechanism
+      # is available and assert the refusal path instead (gh#55).
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y tmux
+
       - name: Install dependencies
         run: |
-          pip install -r requirements.txt
+          pip install -r requirements-dev.txt
+
+      # Fail loudly and early if the test runner itself is missing, rather
+      # than surfacing it as an ordinary test failure 15s in (gh#50).
+      - name: Verify test runner is installed
+        run: |
+          python -m pytest --version
 
       - name: Run unit tests
         env:
           PYTHONPATH: src/clive
+          # Several tests reach llm.get_client(), which constructs a real
+          # SDK client object (no network — llm.chat is mocked). The
+          # OpenAI SDK raises if api_key is None, so give it a dummy.
+          # These passed locally only because the maintainer's shell had a
+          # provider configured; CI has no ambient config, which is the
+          # point of running here.
+          LLM_PROVIDER: openrouter
+          OPENROUTER_API_KEY: dummy-key-for-client-construction-only
         run: |
-          python -m pytest tests/ -v --tb=short
+          python -m pytest tests/ -v --tb=short --timeout=120

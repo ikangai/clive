@@ -194,7 +194,19 @@ if __name__ == "__main__":
     if _instance_name:
         from registry import is_name_available, register as _register_raw, deregister as _deregister, get_instance as _get_inst_reg
 
+        # A named instance is addressable as `clive@<name>` with no SSH hop,
+        # so nothing injects CLIVE_FRAME_NONCE the way agents.py does for a
+        # remote. Mint one here and export it before anything can emit a
+        # frame: encode() reads the env var, so this makes every frame this
+        # instance produces authenticated, and the value is published in the
+        # (0600) registry entry for the peer to check against. Without it
+        # both sides run nonceless, which decode_all now refuses (gh#46).
+        from protocol import generate_nonce as _gen_nonce
+        _frame_nonce = os.environ.get("CLIVE_FRAME_NONCE") or _gen_nonce()
+        os.environ["CLIVE_FRAME_NONCE"] = _frame_nonce
+
         def _register(name, **kw):
+            kw.setdefault("frame_nonce", _frame_nonce)
             # Register in the live registry, then write a restorable
             # snapshot that survives process death (gh#13). The snapshot is
             # best-effort: persistence must never block registration.

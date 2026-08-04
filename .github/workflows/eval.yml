@@ -7,7 +7,7 @@ on:
 jobs:
   layer2:
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
 
@@ -29,31 +29,43 @@ jobs:
         run: |
           tmux start-server
 
-      - name: Check API key
-        id: check_key
+      # A missing key must NOT read as success. This previously set
+      # skip=true, skipped the eval step and exited 0, so 42 consecutive
+      # green runs represented zero evals executed (gh#51). Absence of
+      # signal is a failure, not a pass.
+      - name: Require an API key
+        env:
+          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
         run: |
-          if [ -z "${{ secrets.OPENROUTER_API_KEY }}" ] && [ -z "${{ secrets.ANTHROPIC_API_KEY }}" ]; then
-            echo "skip=true" >> $GITHUB_OUTPUT
-            echo "No API key configured, skipping evals"
-          else
-            echo "skip=false" >> $GITHUB_OUTPUT
+          if [ -z "$OPENROUTER_API_KEY" ] && [ -z "$ANTHROPIC_API_KEY" ]; then
+            echo "::error::No API key configured (OPENROUTER_API_KEY or"\
+              "ANTHROPIC_API_KEY). Evals cannot run, so this job fails"\
+              "rather than reporting a green check for work it did not do."
+            exit 1
           fi
 
-      - name: Run Layer 2 evals
-        if: steps.check_key.outputs.skip != 'true'
+      # Scoped to the shell corpus deliberately. A full Layer 2 is ~340
+      # tasks; the April baseline needed ~197s for 15, so the whole layer
+      # cannot finish here — and --ci exits nonzero below a 100%
+      # completion rate, which network-dependent tasks (nitter.net,
+      # mastodon.social) make unattainable. A small deterministic subset
+      # that actually runs beats a large one that never does.
+      - name: Run Layer 2 evals (shell corpus)
         env:
           LLM_PROVIDER: ${{ vars.LLM_PROVIDER || 'openrouter' }}
           OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
           PYTHONPATH: src/clive
         run: |
-          python evals/harness/run_eval.py --layer 2 --ci \
+          python evals/harness/run_eval.py --layer 2 --tool shell --ci \
             --output evals/baselines/ci-latest.json \
             2>&1
 
       - name: Upload eval results
-        if: always() && steps.check_key.outputs.skip != 'true'
+        if: always()
         uses: actions/upload-artifact@v4
         with:
           name: eval-results
           path: evals/baselines/ci-latest.json
+          if-no-files-found: warn

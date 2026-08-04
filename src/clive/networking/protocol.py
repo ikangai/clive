@@ -124,15 +124,24 @@ def encode(kind: str, payload: dict, nonce: str | None = None) -> str:
     return f"{_PREFIX}{kind}:{nonce}:{b64}{_SUFFIX}"
 
 
-def decode_all(screen: str, nonce: str = "") -> list[Frame]:
+def decode_all(screen: str, nonce: str = "", *,
+               allow_unauthenticated: bool = False) -> list[Frame]:
     """Extract all valid frames from a screen blob, in order of appearance.
 
     Only frames whose nonce exactly matches the ``nonce`` argument are
     returned; all others are silently dropped. Callers that read panes
     of a specific inner clive must pass that inner's injected nonce.
-    Tests and dev paths default to the empty nonce.
+
+    **An empty nonce authenticates nothing and so returns nothing** — a
+    frame carrying an empty nonce is exactly what untrusted screen text
+    can produce for free, since the wire format is not a secret. Failing
+    closed here means a caller that forgets to thread a nonce loses the
+    framed protocol rather than silently trusting anything on screen
+    (gh#46). Tests that genuinely want the unauthenticated round trip
+    must opt in with ``allow_unauthenticated=True``.
 
     Silently drops:
+      - every frame, when ``nonce`` is empty and not explicitly allowed
       - frames with unknown kinds
       - frames with mismatched nonce
       - frames whose payload is not valid base64
@@ -142,6 +151,15 @@ def decode_all(screen: str, nonce: str = "") -> list[Frame]:
     Every drop is logged at DEBUG level so misuse is visible when you
     turn on debug logging.
     """
+    if not nonce and not allow_unauthenticated:
+        # WARNING, not DEBUG: this is a misconfiguration that silently
+        # disables the protocol, and the default log level is WARNING.
+        if _FRAME_RE.search(screen):
+            _log.warning(
+                "dropping all frames: no session nonce configured for this "
+                "reader, so no frame can be authenticated"
+            )
+        return []
     frames: list[Frame] = []
     for m in _FRAME_RE.finditer(screen):
         kind = m.group("kind")

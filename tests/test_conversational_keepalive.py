@@ -50,6 +50,9 @@ if not shutil.which("tmux"):
                 allow_module_level=True)
 
 
+INNER_NONCE = "keepalivenonce"
+
+
 def _spawn_inner(extra_args=None, timeout=25):
     """Spawn `clive.py --conversational --name <unique>` as a subprocess.
 
@@ -61,6 +64,10 @@ def _spawn_inner(extra_args=None, timeout=25):
     env["PYTHONUNBUFFERED"] = "1"
     # Force a provider that doesn't need API keys so startup doesn't fail.
     env["LLM_PROVIDER"] = "lmstudio"
+    # A named instance mints its own frame nonce and stamps every frame
+    # with it (gh#46). Pin a known one — clive.py prefers a pre-set env
+    # var — so the reader below can authenticate what the child emits.
+    env["CLIVE_FRAME_NONCE"] = INNER_NONCE
     env.pop("ANTHROPIC_API_KEY", None)
     env.pop("OPENAI_API_KEY", None)
     env.pop("OPENROUTER_API_KEY", None)
@@ -116,7 +123,7 @@ def test_conversational_loop_emits_alive_frames_while_waiting_on_stdin():
             chunk = _read_available_with_timeout(proc.stdout, 0.5)
             if chunk:
                 buf += chunk
-                frames = decode_all(buf)
+                frames = decode_all(buf, nonce=INNER_NONCE)
                 if any(f.kind == "alive" for f in frames):
                     saw_alive = True
                     break
@@ -142,7 +149,7 @@ def test_alive_frame_payload_has_timestamp():
             chunk = _read_available_with_timeout(proc.stdout, 0.5)
             if chunk:
                 buf += chunk
-                frames = decode_all(buf)
+                frames = decode_all(buf, nonce=INNER_NONCE)
                 alives = [f for f in frames if f.kind == "alive"]
                 if alives:
                     alive_frame = alives[0]
@@ -171,7 +178,7 @@ def test_alive_ticker_stops_on_exit():
             chunk = _read_available_with_timeout(proc.stdout, 0.5)
             if chunk:
                 buf += chunk
-                if any(f.kind == "alive" for f in decode_all(buf)):
+                if any(f.kind == "alive" for f in decode_all(buf, nonce=INNER_NONCE)):
                     break
     except Exception:
         pass

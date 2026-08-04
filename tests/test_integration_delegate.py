@@ -131,7 +131,7 @@ def test_delegate_client_over_subprocess_pipe(mock_lmstudio):
             if not line:
                 break
             buf += line
-            frames = decode_all(buf)
+            frames = decode_all(buf, allow_unauthenticated=True)
             for f in frames:
                 if f.kind == "llm_request" and f.payload["id"] not in answered_ids:
                     resp = outer_client.chat.completions.create(

@@ -204,11 +204,17 @@ def _wait_polling(
 
         # Strategy 2: prompt sentinel on last line. Recognize both the plain
         # prompt and the gh#8 exit-bearing form ("[AGENT_READY] ec=<n> $",
-        # under CLIVE_PS1_EXITCODE=1) — additive, so default behavior is
-        # unchanged. parse_ps1_exit() recovers the code from the same line.
-        if lines and ("[AGENT_READY] $" in lines[-1]
-                      or PS1_EXIT_RE.search(lines[-1])):
-            return screen, "prompt"
+        # under CLIVE_PS1_EXITCODE=1). Detection is deliberately NOT gated on
+        # the flag — a pane whose prompt was installed under a different
+        # setting is still recognized. parse_ps1_exit() recovers the code.
+        # `lines` comes from capture-pane, but guard the type anyway: the
+        # regex (unlike `in`) raises on a non-str, which turned a mocked pane
+        # into a hard TypeError here rather than a clean fall-through.
+        if lines:
+            last_line = lines[-1] if isinstance(lines[-1], str) else ""
+            if ("[AGENT_READY] $" in last_line
+                    or PS1_EXIT_RE.search(last_line)):
+                return screen, "prompt"
 
         # Strategy 2.5: intervention detection (streaming observation)
         if detect_intervention and screen != last_content:
