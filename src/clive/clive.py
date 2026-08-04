@@ -250,6 +250,24 @@ if __name__ == "__main__":
         from output import set_conversational, emit_turn, emit_context, emit_question, emit_alive
         set_conversational(True)
 
+        # Record who this work is ultimately for. Attribution that is never
+        # written down is not attribution — this is the line that makes a
+        # delegated run reconstructable from the remote's own logs, and the
+        # only place the chain is consumed rather than merely forwarded.
+        try:
+            import logging as _logging
+            from agents import inbound_chain, origin_principal
+            _chain = inbound_chain()
+            if _chain:
+                # WARNING, not INFO: the default level is WARNING, and an
+                # attribution record nobody sees is not a record.
+                _logging.getLogger("clive.delegation").warning(
+                    "delegated run: acting for %s (chain: %s)",
+                    origin_principal(), " -> ".join(_chain),
+                )
+        except Exception:  # attribution must never block the run
+            pass
+
         # Named instances loop: run task(s), then wait for more on stdin
         keep_alive = bool(_instance_name)
 
