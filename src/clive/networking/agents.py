@@ -124,6 +124,87 @@ _USER_RE = re.compile(r"^[a-z_][a-z0-9_-]{0,31}$")
 # as _USER_RE, and it avoids the false assurance a quote call would give.
 _PRINCIPAL_RE = re.compile(r"^[A-Za-z0-9._-]{1,64}$")
 
+# Delegation is transitive — A asks B, B asks C — so the principal must be a
+# CHAIN, not a single value that each hop overwrites with its own $USER (which
+# is what happened before: CLIVE_PRINCIPAL was forwarded but never read back,
+# so C learned about B and never about the human).
+#
+# Flattening to just the origin would be worse than the chain: the value is an
+# ASSERTION, not a credential — sshd authenticates the actor, nothing
+# authenticates the claim inside. A compromised middle hop that could rewrite a
+# bare principal could impersonate a direct request from anyone. Recording the
+# path instead makes the intermediary visible, so a reader can see the claim is
+# only as good as its weakest hop rather than being silently told "martin".
+#
+# ',' as separator: it must survive the same unquoted interpolation into the
+# remote command that _PRINCIPAL_RE exists for. Comma is inert to the shell
+# outside brace expansion (which needs '{}'), unlike the obvious '>' or '|'.
+_CHAIN_SEP = ","
+_CHAIN_RE = re.compile(r"^[A-Za-z0-9._,-]{1,520}$")
+
+# Bounded so a delegation cycle (A→B→A→…) cannot grow the chain — or burn
+# tokens — forever. Far above any legitimate topology.
+MAX_DELEGATION_DEPTH = 8
+
+
+def inbound_chain() -> list[str]:
+    """The delegation chain this process was invoked with, if any.
+
+    Empty when we are the origin. Malformed or over-long elements are
+    dropped rather than raising: this is attribution metadata arriving
+    from another machine, and it must not be able to stop us working.
+    """
+    raw = os.environ.get(PRINCIPAL_ENV, "").strip()
+    if not raw or not _CHAIN_RE.match(raw):
+        return []
+    out = [p for p in raw.split(_CHAIN_SEP) if p and _PRINCIPAL_RE.match(p)]
+    return out[:MAX_DELEGATION_DEPTH]
+
+
+def origin_principal() -> str:
+    """The human at the root of the chain — the one work is ultimately for.
+
+    At the origin this is just the local principal. Downstream it is
+    whoever started the chain, which is why agent accounts derive from it:
+    the account on every host in the chain represents the same person
+    (accounts = principals), instead of accreting into clive-clive-martin.
+    """
+    chain = inbound_chain()
+    return chain[0] if chain else local_principal()
+
+
+def delegation_chain() -> list[str]:
+    """The chain to forward on an outbound hop.
+
+    Origin: ``[local_principal()]``. Downstream: the inbound chain plus
+    this node's own local identity, so each hop is recorded in order.
+
+    Raises ValueError past :data:`MAX_DELEGATION_DEPTH` — refusing to
+    delegate further is the fail-closed reading of a chain that long,
+    which in practice means a cycle.
+    """
+    inbound = inbound_chain()
+    if not inbound:
+        return [local_principal()]
+    here = local_principal()
+    if len(inbound) >= MAX_DELEGATION_DEPTH:
+        raise ValueError(
+            f"delegation chain too deep ({len(inbound)} >= "
+            f"{MAX_DELEGATION_DEPTH}): {_CHAIN_SEP.join(inbound)} — refusing "
+            f"to delegate further (this usually means a delegation cycle)"
+        )
+    if here in inbound:
+        log.warning(
+            "delegation cycle: %r already appears in the inbound chain %s",
+            here, _CHAIN_SEP.join(inbound),
+        )
+    return inbound + [here]
+
+
+def format_delegation_chain(chain: list[str] | None = None) -> str:
+    """Render a chain for the wire. Shell-inert by construction."""
+    return _CHAIN_SEP.join(chain if chain is not None else delegation_chain())
+
 
 def local_principal() -> str:
     """The local human this agent is acting on behalf of.
@@ -147,10 +228,16 @@ def resolve_agent_user(config: dict | None = None) -> str | None:
     """Resolve the remote POSIX account to log in as, or None to inherit.
 
     Order: explicit ``user:`` in the host's agents.yaml entry, then
-    ``CLIVE_AGENT_USER``, then ``CLIVE_AGENT_USER_PREFIX`` + the local
-    principal (so ``clive-`` yields ``clive-martin``). The principal is
-    lowercased when derived, since ``_USER_RE`` is lowercase-only and a
-    capitalized ``$USER`` would otherwise fail at connection time.
+    ``CLIVE_AGENT_USER``, then ``CLIVE_AGENT_USER_PREFIX`` +
+    :func:`origin_principal` (so ``clive-`` yields ``clive-martin``). The
+    principal is lowercased when derived, since ``_USER_RE`` is
+    lowercase-only and a capitalized ``$USER`` would otherwise fail at
+    connection time.
+
+    Derived from the ORIGIN of the chain, not the local identity: the
+    account represents the person the work is for, so it stays
+    ``clive-martin`` at every hop rather than accreting into
+    ``clive-clive-martin`` two hops out.
 
     None means "use ssh's default", which is the pre-existing behavior.
     An *empty* setting means the same: ``CLIVE_AGENT_USER=""`` is the
@@ -162,7 +249,7 @@ def resolve_agent_user(config: dict | None = None) -> str | None:
     if not user:
         prefix = os.environ.get(AGENT_USER_PREFIX_ENV)
         if prefix:
-            user = f"{prefix}{local_principal().lower()}"
+            user = f"{prefix}{origin_principal().lower()}"
     if not user:
         return None
     user = str(user)
@@ -362,10 +449,12 @@ def build_agent_ssh_cmd(host: str, config: dict, nonce: str | None = None) -> st
     # log "clive-martin, on behalf of martin" rather than losing the
     # human at the door. Not a credential — it asserts nothing on its
     # own, and sshd already authenticated the actor.
-    # Not shlex.quote()d — see _PRINCIPAL_RE. local_principal() is already
-    # constrained to a shell-inert charset, and quoting here would nest
-    # inside the outer single quotes added below and break them.
-    remote_parts.append(f"{PRINCIPAL_ENV}={local_principal()}")
+    # The full delegation chain, not just this hop's principal — see
+    # delegation_chain(). Not shlex.quote()d: every element is already
+    # constrained to a shell-inert charset by _PRINCIPAL_RE, and quoting
+    # here would nest inside the outer single quotes added below and
+    # break them.
+    remote_parts.append(f"{PRINCIPAL_ENV}={format_delegation_chain()}")
 
     outer_provider = os.environ.get("LLM_PROVIDER", "").lower()
     if outer_provider in _LOCAL_PROVIDERS:

@@ -592,3 +592,115 @@ def test_derived_user_is_lowercased(monkeypatch):
     monkeypatch.setenv("CLIVE_AGENT_USER_PREFIX", "clive-")
     monkeypatch.setenv("CLIVE_PRINCIPAL_OVERRIDE", "Martin")
     assert agents.resolve_agent_user({}) == "clive-martin"
+
+
+# ─── Delegation chain: A → B → C keeps the human at the root ──────────
+
+def _reset_identity(monkeypatch):
+    for k in ("CLIVE_PRINCIPAL", "CLIVE_PRINCIPAL_OVERRIDE",
+              "CLIVE_AGENT_USER", "CLIVE_AGENT_USER_PREFIX"):
+        monkeypatch.delenv(k, raising=False)
+
+
+def test_origin_forwards_just_itself(monkeypatch):
+    import agents
+    _reset_identity(monkeypatch)
+    monkeypatch.setenv("CLIVE_PRINCIPAL_OVERRIDE", "martin")
+    assert agents.inbound_chain() == []          # we are the origin
+    assert agents.delegation_chain() == ["martin"]
+    assert agents.origin_principal() == "martin"
+
+
+def test_second_hop_appends_rather_than_overwriting(monkeypatch):
+    """The bug: CLIVE_PRINCIPAL was write-only, so the middle hop
+    substituted its own $USER and the human was lost after one hop."""
+    import agents
+    _reset_identity(monkeypatch)
+    monkeypatch.setenv("CLIVE_PRINCIPAL", "martin")
+    monkeypatch.setenv("CLIVE_PRINCIPAL_OVERRIDE", "clive-martin")
+    assert agents.inbound_chain() == ["martin"]
+    assert agents.delegation_chain() == ["martin", "clive-martin"]
+    assert agents.origin_principal() == "martin"   # NOT clive-martin
+
+
+def test_third_hop_preserves_the_whole_path(monkeypatch):
+    import agents
+    _reset_identity(monkeypatch)
+    monkeypatch.setenv("CLIVE_PRINCIPAL", "martin,clive-martin")
+    monkeypatch.setenv("CLIVE_PRINCIPAL_OVERRIDE", "svc-runner")
+    assert agents.origin_principal() == "martin"
+    assert agents.format_delegation_chain() == "martin,clive-martin,svc-runner"
+
+
+def test_account_stays_keyed_to_the_origin(monkeypatch):
+    """accounts = principals: clive-martin at every hop, not
+    clive-clive-martin two hops out."""
+    import agents
+    _reset_identity(monkeypatch)
+    monkeypatch.setenv("CLIVE_AGENT_USER_PREFIX", "clive-")
+    monkeypatch.setenv("CLIVE_PRINCIPAL", "martin,clive-martin")
+    monkeypatch.setenv("CLIVE_PRINCIPAL_OVERRIDE", "clive-martin")
+    assert agents.resolve_agent_user({}) == "clive-martin"
+
+
+def test_chain_is_forwarded_on_the_wire(monkeypatch):
+    import shlex
+    import agents
+    _reset_identity(monkeypatch)
+    monkeypatch.setenv("CLIVE_PRINCIPAL", "martin")
+    monkeypatch.setenv("CLIVE_PRINCIPAL_OVERRIDE", "clive-martin")
+    cmd = agents.build_agent_ssh_cmd("hostC", {})
+    assert "CLIVE_PRINCIPAL=martin,clive-martin" in cmd
+    shlex.split(cmd)  # separator must stay shell-inert
+
+
+def test_hostile_inbound_chain_is_sanitised(monkeypatch):
+    """The chain arrives from another machine and lands in a shell command."""
+    import shlex
+    import agents
+    _reset_identity(monkeypatch)
+    monkeypatch.setenv("CLIVE_PRINCIPAL_OVERRIDE", "me")
+    for hostile in ("a;touch /tmp/pwn", "a b", "a'b", "$(id)", "a>b", "a|b"):
+        monkeypatch.setenv("CLIVE_PRINCIPAL", hostile)
+        assert agents.inbound_chain() == []       # rejected wholesale
+        cmd = agents.build_agent_ssh_cmd("h", {})
+        shlex.split(cmd)
+        assert "touch" not in cmd and "$(" not in cmd
+
+
+def test_partially_valid_chain_drops_only_bad_elements(monkeypatch):
+    import agents
+    _reset_identity(monkeypatch)
+    monkeypatch.setenv("CLIVE_PRINCIPAL", "martin,,clive-martin")
+    assert agents.inbound_chain() == ["martin", "clive-martin"]
+
+
+def test_depth_cap_refuses_to_delegate_further(monkeypatch):
+    """A cycle would otherwise grow the chain — and burn tokens — forever."""
+    import agents
+    _reset_identity(monkeypatch)
+    deep = ",".join(f"h{i}" for i in range(agents.MAX_DELEGATION_DEPTH))
+    monkeypatch.setenv("CLIVE_PRINCIPAL", deep)
+    monkeypatch.setenv("CLIVE_PRINCIPAL_OVERRIDE", "next")
+    with pytest.raises(ValueError, match="too deep|cycle"):
+        agents.delegation_chain()
+
+
+def test_cycle_is_warned_about(monkeypatch, caplog):
+    import agents
+    _reset_identity(monkeypatch)
+    monkeypatch.setenv("CLIVE_PRINCIPAL", "martin,hostb")
+    monkeypatch.setenv("CLIVE_PRINCIPAL_OVERRIDE", "hostb")
+    with caplog.at_level("WARNING"):
+        chain = agents.delegation_chain()
+    assert chain == ["martin", "hostb", "hostb"]
+    assert "cycle" in caplog.text.lower()
+
+
+def test_origin_unaffected_when_no_chain_present(monkeypatch):
+    """Single-hop behaviour is unchanged."""
+    import agents
+    _reset_identity(monkeypatch)
+    monkeypatch.setenv("CLIVE_PRINCIPAL_OVERRIDE", "martin")
+    cmd = agents.build_agent_ssh_cmd("h", {})
+    assert "CLIVE_PRINCIPAL=martin " in cmd or "CLIVE_PRINCIPAL=martin'" in cmd
