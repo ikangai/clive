@@ -1,0 +1,14 @@
+# Development / CI dependencies.
+#
+# The runtime deps live in requirements.txt. CI installed only those and then
+# ran `python -m pytest`, which failed with "No module named pytest" on every
+# run from 2026-04-07 onward (gh#50) — 49 runs, 49 failures, no test ever
+# executed. pytest belongs here, not in the runtime set.
+-r requirements.txt
+
+pytest>=8,<10
+
+# Bounds a hung test instead of letting it burn the job's wall clock. The
+# poll loop in observation/completion.py falls back to MAX_WAIT_HARD=180s,
+# so a single mis-mocked pane can otherwise stall a run for minutes.
+pytest-timeout>=2.3,<3

@@ -17,12 +17,24 @@ jobs:
         with:
           python-version: '3.12'
 
+      # A handful of tests drive a real tmux server (tests/test_session_fixture.py).
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y tmux
+
       - name: Install dependencies
         run: |
-          pip install -r requirements.txt
+          pip install -r requirements-dev.txt
+
+      # Fail loudly and early if the test runner itself is missing, rather
+      # than surfacing it as an ordinary test failure 15s in (gh#50).
+      - name: Verify test runner is installed
+        run: |
+          python -m pytest --version
 
       - name: Run unit tests
         env:
           PYTHONPATH: src/clive
         run: |
-          python -m pytest tests/ -v --tb=short
+          python -m pytest tests/ -v --tb=short --timeout=120

@@ -20,7 +20,7 @@ python clive.py --list-tools
 python clive.py -q "task"                      # quiet: result to stdout, telemetry to stderr
 
 # Tests (pytest; conftest.py injects src/clive/ onto sys.path for flat imports)
-pytest                                          # all 700+ tests
+pytest                                          # all 1600+ tests
 pytest tests/test_executor.py                   # single file
 pytest tests/test_executor.py::test_name        # single test
 pytest -k pattern                               # by name pattern
@@ -34,7 +34,7 @@ python evals/harness/run_eval.py --layer 5      # gh#39 progressive-disclosure d
 tmux attach -t clive
 ```
 
-Environment: **no virtualenv is active**. Install deps via `pip install -r requirements.txt --break-system-packages` (PEP 668). Python 3.10+ and `tmux` required.
+Environment: **no virtualenv is active**. Install deps via `pip install -r requirements.txt --break-system-packages` (PEP 668), or `-r requirements-dev.txt` to get the test runner too (`pytest`, `pytest-timeout`). Python 3.10+ and `tmux` required.
 
 ## Architecture: plan → execute → summarize
 
