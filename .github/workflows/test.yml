@@ -17,11 +17,14 @@ jobs:
         with:
           python-version: '3.12'
 
-      # A handful of tests drive a real tmux server (tests/test_session_fixture.py).
+      # tmux: a handful of tests drive a real server (test_session_fixture.py).
+      # bubblewrap: without it, sandbox/run.sh has no confinement mechanism
+      # on Linux and the sandbox tests only ever exercise the refusal path.
+      # Installing it means CI actually tests the Linux sandbox (gh#55).
       - name: Install system dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y tmux
+          sudo apt-get install -y tmux bubblewrap
 
       - name: Install dependencies
         run: |

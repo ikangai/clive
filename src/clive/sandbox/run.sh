@@ -83,7 +83,28 @@ elif [ "$(uname)" = "Darwin" ]; then
         _ "$WORKDIR" "${ARGS[@]}"
 
 else
-    # Fallback: ulimit only (minimal protection)
-    exec /bin/bash -c 'ulimit -u "$1"; ulimit -v "$2"; cd "$3" && shift 3 && eval "$@"' \
-        _ "$MAX_PROCS" "$((MEM_MB * 1024))" "$WORKDIR" "${ARGS[@]}"
+    # No real confinement mechanism available (no bubblewrap, not macOS).
+    #
+    # This used to fall through to "ulimit only", which provides NO
+    # filesystem isolation and NO network isolation — a command could
+    # write anywhere the user can and reach the network even when the
+    # caller passed --no-network. Callers ask for a sandbox precisely
+    # because they are about to run an LLM-generated command, so silently
+    # running it unconfined is worse than refusing: it hands back a false
+    # assurance. Fail closed instead (gh#55).
+    #
+    # Escape hatch for environments that genuinely accept the risk.
+    if [ "${CLIVE_SANDBOX_ALLOW_UNCONFINED:-0}" = "1" ]; then
+        echo "clive sandbox: WARNING — no bubblewrap and not macOS;" \
+             "running UNCONFINED because CLIVE_SANDBOX_ALLOW_UNCONFINED=1." \
+             "Filesystem and network restrictions are NOT enforced." >&2
+        exec /bin/bash -c 'ulimit -u "$1"; ulimit -v "$2"; cd "$3" && shift 3 && eval "$@"' \
+            _ "$MAX_PROCS" "$((MEM_MB * 1024))" "$WORKDIR" "${ARGS[@]}"
+    fi
+
+    echo "clive sandbox: refusing to run — no sandbox mechanism available." >&2
+    echo "  Install bubblewrap (apt install bubblewrap / dnf install bubblewrap)," >&2
+    echo "  or run on macOS where sandbox-exec is used." >&2
+    echo "  To run without confinement anyway, set CLIVE_SANDBOX_ALLOW_UNCONFINED=1." >&2
+    exit 126
 fi
