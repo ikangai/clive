@@ -606,9 +606,16 @@ def test_oversized_frame_line_closes_connection(server, tmp_socket):
         pass  # server closed mid-write — exactly the expected behavior
 
     # Recv must observe close (or timeout, but close should come quickly).
+    # ConnectionResetError is the same outcome as a clean EOF here, just
+    # how Linux reports it: after the server discards our flood and
+    # closes, the pending unread data makes the kernel send RST, so recv
+    # raises ECONNRESET instead of returning b"". macOS returns the empty
+    # read, which is why this only ever failed once CI ran the suite.
     s.settimeout(1.0)
     try:
         data = s.recv(4096)
+    except ConnectionResetError:
+        data = b""
     except socket.timeout:
         data = b"__TIMEOUT__"
     s.close()

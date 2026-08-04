@@ -1,6 +1,32 @@
 # tests/test_sandbox.py
 import subprocess
 import os
+import shutil
+
+import pytest
+
+
+def _sandbox_mechanism_works(tmp_path) -> bool:
+    """True when this host can actually confine a command.
+
+    macOS has sandbox-exec. On Linux it needs a *functional* bubblewrap:
+    GitHub runners ship one that fails with "setting up uid map:
+    Permission denied" because unprivileged user namespaces are
+    restricted, so presence on PATH is not enough — probe it.
+    """
+    if not shutil.which("bwrap"):
+        return os.uname().sysname == "Darwin"
+    probe = subprocess.run(
+        ["bwrap", "--ro-bind", "/", "/", "--dev", "/dev", "true"],
+        capture_output=True, text=True, timeout=10,
+    )
+    return probe.returncode == 0
+
+
+requires_sandbox = pytest.mark.skipif(
+    not _sandbox_mechanism_works(None),
+    reason="no working sandbox mechanism (no functional bwrap, not macOS)",
+)
 
 SANDBOX_SCRIPT = os.path.join(os.path.dirname(__file__), "..", "src", "clive", "sandbox", "run.sh")
 
@@ -9,6 +35,7 @@ def test_sandbox_script_exists():
     assert os.path.isfile(SANDBOX_SCRIPT)
 
 
+@requires_sandbox
 def test_sandbox_blocks_write_outside_workdir(tmp_path):
     """Sandbox must prevent writes outside the session directory.
 
@@ -38,6 +65,7 @@ def test_sandbox_blocks_write_outside_workdir(tmp_path):
             os.unlink(escape_file)
 
 
+@requires_sandbox
 def test_sandbox_allows_write_inside_workdir(tmp_path):
     """Sandbox must allow writes inside the session directory."""
     result = subprocess.run(
@@ -47,6 +75,7 @@ def test_sandbox_allows_write_inside_workdir(tmp_path):
     assert os.path.exists(f"{tmp_path}/inside_test")
 
 
+@requires_sandbox
 def test_sandbox_blocks_network_if_restricted(tmp_path):
     """If network=false in profile, outbound connections must fail."""
     result = subprocess.run(
@@ -66,18 +95,28 @@ def test_sandbox_blocks_network_if_restricted(tmp_path):
 # ─── gh#55: no sandbox mechanism must refuse, not run unconfined ───────
 
 def _fake_linux_path(tmp_path):
-    """A PATH whose `uname` reports Linux and which has no bwrap.
+    """A PATH whose `uname` reports Linux and which contains no bwrap.
 
     Reproduces the environment that exposed this: a Linux host (or CI
-    runner) without bubblewrap installed, where run.sh previously fell
+    runner) without a usable bubblewrap, where run.sh previously fell
     through to a ulimit-only branch offering no isolation at all.
+
+    The PATH is built from symlinks to only the few binaries run.sh and
+    the probe command need, so it genuinely excludes bwrap. Appending a
+    real bindir instead would leave /usr/bin/bwrap discoverable and the
+    detection branch would never be reached.
     """
     fake = tmp_path / "fakebin"
     fake.mkdir()
     uname = fake / "uname"
     uname.write_text("#!/bin/sh\necho Linux\n")
     uname.chmod(0o755)
-    return f"{fake}:/usr/bin:/bin"
+    for tool in ("mkdir", "touch", "true", "bash", "sh"):
+        real = shutil.which(tool)
+        if real:
+            (fake / tool).symlink_to(real)
+    assert shutil.which("bwrap", path=str(fake)) is None
+    return str(fake)
 
 
 def test_sandbox_refuses_when_no_mechanism_available(tmp_path):

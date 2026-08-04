@@ -17,14 +17,19 @@ jobs:
         with:
           python-version: '3.12'
 
-      # tmux: a handful of tests drive a real server (test_session_fixture.py).
-      # bubblewrap: without it, sandbox/run.sh has no confinement mechanism
-      # on Linux and the sandbox tests only ever exercise the refusal path.
-      # Installing it means CI actually tests the Linux sandbox (gh#55).
+      # A handful of tests drive a real tmux server (test_session_fixture.py).
+      #
+      # Deliberately NOT installing bubblewrap: GitHub runners restrict
+      # unprivileged user namespaces, so bwrap is present-but-broken there
+      # ("bwrap: setting up uid map: Permission denied"), which is worse
+      # than absent — run.sh would exec it and fail rather than take its
+      # refusal path. The Linux sandbox therefore cannot be exercised in
+      # this environment; the sandbox tests skip when no working mechanism
+      # is available and assert the refusal path instead (gh#55).
       - name: Install system dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y tmux bubblewrap
+          sudo apt-get install -y tmux
 
       - name: Install dependencies
         run: |
