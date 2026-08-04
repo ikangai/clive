@@ -121,3 +121,29 @@ def test_build_command_escapes_quotes():
 def test_parse_remote_result_no_longer_exported():
     import remote
     assert not hasattr(remote, "parse_remote_result")
+
+
+# ─── gh#49: file transfer must not disable host-key verification ───────
+
+def test_scp_does_not_disable_host_key_checking(monkeypatch):
+    """Forcing StrictHostKeyChecking=no disables TOFU and makes the
+    transfer MITM-able. Inherit the user's ssh config instead, matching
+    build_agent_ssh_cmd, which fails closed under BatchMode=yes."""
+    import subprocess as _sp
+    from remote import scp_file
+
+    seen = {}
+
+    class _R:
+        returncode = 0
+
+    def fake_run(cmd, **kw):
+        seen["cmd"] = cmd
+        return _R()
+
+    monkeypatch.setattr(_sp, "run", fake_run)
+    scp_file("myhost", "/tmp/out.txt", "/tmp")
+
+    joined = " ".join(seen["cmd"])
+    assert "StrictHostKeyChecking=no" not in joined, joined
+    assert "BatchMode=yes" in joined  # still non-interactive
